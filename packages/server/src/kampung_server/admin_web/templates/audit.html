@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_macros.html" import more %}
+{% block content %}
+<div class="panel">
+  <div class="panel-head"><h2>Audit log</h2><span class="sub">Append-only. Never holds message bodies.</span></div>
+  <form class="filters" method="get" action="/admin/audit">
+    <label class="f" for="a-actor">Actor<select id="a-actor" name="actor">
+      <option value="">Anyone</option>{% for a in actors %}<option{% if actor == a %} selected{% endif %}>{{ a }}</option>{% endfor %}
+    </select></label>
+    <label class="f" for="a-action">Action<select id="a-action" name="action">
+      <option value="">Any</option>{% for a in actions %}<option{% if action == a %} selected{% endif %}>{{ a }}</option>{% endfor %}
+    </select></label>
+    <button class="btn" type="submit">Apply</button>
+  </form>
+  {% if page.rows %}
+  <div class="scroll"><table>
+    <thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for a in page.rows %}
+      <tr><td class="num">{{ a.at | utc }}</td><td class="mono">{{ a.actor }}</td><td>{{ a.action }}</td><td class="mono muted">{{ a.detail }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {{ more(page) }}
+  {% else %}<div class="empty">No audit rows match.</div>{% endif %}
+</div>
+{% endblock %}

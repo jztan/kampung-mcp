@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, depth, more, csrf_field %}
+{% block content %}
+<div class="panel">
+  <div class="panel-head"><h2>Sessions</h2><span class="sub">Depth above 3 means its sends are held as no-wake.</span></div>
+  <form class="filters" method="get" action="/admin/sessions">
+    <label class="f" for="s-state">State<select id="s-state" name="state">
+      {% for v, label in [("open", "Live and idle"), ("all", "All"), ("ended", "Ended")] %}<option value="{{ v }}"{% if state == v %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select></label>
+    <label class="f" for="s-agent">Agent<select id="s-agent" name="agent">
+      <option value="">Any</option>{% for a in agents %}<option{% if agent == a %} selected{% endif %}>{{ a }}</option>{% endfor %}
+    </select></label>
+    <button class="btn" type="submit">Apply</button>
+  </form>
+  {% if page.rows %}
+  <div class="scroll"><table>
+    <thead><tr><th>Address</th><th>Agent</th><th>State</th><th>Depth</th><th>Working directory</th><th>Started (UTC)</th><th>Last seen</th><th></th></tr></thead>
+    <tbody>
+    {% for s in page.rows %}
+      <tr>
+        <td class="mono{% if s.state == 'ended' %} muted{% endif %}">{{ s.address }}</td>
+        <td>{{ s.agent }}</td>
+        <td>{{ pill(s.state) }}</td>
+        <td>{{ depth(s.depth) }}</td>
+        <td class="mono muted">{{ s.cwd }}</td>
+        <td class="num">{{ s.started_at | utc }}</td>
+        <td class="num">{{ s.last_seen | ago }}</td>
+        <td class="right">{% if s.state != "ended" %}<div class="row end">
+          <form class="inline-form" method="post" action="/admin/sessions/{{ s.id }}/reset-depth">{{ csrf_field(csrf) }}<button class="btn sm" type="submit">Reset depth</button></form>
+          <form class="inline-form" method="post" action="/admin/sessions/{{ s.id }}/end">{{ csrf_field(csrf) }}<button class="btn sm danger" type="submit">End</button></form>
+        </div>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {{ more(page) }}
+  {% else %}<div class="empty">No sessions match.</div>{% endif %}
+</div>
+{% endblock %}

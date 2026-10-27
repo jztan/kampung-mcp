@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession, TooManyAttempts
+from .views import register_pages
 from .web import COOKIE, Web, secure
 
 MIN_TOKEN_LENGTH = 24
@@ -27,6 +28,7 @@ def register(mcp: FastMCP, deps: ServerDeps) -> None:
         return
     web = Web(deps, AdminAuth(token, deps.clock))
     _register_auth_routes(mcp, web)
+    register_pages(mcp, web)
 
 
 def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
@@ -79,8 +81,3 @@ def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
         return response
 
     mcp.custom_route("/admin/logout", methods=["POST"])(web.page(logout))
-
-    async def overview(request: Request, session: AdminSession) -> Response:
-        return web.render(request, "overview.html", session, title="Overview")
-
-    mcp.custom_route("/admin", methods=["GET"])(web.page(overview))
