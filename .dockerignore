@@ -1,0 +1,25 @@
+# Only pyproject.toml, uv.lock and packages/*/pyproject.toml plus the server
+# source are copied; everything else stays out of the build context.
+.git/
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# .env holds live settings and must never enter an image layer.
+.env
+.env.*
+!.env.example
+
+# Private working documents.
+.superpowers/
+docs/superpowers/
+docs/
+CLAUDE.md
+backlog.md
+
+packages/*/tests/
+.github/
+*.md

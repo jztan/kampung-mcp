@@ -36,3 +36,4 @@ strict = true
 [tool.pytest.ini_options]
 testpaths = ["packages/server/tests", "packages/client/tests"]
 asyncio_mode = "auto"
+markers = ["docker: drives the real image and compose stack (KAMPUNG_DOCKER_TESTS=1)"]
