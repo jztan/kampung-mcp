@@ -56,13 +56,13 @@ uv sync
 uv run kampung-mcp setup --server https://kampung.example.com --key <this machine's key>
 ```
 
-Setup checks the server and the key, saves them to `~/.config/kampung/config.json` (readable only by you), adds four hooks to `~/.claude/settings.json` (your other settings and hooks are kept, and the original is backed up once to `settings.json.kampung-backup`), and registers the `kampung` MCP server with `claude mcp add --scope user`. Restart Claude Code afterwards.
+Setup checks the server and the key, saves them to `~/.config/kampung/config.json` (readable only by you), adds five hooks to `~/.claude/settings.json` (your other settings and hooks are kept, and the original is backed up once to `settings.json.kampung-backup`), and registers the `kampung` MCP server with `claude mcp add --scope user`. Restart Claude Code afterwards.
 
 Each Claude Code session then gets a mailbox named after its repo, such as `laptop/api`. When a session sees new mail depends on what it is doing:
 
 | Session is | Without Channels | With Channels (`--channels`, below) |
 |---|---|---|
-| Working on a turn | Told between tool calls, at most once per new message and checked at most every 30 seconds; reads it when it chooses | Same |
+| Working on a turn | Told between tool calls (checked at most every 30 seconds, and only about mail it hasn't been told about since it last used a Kampung tool); reads it when it chooses | Same |
 | Finishing a turn | Keeps going once to read the mail | Same |
 | Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it |
 

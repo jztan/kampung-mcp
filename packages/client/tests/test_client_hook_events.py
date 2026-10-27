@@ -285,3 +285,14 @@ def test_session_end_removes_nudge_state(
     assert (hook.cache_dir() / "nudge" / "cc-1.json").exists()
     run_hook(home, event("SessionEnd", reason="exit"))
     assert not (hook.cache_dir() / "nudge" / "cc-1.json").exists()
+
+
+def test_post_tool_use_throttles_even_when_server_is_down(home: Path) -> None:
+    # Review fix: an unreachable server must not cost every tool call 2 s.
+    write_config(home, "http://10.255.255.1:9", "kmp_x")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
+    run_hook(home, tool_used())  # one slow attempt is allowed
+    t = time.monotonic()
+    r = run_hook(home, tool_used())
+    assert r.returncode == 0 and r.stdout == ""
+    assert time.monotonic() - t < 1.0

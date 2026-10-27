@@ -340,8 +340,12 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
         # The agent is already talking to Kampung; whatever it read is handled.
         _save_nudge_state(path, {"checked": time.time(), "notified": 0.0})
         return None
-    if time.time() - state["checked"] < NUDGE_INTERVAL:
+    now = time.time()
+    if 0 <= now - state["checked"] < NUDGE_INTERVAL:
         return None
+    # Record the attempt first, so a slow or unreachable server costs at most
+    # one check per NUDGE_INTERVAL instead of a timeout on every tool call.
+    _save_nudge_state(path, {"checked": now, "notified": state["notified"]})
     body = _call(event, clock, "GET", "peek", revive=False)
     wakeable = int(str(body.get("wakeable", 0)))
     notify = wakeable > state["notified"]
