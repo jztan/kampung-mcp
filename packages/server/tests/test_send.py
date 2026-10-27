@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 
-from conftest import FakeClock, MakeSession
+from server_testlib import FakeClock, MakeSession
 from kampung_server.admin import AdminService
 from kampung_server.clock import ts
 from kampung_server.errors import KampungError

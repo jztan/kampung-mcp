@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import FakeClock
+from server_testlib import FakeClock
 from kampung_server.errors import KampungError
 from kampung_server.ratelimit import RateLimiter
 
