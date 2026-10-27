@@ -111,3 +111,10 @@ def db_query(live: LiveServer, sql: str, *params: object) -> list[tuple[object, 
         return [tuple(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()
+
+
+def hook_chain() -> list[list[object]]:
+    """The ancestors a hook spawned by this test process would record."""
+    me = hook._process(os.getpid())
+    assert me is not None
+    return [[os.getpid(), me[1]]] + [list(a) for a in hook.ancestors()]

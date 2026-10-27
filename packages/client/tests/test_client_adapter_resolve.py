@@ -1,0 +1,103 @@
+import threading
+import time
+from pathlib import Path
+
+from client_testlib import LiveServer, db_query, hook_chain
+from kampung_client import hook
+from kampung_client.adapter import SessionResolver, pick_session
+
+CHAIN = [(100, "a"), (50, "b"), (10, "c")]  # adapter: uv(100) <- claude(50) <- tmux(10)
+
+
+def f(
+    session: str,
+    ancestors: list[list[object]],
+    cwd: str = "/x",
+    written_at: float = 1.0,
+    hooks: bool = True,
+) -> dict[str, object]:
+    return {
+        "session": session,
+        "cwd": cwd,
+        "written_at": written_at,
+        "hooks": hooks,
+        "ancestors": ancestors,
+    }
+
+
+def test_nearest_shared_ancestor_wins() -> None:
+    mine = f("1", [[50, "b"], [10, "c"]])
+    sibling = f("2", [[60, "z"], [10, "c"]], written_at=9)
+    assert pick_session(CHAIN, "/x", [sibling, mine])["session"] == "1"
+
+
+def test_pid_reuse_does_not_match() -> None:
+    assert pick_session(CHAIN, "/x", [f("1", [[50, "other-start"]])]) is None
+
+
+def test_tie_prefers_cwd_then_newest() -> None:
+    old = f("1", [[50, "b"]], written_at=1)
+    new = f("2", [[50, "b"]], written_at=2)
+    assert pick_session(CHAIN, "/x", [old, new])["session"] == "2"
+    elsewhere = f("3", [[50, "b"]], cwd="/elsewhere", written_at=3)
+    assert pick_session(CHAIN, "/x", [old, elsewhere])["session"] == "1"
+
+
+def test_no_shared_ancestor_is_ignored() -> None:
+    assert pick_session(CHAIN, "/x", [f("1", [[7, "q"]])]) is None
+
+
+def test_adapter_fallback_file_is_never_adopted() -> None:
+    own = f("9", [[a, b] for a, b in CHAIN], hooks=False, written_at=5)
+    hooked = f("1", [[50, "b"], [10, "c"]])
+    assert pick_session(CHAIN, "/x", [own, hooked])["session"] == "1"
+    assert pick_session(CHAIN, "/x", [own]) is None
+
+
+def test_resolver_waits_for_file(home: Path, server: LiveServer) -> None:
+    def later() -> None:
+        time.sleep(0.5)
+        hook.write_session_file("cc-1", f("77", hook_chain(), cwd="/w/api"))
+
+    threading.Thread(target=later).start()
+    got = SessionResolver("claude-code", "/w/api", wait=2.0).current()
+    assert got["session"] == "77"
+    assert db_query(server, "SELECT count(*) FROM sessions") == [(0,)]
+
+
+def test_resolver_self_registers_after_timeout(home: Path, server: LiveServer) -> None:
+    t = time.monotonic()
+    got = SessionResolver("claude-code", "/w/api", wait=0.3).current()
+    assert time.monotonic() - t >= 0.3
+    rows = db_query(
+        server,
+        "SELECT agent, hooks FROM sessions WHERE id = ?",
+        int(str(got["session"])),
+    )
+    assert rows == [("claude-code", 0)]
+    assert got["hooks"] is False
+    assert SessionResolver("claude-code", "/w/api", wait=0).current()["session"] != (
+        got["session"]
+    )  # its own fallback file is never adopted by another adapter either
+
+
+def test_refresh_adopts_new_session_after_clear(home: Path, server: LiveServer) -> None:
+    hook.write_session_file("cc-1", f("1", hook_chain(), written_at=1))
+    r = SessionResolver("claude-code", "/x", wait=0)
+    assert r.current()["session"] == "1"
+    hook.delete_session_file("cc-1")
+    hook.write_session_file("cc-2", f("2", hook_chain(), written_at=2))
+    assert r.refresh()["session"] == "2"
+    assert db_query(server, "SELECT count(*) FROM sessions") == [(0,)]
+
+
+def test_refresh_never_revives(home: Path, server: LiveServer) -> None:
+    r = SessionResolver("claude-code", "/w/api", wait=0)
+    first = r.current()
+    server.admin.end_session(int(str(first["session"])), "admin:cli")
+    second = r.refresh()
+    assert second["session"] != first["session"]
+    ended = db_query(
+        server, "SELECT ended_at FROM sessions WHERE id = ?", int(str(first["session"]))
+    )
+    assert ended[0][0] is not None
