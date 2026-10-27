@@ -158,6 +158,7 @@ def test_stale_ids_give_a_banner(
         (f"/admin/messages/{sent.id}/delete", {}, "already read"),
         ("/admin/pairs", {"a": "laptop", "b": "ghost"}, "No machine named ghost"),
         ("/admin/machines/ghost/revoke", {"confirm": "ghost"}, "No machine named"),
+        ("/admin/sessions/99999999999999999999999/end", {}, "No session"),
     ]
     for path, form, hint in cases:
         r = web.post(path, data={**form, "csrf": csrf}, follow_redirects=False)
@@ -171,3 +172,18 @@ def test_refresh_does_not_repeat(web: TestClient, machines: Machines) -> None:
     r = web.post("/admin/pairs/delete", data=form, follow_redirects=False)
     assert "Unpaired" in web.get(r.headers["location"]).text
     assert "Unpaired" not in web.get(r.headers["location"]).text
+
+
+def test_stale_revoke_and_end_say_so(
+    web: TestClient, conn: sqlite3.Connection, make_session: MakeSession
+) -> None:
+    s = make_session("laptop", "api")
+    csrf = login(web)
+    form = {"csrf": csrf, "confirm": "laptop"}
+    web.post("/admin/machines/laptop/revoke", data=form)
+    again = web.post("/admin/machines/laptop/revoke", data=form).text
+    assert "already revoked" in again and "Revoked laptop" not in again
+    for action in ("end", "reset-depth"):
+        page = web.post(f"/admin/sessions/{s.id}/{action}", data={"csrf": csrf}).text
+        assert "already ended" in page, action
+    assert audit_rows(conn) == ["revoke"]

@@ -122,3 +122,23 @@ def test_pages_have_no_inline_styles(web: TestClient, seeded: Seeded) -> None:
     for path in PAGES + [f"/admin/messages/{seeded.message_id}", "/admin/login"]:
         html = web.get(path).text
         assert ' style="' not in html and "<style" not in html, path
+
+
+def test_refresh_keeps_filters_and_avoids_post_urls(
+    web: TestClient, seeded: Seeded
+) -> None:
+    csrf = login(web)
+    page = web.get("/admin/messages?state=all&no_wake=1").text
+    assert 'href="/admin/messages?state=all&amp;no_wake=1">Refresh' in page
+    expired = web.post("/admin/sessions/1/end", data={"csrf": "stale"})
+    assert expired.status_code == 403
+    assert 'href="/admin/sessions">Refresh' in expired.text
+    assert csrf
+
+
+def test_refresh_never_points_at_a_post_only_path(web: TestClient) -> None:
+    login(web)
+    for path, section in (("/admin/logout", "/admin"), ("/admin/pairs", "/admin")):
+        page = web.post(path, data={"csrf": "stale"})
+        assert page.status_code == 403
+        assert f'href="{section}">Refresh' in page.text, path

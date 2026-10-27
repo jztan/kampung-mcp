@@ -49,7 +49,9 @@ def register_actions(mcp: FastMCP, web: Web) -> None:
 
     def session_of(raw: str) -> Session:
         with connection(web) as conn:
-            found = load_session(conn, int(raw)) if raw.isdigit() else None
+            # isascii: no other digit scripts; 18 digits always fit SQLite's INTEGER.
+            valid = raw.isascii() and raw.isdigit() and len(raw) <= 18
+            found = load_session(conn, int(raw)) if valid else None
         if found is None:
             raise KampungError("unknown_session", f"No session {raw}.")
         return found

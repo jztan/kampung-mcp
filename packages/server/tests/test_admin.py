@@ -153,3 +153,28 @@ def test_reset_depth(
     reloaded = load_session(conn, s.id)
     assert reloaded is not None and reloaded.max_depth_seen == -1
     assert _code(admin.reset_depth, 9999, "admin:web") == "unknown_session"
+
+
+def test_repeat_revoke_is_an_error(
+    admin: AdminService, conn: sqlite3.Connection
+) -> None:
+    admin.add_machine("box", "admin:cli")
+    admin.revoke("box", "admin:cli")
+    with pytest.raises(KampungError) as e:
+        admin.revoke("box", "admin:web")
+    assert e.value.code == "already_revoked"
+    revokes = conn.execute("SELECT COUNT(*) FROM audit WHERE action = 'revoke'")
+    assert revokes.fetchone()[0] == 1
+
+
+def test_ended_session_cannot_be_ended_or_reset(
+    admin: AdminService, conn: sqlite3.Connection, make_session: MakeSession
+) -> None:
+    s = make_session("laptop")
+    admin.end_session(s.id, "admin:web")
+    for act in (admin.end_session, admin.reset_depth):
+        with pytest.raises(KampungError) as e:
+            act(s.id, "admin:web")
+        assert e.value.code == "session_ended"
+    actions = [r[0] for r in conn.execute("SELECT action FROM audit")]
+    assert actions.count("end_session") == 1 and "reset_depth" not in actions

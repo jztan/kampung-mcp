@@ -12,6 +12,13 @@ from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession
 
 COOKIE = "kampung_admin"
+SECTIONS = {
+    "/admin/machines",
+    "/admin/mailboxes",
+    "/admin/sessions",
+    "/admin/messages",
+    "/admin/audit",
+}
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; style-src 'self'; img-src 'self' data:; "
@@ -58,8 +65,15 @@ class Web:
         flash = None
         if session is not None:
             flash, session.flash = session.flash, None
+        path = request.url.path
+        if request.method == "GET":
+            refresh = path + (f"?{request.url.query}" if request.url.query else "")
+        else:  # a page shown for a POST: refresh its section, never re-POST
+            section = "/".join(path.split("/")[:3])
+            refresh = section if section in SECTIONS else "/admin"
         html = self.env.get_template(template).render(
-            path=request.url.path,
+            path=path,
+            refresh=refresh,
             csrf=session.csrf if session else None,
             flash=flash,
             version=__version__,
