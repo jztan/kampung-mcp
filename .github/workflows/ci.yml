@@ -33,5 +33,5 @@ jobs:
       - run: uv sync --locked
       - run: uv run black --check .
       - run: uv run flake8 packages
-      - run: uv run mypy packages/server/src
+      - run: uv run mypy packages/server/src packages/client/src
       - run: uv run pytest -q

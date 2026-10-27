@@ -95,7 +95,7 @@ def test_every_admin_write_is_audited(
 
 # Session and message actions (Task 8)
 
-from conftest import FakeClock, MakeSession  # noqa: E402
+from server_testlib import FakeClock, MakeSession  # noqa: E402
 from kampung_server.mail import inbox, send  # noqa: E402
 from kampung_server.models import load_session  # noqa: E402
 

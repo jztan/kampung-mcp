@@ -19,7 +19,7 @@ repos:
     hooks:
       - id: mypy
         name: mypy
-        entry: uv run mypy packages/server/src
+        entry: uv run mypy packages/server/src packages/client/src
         language: system
         pass_filenames: false
         files: ^packages/.*\.py$

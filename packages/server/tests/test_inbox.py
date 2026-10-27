@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FakeClock, MakeSession
+from server_testlib import FakeClock, MakeSession
 from kampung_server import db
 from kampung_server.admin import AdminService
 from kampung_server.mail import PeekResult, inbox, list_peers, peek, send

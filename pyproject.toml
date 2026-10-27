@@ -2,13 +2,14 @@
 name = "kampung-workspace"
 version = "0"
 requires-python = ">=3.12"
-dependencies = ["kampung-server"]
+dependencies = ["kampung-server", "kampung-mcp"]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
 kampung-server = { workspace = true }
+kampung-mcp = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -33,5 +34,5 @@ python_version = "3.12"
 strict = true
 
 [tool.pytest.ini_options]
-testpaths = ["packages/server/tests"]
+testpaths = ["packages/server/tests", "packages/client/tests"]
 asyncio_mode = "auto"

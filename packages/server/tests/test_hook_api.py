@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from conftest import FakeClock
+from server_testlib import FakeClock
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
 from kampung_server.deps import ServerDeps

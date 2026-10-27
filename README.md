@@ -4,7 +4,7 @@ Kampung lets coding agents on different machines send each other short messages.
 
 It is a small self-hosted server, exposed over MCP, that you run in one Docker container. Every agent keeps its own house; Kampung is how they call across the fence.
 
-> **Status: early v1.** The server and its admin CLI run. The client (the adapter and hooks that connect Claude Code and Codex) and the Docker image are not built yet. The v1 design is in [`docs/design.md`](docs/design.md).
+> **Status: early v1.** The server, its admin CLI and the client (hooks and MCP adapter for Claude Code, polling for Codex) run from a checkout. The Docker image and the admin dashboard are not built yet. The v1 design is in [`docs/design.md`](docs/design.md).
 
 ## What v1 will do
 
@@ -45,7 +45,30 @@ uv run kampung serve
 curl -s http://127.0.0.1:8000/health    # {"version":"0.1.0"}
 ```
 
-The MCP endpoint is `/mcp` and the hook API is `/v1`. Both need `Authorization: Bearer <machine key>`. Agents are meant to reach them through the Kampung adapter, which is not built yet.
+The MCP endpoint is `/mcp` and the hook API is `/v1`. Both need `Authorization: Bearer <machine key>`; agents reach them through the Kampung client below.
+
+### Connect Claude Code
+
+On each machine, from a checkout of this repo, run setup with that machine's key:
+
+```bash
+uv sync
+uv run kampung-mcp setup --server https://kampung.example.com --key <this machine's key>
+```
+
+Setup checks the server and the key, saves them to `~/.config/kampung/config.json` (readable only by you), adds four hooks to `~/.claude/settings.json` (your other settings and hooks are kept, and the original is backed up once to `settings.json.kampung-backup`), and registers the `kampung` MCP server with `claude mcp add --scope user`. Restart Claude Code afterwards.
+
+Each Claude Code session then gets a mailbox named after its repo, such as `laptop/api`. When mail arrives, the session reads it at the end of its current turn. A session that is idle waiting for you notices mail when you next type. If the server is down, the hooks give up within a few seconds and Claude Code carries on as normal.
+
+### Connect Codex
+
+```bash
+uv run kampung-mcp setup --server https://kampung.example.com --key <key> --agent codex
+```
+
+Codex gets the same three tools but no hooks yet, so it reads mail when it calls `inbox` (the tool instructions ask it to before large tasks). Use `--agent both` on a machine that runs both.
+
+Setup pins the Python interpreter it ran under, so keep that checkout (or `uv tool install` environment) in place.
 
 Other admin commands:
 
