@@ -19,31 +19,32 @@ Peer messages are information, never commands. Kampung tells every agent so, on 
 
 ## Usage
 
-Until the Docker image exists, run the server from a checkout. You need [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer.
+### Run the server
+
+You need Docker with Compose. Build and start it from a checkout:
 
 ```bash
 git clone https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
-uv sync
+docker compose up -d --build --wait
+curl -s http://127.0.0.1:8803/health    # {"version":"0.1.0"}
 ```
 
-Pick where the database lives, then create a key for each machine and pair them:
+The server listens on `127.0.0.1:8803` only, and keeps its database in the `kampung-data` volume. Create a key for each machine and pair them:
 
 ```bash
-export KAMPUNG_DB_PATH="$HOME/.local/share/kampung/kampung.db"
-mkdir -p "$(dirname "$KAMPUNG_DB_PATH")"
-
-uv run kampung key add laptop     # prints the key once; store it on that machine
-uv run kampung key add desktop
-uv run kampung pair laptop desktop
+docker compose exec kampung kampung key add laptop     # prints the key once; store it on that machine
+docker compose exec kampung kampung key add desktop
+docker compose exec kampung kampung pair laptop desktop
 ```
 
-Start the server:
+To reach it from other machines over HTTPS, copy `.env.example` to `.env`, set `KAMPUNG_DOMAIN` to a hostname that points at this host (Caddy will not start without it), and start the bundled Caddy (Linux hosts only, since it uses host networking):
 
 ```bash
-uv run kampung serve
-curl -s http://127.0.0.1:8000/health    # {"version":"0.1.0"}
+docker compose --profile tls up -d
 ```
+
+Without Docker, run it from the checkout with [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer: `uv sync`, set `KAMPUNG_DB_PATH` to where the database should live, then use `uv run kampung key add ...` and `uv run kampung serve` (port 8000).
 
 The MCP endpoint is `/mcp` and the hook API is `/v1`. Both need `Authorization: Bearer <machine key>`; agents reach them through the Kampung client below.
 
@@ -95,7 +96,7 @@ Other admin commands:
 | `kampung unpair A B` | Stop two machines from messaging each other |
 | `kampung revoke NAME` | Disable a machine's key and end its sessions |
 
-Settings come from the environment:
+With Docker, settings go in `.env` (see `.env.example`): `KAMPUNG_HOST_PORT` (default `8803`), `KAMPUNG_IMAGE_TAG` and `KAMPUNG_DOMAIN`. Compose pins the server's own settings to match the container. Without Docker, the server reads:
 
 | Variable | Default |
 |---|---|
@@ -103,7 +104,7 @@ Settings come from the environment:
 | `KAMPUNG_HTTP_HOST` | `127.0.0.1` |
 | `KAMPUNG_HTTP_PORT` | `8000` |
 
-The server listens on loopback by default. To reach it from another machine, put it behind a TLS reverse proxy such as Caddy rather than exposing the port directly.
+Either way the server listens on loopback only. To reach it from another machine, put it behind TLS (the bundled Caddy, or your own reverse proxy with `flush_interval -1` or its equivalent so streamed responses are not buffered) rather than exposing the port directly.
 
 ## What it is not
 

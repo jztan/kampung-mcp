@@ -1,0 +1,74 @@
+# No `version:` key: obsolete in Compose v2 and later.
+services:
+  kampung:
+    image: ghcr.io/jztan/kampung-mcp:${KAMPUNG_IMAGE_TAG:-latest}
+    build: .
+    # Build locally until a release workflow publishes the image; then drop
+    # this line so `docker compose pull` works.
+    pull_policy: build
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Pinned so nothing in .env can move the app off the port the publish
+      # targets, or the database off the volume.
+      KAMPUNG_HTTP_HOST: 0.0.0.0
+      KAMPUNG_HTTP_PORT: "8000"
+      KAMPUNG_DB_PATH: /data/kampung.db
+    # Published to loopback ONLY. TLS and public exposure belong to Caddy
+    # (the `tls` profile below, or Caddy on the host).
+    ports:
+      - "127.0.0.1:${KAMPUNG_HOST_PORT:-8803}:8000"
+    volumes:
+      # Named volume, not a bind mount: it inherits uid 1000 ownership from
+      # the image, so SQLite stays writable on a Linux host.
+      - kampung-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      start_interval: 2s
+      retries: 3
+
+  # Optional TLS in front of the server: docker compose --profile tls up -d
+  # Needs KAMPUNG_DOMAIN in .env and a Linux host. Host networking is what
+  # lets Caddy reach the loopback publish and see real client addresses for
+  # the /admin rule; Docker Desktop on macOS or Windows does not give that.
+  caddy:
+    image: caddy:2.11.7
+    profiles: ["tls"]
+    network_mode: host
+    # Only what Caddy needs, interpolated the same way as the publish above
+    # (shell, then .env), so the upstream always matches it and no other
+    # .env secret reaches this container.
+    environment:
+      KAMPUNG_DOMAIN: ${KAMPUNG_DOMAIN:-}
+      KAMPUNG_HOST_PORT: ${KAMPUNG_HOST_PORT:-8803}
+    # An empty site address would make Caddy misread the file, so say why.
+    # (${VAR:?} would also break plain `docker compose up`.)
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -z "$$KAMPUNG_DOMAIN" ]; then
+        echo "kampung: set KAMPUNG_DOMAIN in .env to use the tls profile" >&2;
+        exit 1; fi;
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - kampung
+    restart: unless-stopped
+
+volumes:
+  kampung-data:
+  caddy-data:
+  caddy-config:
