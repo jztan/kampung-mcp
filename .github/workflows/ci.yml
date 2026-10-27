@@ -1,12 +1,14 @@
 name: CI
 
+# Feature, release and hotfix branches are tested through their pull
+# request, so each commit gets one run instead of a push run that the PR run
+# then cancels (a cancelled run shows as a failed check). To test a branch
+# before opening its PR: gh workflow run CI --ref <branch>
 on:
   push:
     branches:
       - develop
-      - feature/*
-      - release/*
-      - hotfix/*
+      - master
   pull_request:
     branches:
       - develop
@@ -16,8 +18,7 @@ on:
 permissions:
   contents: read
 
-# A push and the pull_request event for the same commit both start this
-# workflow; grouping by commit lets the later run cancel the earlier one.
+# One run per commit: a newer run for the same commit cancels an older one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
