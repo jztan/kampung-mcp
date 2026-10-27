@@ -82,6 +82,8 @@ class AdminService:
         try:
             with db.transaction(conn):
                 machine = _require(conn, name)
+                if machine.revoked_at is not None:
+                    raise KampungError("already_revoked", f"{name} is already revoked.")
                 conn.execute(
                     "UPDATE machines SET revoked_at = ? "
                     "WHERE id = ? AND revoked_at IS NULL",
@@ -101,7 +103,7 @@ class AdminService:
         conn = self._connect()
         try:
             with db.transaction(conn):
-                _require_session(conn, session_id)
+                _require_open_session(conn, session_id)
                 sessions.end(conn, session_id, now)
                 audit.record(conn, now, actor, "end_session", {"session": session_id})
         finally:
@@ -112,7 +114,7 @@ class AdminService:
         conn = self._connect()
         try:
             with db.transaction(conn):
-                sessions.human_turn(conn, _require_session(conn, session_id))
+                sessions.human_turn(conn, _require_open_session(conn, session_id))
                 audit.record(conn, now, actor, "reset_depth", {"session": session_id})
         finally:
             conn.close()
@@ -177,4 +179,11 @@ def _require_session(conn: sqlite3.Connection, session_id: int) -> Session:
     session = load_session(conn, session_id)
     if session is None:
         raise KampungError("unknown_session", f"No session {session_id}.")
+    return session
+
+
+def _require_open_session(conn: sqlite3.Connection, session_id: int) -> Session:
+    session = _require_session(conn, session_id)
+    if session.ended_at is not None:
+        raise KampungError("session_ended", f"Session {session_id} already ended.")
     return session

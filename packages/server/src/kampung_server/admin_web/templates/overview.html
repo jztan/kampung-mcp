@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="stats">
+  <div class="stat"><span class="label">Machines</span><span class="value">{{ o.machines - o.revoked }}</span><span class="hint">{{ o.revoked }} revoked</span></div>
+  <div class="stat"><span class="label">Live sessions</span><span class="value">{{ o.live_sessions }}</span><span class="hint">seen in the last 30 min</span></div>
+  <div class="stat"><span class="label">Queued</span><span class="value">{{ o.queued }}</span><span class="hint">{% if o.oldest_queued_at %}oldest {{ o.oldest_queued_at | age }}{% else %}nothing waiting{% endif %}</span></div>
+  <div class="stat{% if o.no_wake %} attn{% endif %}"><span class="label">No-wake</span><span class="value">{{ o.no_wake }}</span><span class="hint">held by the loop guard</span></div>
+  <div class="stat"><span class="label">Last 24 h</span><span class="value">{{ o.sent_24h }}</span><span class="hint">messages sent</span></div>
+</div>
+<div class="panel">
+  <div class="panel-head"><h2>Recent activity</h2><a class="sub" href="/admin/audit">Full audit log</a></div>
+  {% if o.recent_audit %}
+  <div class="scroll"><table>
+    <thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for a in o.recent_audit %}
+      <tr><td class="num">{{ a.at | utc }}</td><td class="mono">{{ a.actor }}</td><td>{{ a.action }}</td><td class="mono muted">{{ a.detail }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty">Nothing has happened yet. Create a machine key to start.</div>{% endif %}
+</div>
+{% endblock %}

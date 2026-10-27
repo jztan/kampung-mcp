@@ -64,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "serve":
             if not admin.list_machines():
                 print(NO_KEYS, file=sys.stderr)
-            deps = ServerDeps(settings.db_path, utcnow, RateLimiter())
+            deps = ServerDeps(
+                settings.db_path, utcnow, RateLimiter(), settings.admin_token
+            )
             app.serve(deps, settings.host, settings.port)
     except KampungError as e:
         print(f"error: {e.code}: {e.hint}", file=sys.stderr)

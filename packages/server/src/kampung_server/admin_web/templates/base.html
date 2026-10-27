@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · Kampung admin</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body>
+<div class="app">
+  <nav class="nav" aria-label="Admin">
+    <div class="brand"><span class="brand-mark">K</span><span>Kampung<small>admin · v{{ version }}</small></span></div>
+    <ul>
+      {% set items = [
+        ("/admin", "Overview", None),
+        ("/admin/machines", "Machines", nav.get("machines")),
+        ("/admin/mailboxes", "Mailboxes", nav.get("mailboxes")),
+        ("/admin/sessions", "Sessions", nav.get("sessions")),
+        ("/admin/messages", "Messages", nav.get("messages")),
+        ("/admin/audit", "Audit", None),
+      ] %}
+      {% for href, label, count in items %}
+      {% set active = path == href or (href != "/admin" and path.startswith(href + "/")) %}
+      <li><a href="{{ href }}"{% if active %} aria-current="page"{% endif %}>{{ label }}{% if count %} <span class="count num">{{ count }}</span>{% endif %}</a></li>
+      {% endfor %}
+    </ul>
+    <div class="nav-foot">
+      Signed in as owner
+      <form method="post" action="/admin/logout">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="linklike" type="submit">Sign out</button>
+      </form>
+    </div>
+  </nav>
+  <div class="main">
+    <header class="top">
+      <div><div class="crumbs">Kampung server</div><h1>{{ title }}</h1></div>
+      <div class="top-actions"><span class="updated">Updated {{ now.strftime("%H:%M:%S") }} UTC</span><a class="btn" href="{{ refresh }}">Refresh</a></div>
+    </header>
+    <main class="content">
+      {% if flash %}<div class="flash{% if flash[0] == 'error' %} err{% endif %}" role="status">{{ flash[1] }}</div>{% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+</body>
+</html>

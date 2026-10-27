@@ -6,7 +6,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import __version__
+from . import __version__, admin_web
 from .auth import MachineKeyVerifier
 from .deps import ServerDeps
 from .hook_api import register_hook_routes
@@ -19,6 +19,7 @@ def build_server(deps: ServerDeps) -> FastMCP:
     )
     register_tools(mcp, deps)
     register_hook_routes(mcp, deps)
+    admin_web.register(mcp, deps)
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> JSONResponse:

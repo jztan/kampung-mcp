@@ -4,10 +4,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from starlette.testclient import TestClient
 
 from kampung_server import db, sessions
 from kampung_server.admin import AdminService
 from kampung_server.models import Machine, Session, load_machine
+from admin_web_testlib import TOKEN
+from kampung_server.app import create_app
+from kampung_server.deps import ServerDeps
+from kampung_server.ratelimit import RateLimiter
 from server_testlib import FakeClock, MakeSession
 
 
@@ -61,3 +66,17 @@ def make_session(
         return sessions.register(conn, machine, clock.now(), **args)
 
     return make
+
+
+@pytest.fixture
+def admin_deps(db_path: Path, conn: sqlite3.Connection, clock: FakeClock) -> ServerDeps:
+    return ServerDeps(
+        db_path=db_path, clock=clock.now, limiter=RateLimiter(), admin_token=TOKEN
+    )
+
+
+@pytest.fixture
+def web(admin_deps: ServerDeps) -> Iterator[TestClient]:
+    """A dashboard client; https so the Secure cookie is sent back."""
+    with TestClient(create_app(admin_deps), base_url="https://testserver") as c:
+        yield c

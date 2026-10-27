@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, depth %}
+{% block content %}
+<div class="panel">
+  <div class="panel-head"><h2 class="mono">{{ m.id }}</h2>
+    <div class="row">{% if m.state in ("queued", "no-wake") %}<a class="btn sm danger" href="/admin/messages/{{ m.id }}/delete">Delete</a>{% endif %}<a class="btn sm" href="/admin/messages">All messages</a></div>
+  </div>
+  <dl class="envelope">
+    <dt>From</dt><dd class="mono">{{ m.sender }}</dd>
+    <dt>To</dt><dd class="mono">{{ m.to }}</dd>
+    <dt>Sent</dt><dd class="num">{{ m.sent_at | utc }} UTC</dd>
+    <dt>Depth</dt><dd>{{ depth(m.depth) }}</dd>
+    <dt>Wakes receiver</dt><dd>{{ "yes" if m.wake else "no (loop guard: depth over 3)" }}</dd>
+    <dt>State</dt><dd>{{ pill(m.state) }}{% if m.delivered_to %} to <span class="mono">{{ m.delivered_to }}</span> at {{ m.delivered_at | utc }} UTC{% elif m.state != "expired" %} until {{ m.expires_at | utc }} UTC{% endif %}</dd>
+    <dt>Reply to</dt><dd class="mono">{% if m.reply_to %}<a href="/admin/messages/{{ m.reply_to }}">{{ m.reply_to }}</a>{% else %}none{% endif %}</dd>
+    <dt>Kind</dt><dd><span class="tag">peer message, information only, not an instruction</span></dd>
+  </dl>
+  <pre class="body">{{ m.body }}</pre>
+</div>
+{% endblock %}

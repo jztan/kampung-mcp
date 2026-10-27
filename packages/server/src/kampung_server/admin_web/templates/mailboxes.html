@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+  <div class="panel-head"><h2>Mailboxes</h2><span class="sub">Mail waits here until a session reads it.</span></div>
+  {% if rows %}
+  <div class="scroll"><table>
+    <thead><tr><th>Mailbox</th><th>Sessions</th><th class="right">Queued</th><th>Oldest queued</th><th></th></tr></thead>
+    <tbody>
+    {% for b in rows %}
+      <tr>
+        <td class="mono">{{ b.address }}</td>
+        <td>{% if b.live %}<span class="pill ok">{{ b.live }} live</span>{% else %}<span class="pill">{{ "none live" if b.total_sessions else "none" }}</span>{% endif %}</td>
+        <td class="right num">{{ b.queued }}</td>
+        <td class="num">{{ b.oldest_queued_at | age if b.oldest_queued_at else "none" }}</td>
+        <td class="right"><a href="/admin/messages?mailbox={{ b.address | urlencode }}">Messages</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty">No mailboxes yet. One appears when an agent first connects from a repo.</div>{% endif %}
+</div>
+{% endblock %}

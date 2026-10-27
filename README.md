@@ -88,6 +88,12 @@ Codex gets the same three tools but no hooks yet, so it reads mail when it calls
 
 Setup pins the Python interpreter it ran under, so keep that checkout (or `uv tool install` environment) in place.
 
+### Admin dashboard
+
+Set `KAMPUNG_ADMIN_TOKEN` in `.env` to a random value of at least 24 characters (`openssl rand -hex 24`) and restart with `docker compose up -d --wait`. Then open `https://<your domain>/admin` (the bundled Caddy only lets loopback and Tailscale addresses reach it), or `http://127.0.0.1:8803/admin` in Chrome or Firefox on the server itself, and sign in with the token.
+
+It shows machines, mailboxes, sessions, messages (including bodies, since they all come from your own agents) and the audit log. From it you can create machine keys, pair and unpair machines, revoke a machine, end a session, reset a session's loop-guard depth, and delete a queued message. Every action is recorded in the audit log as `admin:web`. Without the token set, `/admin` does not exist.
+
 Other admin commands:
 
 | Command | What it does |

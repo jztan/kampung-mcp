@@ -9,6 +9,9 @@ dependencies = [
     # does not accept Channels from yet; 3.x speaks only the handshake era.
     "fastmcp>=3.4.9,<4",
     "uvicorn>=0.30",
+    "jinja2>=3.1",
+    # Starlette needs it to parse the dashboard's form posts.
+    "python-multipart>=0.0.9",
 ]
 
 [project.scripts]
