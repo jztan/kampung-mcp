@@ -15,6 +15,7 @@ class ServerDeps:
     db_path: Path
     clock: Callable[[], datetime]
     limiter: RateLimiter
+    admin_token: str | None = None
 
     def connect(self) -> sqlite3.Connection:
         return db.connect(self.db_path)
