@@ -162,7 +162,7 @@ def run_setup(
             ["claude", "mcp", "remove", "--scope", "user", "kampung"],
             ["claude", "mcp", "add", "--scope", "user", "kampung", "--"]
             + _adapter_cmd("claude-code")
-            + (["--channels", "--handshake-era"] if channels else []),
+            + (["--channels"] if channels else []),
             runner,
         )
         lines.append(

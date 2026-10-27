@@ -208,7 +208,6 @@ def test_setup_channels_registers_push_adapter(home: Path, server: LiveServer) -
         "--",
         *adapter_cmd("claude-code"),
         "--channels",
-        "--handshake-era",
     ]
     assert any(
         "--dangerously-load-development-channels server:kampung" in line
@@ -237,4 +236,4 @@ def test_cli_setup_channels_flag(
         )
         == 0
     )
-    assert rec.calls[-1][-2:] == ["--channels", "--handshake-era"]
+    assert rec.calls[-1][-2:] == ["claude-code", "--channels"]

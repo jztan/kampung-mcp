@@ -88,24 +88,18 @@ def test_channel_nudge_on_new_wakeable_mail(
         mcp.close()
 
 
-def test_handshake_era_flag_accepts_initialize_after_discover(
-    home: Path, tmp_path: Path
-) -> None:
-    default = RawMCP(home, tmp_path, "--channels")
+def test_channels_accept_initialize_after_discover(home: Path, tmp_path: Path) -> None:
+    # Claude Code opens with an enveloped server/discover and, when that is
+    # refused, falls back to initialize. It only takes Channels from servers
+    # that end up in the handshake (initialize) era, so the fallback must work.
+    mcp = RawMCP(home, tmp_path, "--channels")
     try:
-        default.send(MODERN_DISCOVER)
-        default.read(10, until="disc")
-        assert "error" in default.initialize()  # the SDK locked the modern era
+        mcp.send(MODERN_DISCOVER)
+        answer = [m for m in mcp.read(10, until="disc") if m.get("id") == "disc"]
+        assert answer and "error" in answer[0]
+        assert experimental(mcp.initialize()) == {"claude/channel": {}}
     finally:
-        default.close()
-    legacy = RawMCP(home, tmp_path, "--channels", "--handshake-era")
-    try:
-        legacy.send(MODERN_DISCOVER)
-        answer = [m for m in legacy.read(10, until="disc") if m.get("id") == "disc"]
-        assert answer and answer[0]["error"]["code"] == -32601  # type: ignore[index]
-        assert experimental(legacy.initialize()) == {"claude/channel": {}}
-    finally:
-        legacy.close()
+        mcp.close()
 
 
 def hook_start(home: Path, repo: Path, sid: str = "cc-1") -> None:
@@ -200,14 +194,3 @@ def test_server_down_is_logged_once(home: Path, tmp_path: Path) -> None:
     log = hook.cache_dir() / "hooks.log"
     lines = [x for x in log.read_text().splitlines() if " channel:" in x]
     assert len(lines) == 1
-
-
-def test_handshake_era_patch_needs_the_sdk_name(monkeypatch: object) -> None:
-    import mcp.server.runner as runner
-
-    from kampung_client.adapter import build_adapter, serve_handshake_era_only
-
-    server = build_adapter("claude-code", "/w/api", channels=True)
-    monkeypatch.delattr(runner, "_has_modern_envelope")  # type: ignore[attr-defined]
-    serve_handshake_era_only(server)
-    assert "server/discover" in server._mcp_server._request_handlers

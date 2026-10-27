@@ -11,6 +11,7 @@ from typing import Any
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+from mcp.types import InitializedNotification, Notification
 
 from . import hook
 from .hook import Ancestor
@@ -248,6 +249,10 @@ def build_adapter(
     return mcp
 
 
+class ChannelNotification(Notification[dict[str, Any], str]):
+    """A notification with free-form params (the SDK's base type drops them)."""
+
+
 class _ChannelPush(Middleware):
     """Remembers the client session and starts the peek poller once the
     client has finished initializing (a push before that can be dropped)."""
@@ -260,11 +265,14 @@ class _ChannelPush(Middleware):
     async def on_message(self, context: MiddlewareContext[Any], call_next: Any) -> Any:
         ctx = context.fastmcp_context
         session = ctx.session if ctx is not None else None
-        if session is not None and context.method != "server/discover":
+        if session is not None:
             self.session = session
-        if self.task is None and context.method == "notifications/initialized":
-            self.task = asyncio.get_running_loop().create_task(self.poll())
         return await call_next(context)
+
+    async def start(self, _: InitializedNotification) -> None:
+        # Middleware never sees notifications, so the SDK's handler starts us.
+        if self.task is None:
+            self.task = asyncio.get_running_loop().create_task(self.poll())
 
     async def poll(self) -> None:
         notified = 0
@@ -286,9 +294,11 @@ class _ChannelPush(Middleware):
                     if wakeable > notified and self.session is not None:
                         # A nudge, never the mail itself: reading stays in
                         # `inbox`, with its envelope and "not an instruction" tag.
-                        await self.session._connection.outbound.notify(
-                            CHANNEL_METHOD,
-                            {"content": hook.STOP_REASON.format(n=wakeable)},
+                        await self.session.send_notification(
+                            ChannelNotification(
+                                method=CHANNEL_METHOD,
+                                params={"content": hook.STOP_REASON.format(n=wakeable)},
+                            )
                         )
                     notified = wakeable
                 last_error, delay = "", CHANNEL_POLL
@@ -302,31 +312,6 @@ class _ChannelPush(Middleware):
 
 def _add_channel_push(mcp: FastMCP, resolver: SessionResolver) -> None:
     mcp.experimental_capabilities["claude/channel"] = {}
-    mcp.add_middleware(_ChannelPush(resolver))
-
-
-def serve_handshake_era_only(mcp: FastMCP) -> None:
-    """WORKAROUND, behind --handshake-era: serve only the pre-2026-07-28 era.
-
-    Claude Code 2.1.311 accepts Channels only from servers connected in the
-    handshake (initialize) era, but the MCP SDK locks a stdio connection to the
-    2026-07-28 era as soon as the client opens with an enveloped
-    server/discover, then refuses the client's fallback initialize. FastMCP
-    4.1.4 has no supported switch for this, so this patches the SDK's era check
-    and drops the discover handler. Remove once FastMCP offers a real option.
-    """
-    import sys
-
-    import mcp.server.runner as runner
-
-    if not hasattr(runner, "_has_modern_envelope"):
-        # Patching only half would leave Claude Code with no Kampung tools at
-        # all (discover refused, initialize refused), so apply neither.
-        print(
-            "kampung: --handshake-era is not supported by this MCP SDK version; "
-            "Channels push will not reach Claude Code.",
-            file=sys.stderr,
-        )
-        return
-    setattr(runner, "_has_modern_envelope", lambda params: False)
-    mcp._mcp_server._request_handlers.pop("server/discover", None)
+    push = _ChannelPush(resolver)
+    mcp.add_middleware(push)
+    mcp._mcp_server.notification_handlers[InitializedNotification] = push.start

@@ -75,7 +75,7 @@ uv run kampung-mcp setup --server https://kampung.example.com --key <key> --chan
 claude --dangerously-load-development-channels server:kampung
 ```
 
-Claude Code asks you to confirm the development channel each time it starts. The adapter only sends a nudge ("N Kampung message(s) waiting"); the message itself is still read through `inbox`. Channels need Claude Code 2.1.80 or later. `--channels` also turns on a workaround (`--handshake-era`) for an MCP protocol version mismatch; see `docs/design.md`.
+Claude Code asks you to confirm the development channel each time it starts. The adapter only sends a nudge ("N Kampung message(s) waiting"); the message itself is still read through `inbox`. Channels need Claude Code 2.1.80 or later.
 
 ### Connect Codex
 

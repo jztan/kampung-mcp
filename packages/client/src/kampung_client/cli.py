@@ -16,12 +16,6 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="push a nudge to Claude Code (Channels) when mail arrives",
     )
-    adapter.add_argument(
-        "--handshake-era",
-        action="store_true",
-        help="workaround: serve only the pre-2026-07-28 protocol, which Claude "
-        "Code needs for Channels",
-    )
     setup = sub.add_parser("setup", help="connect this machine to a Kampung server")
     setup.add_argument(
         "--server", required=True, help="e.g. https://kampung.example.com"
@@ -45,12 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "adapter":
         from .adapter import build_adapter
 
-        from .adapter import serve_handshake_era_only
-
-        server = build_adapter(args.agent, channels=args.channels)
-        if args.handshake_era:
-            serve_handshake_era_only(server)
-        server.run()
+        build_adapter(args.agent, channels=args.channels).run()
     elif args.command == "setup":
         from . import setup
 

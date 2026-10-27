@@ -93,7 +93,7 @@ async def test_adapter_lists_the_three_tools(home: Path) -> None:
 
 async def test_adapter_instructions_match_server(home: Path) -> None:
     async with Client(build_adapter("claude-code", "/w/api")) as c:
-        assert c.instructions == SERVER_INSTRUCTIONS
+        assert c.initialize_result.instructions == SERVER_INSTRUCTIONS
 
 
 async def test_codex_agent_registers_without_hooks(
