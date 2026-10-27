@@ -10,7 +10,7 @@ from client_testlib import LiveServer
 from kampung_client import cli, hook
 from kampung_client.setup import SetupError, run_setup
 
-EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
+EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse"]
 
 
 class Recorder:
@@ -191,3 +191,49 @@ def test_setup_refuses_malformed_settings_before_changing_anything(
     assert cfg["key"] == server.keys["laptop"]  # not overwritten with desktop's
     assert not (home / ".config" / "kampung" / "kampung_hook.py").exists()
     assert rec.calls == []
+
+
+def test_setup_channels_registers_push_adapter(home: Path, server: LiveServer) -> None:
+    rec = Recorder()
+    lines = run_setup(
+        server.url, server.keys["laptop"], ["claude-code"], rec, channels=True
+    )
+    assert rec.calls[-1] == [
+        "claude",
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        "kampung",
+        "--",
+        *adapter_cmd("claude-code"),
+        "--channels",
+    ]
+    assert any(
+        "--dangerously-load-development-channels server:kampung" in line
+        for line in lines
+    )
+
+
+def test_cli_setup_channels_flag(
+    home: Path,
+    server: LiveServer,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rec = Recorder()
+    monkeypatch.setattr("kampung_client.setup.default_runner", rec)
+    assert (
+        cli.main(
+            [
+                "setup",
+                "--server",
+                server.url,
+                "--key",
+                server.keys["laptop"],
+                "--channels",
+            ]
+        )
+        == 0
+    )
+    assert rec.calls[-1][-2:] == ["claude-code", "--channels"]

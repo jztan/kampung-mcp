@@ -17,7 +17,7 @@ from typing import Any
 from . import hook
 
 Runner = Callable[[list[str]], int]
-EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd")
+EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse")
 HOOK_TIMEOUT = 5  # seconds; also lifts Claude Code's 1.5 s SessionEnd budget
 
 
@@ -130,7 +130,13 @@ def _register(remove: list[str], add: list[str], runner: Runner) -> str | None:
     return shlex.join(add)
 
 
-def run_setup(server: str, key: str, agents: list[str], runner: Runner) -> list[str]:
+def run_setup(
+    server: str,
+    key: str,
+    agents: list[str],
+    runner: Runner,
+    channels: bool = False,
+) -> list[str]:
     server = server.rstrip("/")
     if _status(f"{server}/health") != 200:
         raise SetupError(
@@ -155,7 +161,8 @@ def run_setup(server: str, key: str, agents: list[str], runner: Runner) -> list[
         manual = _register(
             ["claude", "mcp", "remove", "--scope", "user", "kampung"],
             ["claude", "mcp", "add", "--scope", "user", "kampung", "--"]
-            + _adapter_cmd("claude-code"),
+            + _adapter_cmd("claude-code")
+            + (["--channels"] if channels else []),
             runner,
         )
         lines.append(
@@ -163,6 +170,13 @@ def run_setup(server: str, key: str, agents: list[str], runner: Runner) -> list[
             if manual is None
             else f"Could not register with Claude Code. Run this yourself: {manual}"
         )
+        if channels:
+            lines.append(
+                "Channels push is on. Start Claude Code with: claude "
+                "--dangerously-load-development-channels server:kampung "
+                "(it asks you to confirm each time). Without that flag, mail "
+                "still arrives through the hooks."
+            )
     if "codex" in agents:
         manual = _register(
             ["codex", "mcp", "remove", "kampung"],

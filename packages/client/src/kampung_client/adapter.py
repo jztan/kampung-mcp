@@ -10,6 +10,8 @@ from typing import Any
 
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.server.middleware import Middleware, MiddlewareContext
+from mcp.types import InitializedNotification, Notification
 
 from . import hook
 from .hook import Ancestor
@@ -33,6 +35,9 @@ UNREACHABLE = {
     "hint": "The Kampung server did not answer; check config.json and the server.",
 }
 _STALE = ("session_ended", "unknown_session")
+CHANNEL_POLL = 2.0  # seconds between peeks while Channels push is on
+CHANNEL_MAX_BACKOFF = 30.0  # seconds between peeks while the server is failing
+CHANNEL_METHOD = "notifications/claude/channel"
 
 
 def _distance(chain: list[Ancestor], ancestors: object) -> int | None:
@@ -143,6 +148,14 @@ class SessionResolver:
             raise hook.HookError(f"revive failed: HTTP {status}")
         return found
 
+    def target(self) -> dict[str, object] | None:
+        """The session to watch for push, without ever registering or reviving.
+
+        The hook file for this window wins; otherwise whatever a tool call has
+        already settled on. Registration stays with hooks and tool calls.
+        """
+        return self._pick() or self._data
+
     def current(self) -> dict[str, object]:
         if self._data is not None and self._data.get("hooks") is True:
             return self._data
@@ -182,7 +195,9 @@ def _diagnose() -> dict[str, Any]:
     return dict(UNAUTHORIZED if status == 401 else UNREACHABLE)
 
 
-def build_adapter(agent: str, cwd: str | None = None, wait: float = 2.0) -> FastMCP:
+def build_adapter(
+    agent: str, cwd: str | None = None, wait: float = 2.0, channels: bool = False
+) -> FastMCP:
     resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)
 
     async def forward(tool: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -213,6 +228,8 @@ def build_adapter(agent: str, cwd: str | None = None, wait: float = 2.0) -> Fast
         return dict(UNREACHABLE)
 
     mcp = FastMCP("kampung", instructions=INSTRUCTIONS)
+    if channels:
+        _add_channel_push(mcp, resolver)
 
     @mcp.tool
     async def list_peers(machine: str | None = None) -> dict[str, Any]:
@@ -230,3 +247,71 @@ def build_adapter(agent: str, cwd: str | None = None, wait: float = 2.0) -> Fast
         return await forward("inbox", {"limit": limit})
 
     return mcp
+
+
+class ChannelNotification(Notification[dict[str, Any], str]):
+    """A notification with free-form params (the SDK's base type drops them)."""
+
+
+class _ChannelPush(Middleware):
+    """Remembers the client session and starts the peek poller once the
+    client has finished initializing (a push before that can be dropped)."""
+
+    def __init__(self, resolver: SessionResolver) -> None:
+        self.resolver = resolver
+        self.session: Any = None
+        self.task: asyncio.Task[None] | None = None
+
+    async def on_message(self, context: MiddlewareContext[Any], call_next: Any) -> Any:
+        ctx = context.fastmcp_context
+        session = ctx.session if ctx is not None else None
+        if session is not None:
+            self.session = session
+        return await call_next(context)
+
+    async def start(self, _: InitializedNotification) -> None:
+        # Middleware never sees notifications, so the SDK's handler starts us.
+        if self.task is None:
+            self.task = asyncio.get_running_loop().create_task(self.poll())
+
+    async def poll(self) -> None:
+        notified = 0
+        watching: object = None
+        last_error = ""
+        delay = CHANNEL_POLL
+        while True:
+            try:
+                found = await asyncio.to_thread(self.resolver.target)
+                if found is not None:
+                    if found.get("session") != watching:
+                        watching, notified = found.get("session"), 0
+                    status, body = await asyncio.to_thread(
+                        hook.api, "GET", f"/v1/sessions/{watching}/peek"
+                    )
+                    # Never refresh, register or revive from here: an ended
+                    # session waits for the hooks (or a tool call) to move on.
+                    wakeable = int(str(body.get("wakeable", 0))) if status == 200 else 0
+                    if wakeable > notified and self.session is not None:
+                        # A nudge, never the mail itself: reading stays in
+                        # `inbox`, with its envelope and "not an instruction" tag.
+                        await self.session.send_notification(
+                            ChannelNotification(
+                                method=CHANNEL_METHOD,
+                                params={"content": hook.STOP_REASON.format(n=wakeable)},
+                            )
+                        )
+                    notified = wakeable
+                last_error, delay = "", CHANNEL_POLL
+            except Exception as e:  # noqa: BLE001 - keep polling, quietly
+                if repr(e) != last_error:
+                    hook._log("channel", e)
+                    last_error = repr(e)
+                delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
+            await asyncio.sleep(delay)
+
+
+def _add_channel_push(mcp: FastMCP, resolver: SessionResolver) -> None:
+    mcp.experimental_capabilities["claude/channel"] = {}
+    push = _ChannelPush(resolver)
+    mcp.add_middleware(push)
+    mcp._mcp_server.notification_handlers[InitializedNotification] = push.start

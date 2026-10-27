@@ -125,7 +125,7 @@ async def test_no_key_is_rejected(server: Server) -> None:
 async def test_instructions_sent(server: Server) -> None:
     a = register(server, "laptop", "api")
     async with client_for(server, server.keys["laptop"], a) as c:
-        assert c.instructions == SERVER_INSTRUCTIONS
+        assert c.initialize_result.instructions == SERVER_INSTRUCTIONS
 
 
 async def test_rate_limited_inline(server: Server) -> None:
