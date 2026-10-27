@@ -35,3 +35,17 @@ jobs:
       - run: uv run flake8 packages
       - run: uv run mypy packages/server/src packages/client/src
       - run: uv run pytest -q
+
+  docker:
+    # Builds the real image and drives the compose stack. Runs on Linux,
+    # which is where a named volume's ownership actually matters.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run pytest -q -m docker
+        env:
+          KAMPUNG_DOCKER_TESTS: "1"
