@@ -4,12 +4,12 @@ import sqlite3
 from collections.abc import Callable
 from datetime import datetime
 
-from . import audit, db
+from . import audit, db, sessions
 from .addressing import validate_name
 from .clock import ts
 from .errors import KampungError
 from .keys import hash_key, new_key
-from .models import Machine, load_machine, machine_from_row
+from .models import Machine, Session, load_machine, load_session, machine_from_row
 
 
 class AdminService:
@@ -96,6 +96,52 @@ class AdminService:
         finally:
             conn.close()
 
+    def end_session(self, session_id: int, actor: str) -> None:
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                _require_session(conn, session_id)
+                sessions.end(conn, session_id, now)
+                audit.record(conn, now, actor, "end_session", {"session": session_id})
+        finally:
+            conn.close()
+
+    def reset_depth(self, session_id: int, actor: str) -> None:
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                sessions.human_turn(conn, _require_session(conn, session_id))
+                audit.record(conn, now, actor, "reset_depth", {"session": session_id})
+        finally:
+            conn.close()
+
+    def delete_message(self, message_id: str, actor: str) -> None:
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                row = conn.execute(
+                    "SELECT delivered_at FROM messages WHERE id = ?", (message_id,)
+                ).fetchone()
+                if row is None:
+                    raise KampungError("unknown_message", "No such message.")
+                if row["delivered_at"] is not None:
+                    raise KampungError(
+                        "already_delivered",
+                        "That message was already read; only queued mail can be "
+                        "deleted.",
+                    )
+                conn.execute(
+                    "UPDATE messages SET reply_to = NULL WHERE reply_to = ?",
+                    (message_id,),
+                )
+                conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+                audit.record(conn, now, actor, "delete_message", {"id": message_id})
+        finally:
+            conn.close()
+
     def list_machines(self) -> list[Machine]:
         conn = self._connect()
         try:
@@ -125,3 +171,10 @@ def _require(conn: sqlite3.Connection, name: str) -> Machine:
     if machine is None:
         raise KampungError("unknown_machine", f"No machine named {name}.")
     return machine
+
+
+def _require_session(conn: sqlite3.Connection, session_id: int) -> Session:
+    session = load_session(conn, session_id)
+    if session is None:
+        raise KampungError("unknown_session", f"No session {session_id}.")
+    return session
