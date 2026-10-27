@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -340,20 +341,40 @@ def _log(name: str, error: BaseException) -> None:
 
 
 def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
-    """Run one hook event. Always exits 0; prints at most one JSON object."""
+    """Run one hook event. Always exits 0; prints at most one JSON object.
+
+    The handler runs in a daemon thread so that anything the HTTP timeouts do
+    not bound (DNS lookups, ps, git) is still cut off at HOOK_DEADLINE.
+    """
     clock = _Clock(HOOK_DEADLINE)
     name = "unknown"
+    result: list[dict[str, object] | None] = []
+    errors: list[BaseException] = []
     try:
         event = json.load(stdin or sys.stdin)
         if not isinstance(event, dict):
             raise HookError("hook input is not a JSON object")
         name = str(event.get("hook_event_name", "unknown"))
         handler = HANDLERS.get(name)
-        if handler is not None:
-            load_config()  # report a broken config before anything else
-            output = handler(event, clock)
-            if output is not None:
-                print(json.dumps(output))
+        if handler is None:
+            return 0
+        load_config()  # report a broken config before anything else
+
+        def run() -> None:
+            try:
+                result.append(handler(event, clock))
+            except BaseException as e:  # noqa: BLE001 - reported below
+                errors.append(e)
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        worker.join(HOOK_DEADLINE)
+        if worker.is_alive():
+            raise HookError("hook deadline passed")
+        if errors:
+            raise errors[0]
+        if result and result[0] is not None:
+            print(json.dumps(result[0]))
     except Exception as e:  # noqa: BLE001 - a hook must never fail the agent
         _log(name, e)
     return 0

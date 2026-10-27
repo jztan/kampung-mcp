@@ -188,3 +188,19 @@ def test_garbage_stdin_fails_open(home: Path) -> None:
 
 def test_unknown_event_is_ignored(home: Path) -> None:
     assert hook.main([], io.StringIO(json.dumps(event("PreToolUse")))) == 0
+
+
+def test_stuck_handler_is_cut_off_at_the_deadline(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # DNS, ps and git calls are not bounded by HTTP timeouts; the whole run is.
+    write_config(home, "http://127.0.0.1:9", "kmp_x")
+    monkeypatch.setattr(hook, "HOOK_DEADLINE", 0.5)
+    monkeypatch.setitem(hook.HANDLERS, "Stop", lambda event, clock: time.sleep(30))
+    out = io.StringIO()
+    monkeypatch.setattr("sys.stdout", out)
+    t = time.monotonic()
+    assert hook.main([], io.StringIO(json.dumps(event("Stop")))) == 0
+    assert time.monotonic() - t < 2
+    assert out.getvalue() == ""
+    assert "deadline" in (home / ".cache" / "kampung" / "hooks.log").read_text()
