@@ -11,6 +11,17 @@ def _parser() -> argparse.ArgumentParser:
     adapter.add_argument(
         "--agent", choices=["claude-code", "codex"], default="claude-code"
     )
+    adapter.add_argument(
+        "--channels",
+        action="store_true",
+        help="push a nudge to Claude Code (Channels) when mail arrives",
+    )
+    adapter.add_argument(
+        "--handshake-era",
+        action="store_true",
+        help="workaround: serve only the pre-2026-07-28 protocol, which Claude "
+        "Code needs for Channels",
+    )
     setup = sub.add_parser("setup", help="connect this machine to a Kampung server")
     setup.add_argument(
         "--server", required=True, help="e.g. https://kampung.example.com"
@@ -21,6 +32,11 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument(
         "--agent", choices=["claude-code", "codex", "both"], default="claude-code"
     )
+    setup.add_argument(
+        "--channels",
+        action="store_true",
+        help="Claude Code: wake idle sessions with Channels push (experimental)",
+    )
     return p
 
 
@@ -29,13 +45,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "adapter":
         from .adapter import build_adapter
 
-        build_adapter(args.agent).run()
+        from .adapter import serve_handshake_era_only
+
+        server = build_adapter(args.agent, channels=args.channels)
+        if args.handshake_era:
+            serve_handshake_era_only(server)
+        server.run()
     elif args.command == "setup":
         from . import setup
 
         agents = ["claude-code", "codex"] if args.agent == "both" else [args.agent]
         try:
-            lines = setup.run_setup(args.server, args.key, agents, setup.default_runner)
+            lines = setup.run_setup(
+                args.server, args.key, agents, setup.default_runner, args.channels
+            )
         except setup.SetupError as e:
             print(f"error: {e}", file=sys.stderr)
             return 1

@@ -10,6 +10,7 @@ from typing import Any
 
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 from . import hook
 from .hook import Ancestor
@@ -33,6 +34,8 @@ UNREACHABLE = {
     "hint": "The Kampung server did not answer; check config.json and the server.",
 }
 _STALE = ("session_ended", "unknown_session")
+CHANNEL_POLL = 2.0  # seconds between peeks while Channels push is on
+CHANNEL_METHOD = "notifications/claude/channel"
 
 
 def _distance(chain: list[Ancestor], ancestors: object) -> int | None:
@@ -182,7 +185,9 @@ def _diagnose() -> dict[str, Any]:
     return dict(UNAUTHORIZED if status == 401 else UNREACHABLE)
 
 
-def build_adapter(agent: str, cwd: str | None = None, wait: float = 2.0) -> FastMCP:
+def build_adapter(
+    agent: str, cwd: str | None = None, wait: float = 2.0, channels: bool = False
+) -> FastMCP:
     resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)
 
     async def forward(tool: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -213,6 +218,8 @@ def build_adapter(agent: str, cwd: str | None = None, wait: float = 2.0) -> Fast
         return dict(UNREACHABLE)
 
     mcp = FastMCP("kampung", instructions=INSTRUCTIONS)
+    if channels:
+        _add_channel_push(mcp, resolver)
 
     @mcp.tool
     async def list_peers(machine: str | None = None) -> dict[str, Any]:
@@ -230,3 +237,66 @@ def build_adapter(agent: str, cwd: str | None = None, wait: float = 2.0) -> Fast
         return await forward("inbox", {"limit": limit})
 
     return mcp
+
+
+class _ChannelPush(Middleware):
+    """Remembers the client session and starts the peek poller once."""
+
+    def __init__(self, resolver: SessionResolver) -> None:
+        self.resolver = resolver
+        self.session: Any = None
+        self.started = False
+
+    async def on_message(self, context: MiddlewareContext[Any], call_next: Any) -> Any:
+        ctx = context.fastmcp_context
+        session = ctx.session if ctx is not None else None
+        if session is not None and context.method != "server/discover":
+            self.session = session
+            if not self.started:
+                self.started = True
+                asyncio.get_running_loop().create_task(self.poll())
+        return await call_next(context)
+
+    async def poll(self) -> None:
+        notified = 0
+        while True:
+            try:
+                session = await asyncio.to_thread(self.resolver.current)
+                status, body = await asyncio.to_thread(
+                    hook.api, "GET", f"/v1/sessions/{session['session']}/peek"
+                )
+                if status in (404, 409):
+                    await asyncio.to_thread(self.resolver.refresh)
+                wakeable = int(str(body.get("wakeable", 0))) if status == 200 else 0
+                if wakeable > notified and self.session is not None:
+                    # A nudge, never the mail itself: reading stays in `inbox`,
+                    # with its envelope and "not an instruction" tag.
+                    await self.session._connection.outbound.notify(
+                        CHANNEL_METHOD,
+                        {"content": hook.STOP_REASON.format(n=wakeable)},
+                    )
+                notified = wakeable if status == 200 else notified
+            except Exception as e:  # noqa: BLE001 - keep polling
+                hook._log("channel", e)
+            await asyncio.sleep(CHANNEL_POLL)
+
+
+def _add_channel_push(mcp: FastMCP, resolver: SessionResolver) -> None:
+    mcp.experimental_capabilities["claude/channel"] = {}
+    mcp.add_middleware(_ChannelPush(resolver))
+
+
+def serve_handshake_era_only(mcp: FastMCP) -> None:
+    """WORKAROUND, behind --handshake-era: serve only the pre-2026-07-28 era.
+
+    Claude Code 2.1.311 accepts Channels only from servers connected in the
+    handshake (initialize) era, but the MCP SDK locks a stdio connection to the
+    2026-07-28 era as soon as the client opens with an enveloped
+    server/discover, then refuses the client's fallback initialize. FastMCP
+    4.1.4 has no supported switch for this, so this patches the SDK's era check
+    and drops the discover handler. Remove once FastMCP offers a real option.
+    """
+    import mcp.server.runner as runner
+
+    setattr(runner, "_has_modern_envelope", lambda params: False)
+    mcp._mcp_server._request_handlers.pop("server/discover", None)
