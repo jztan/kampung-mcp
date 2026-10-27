@@ -216,3 +216,15 @@ def test_list_peers_sessions_and_live_flag(
             "last_seen": s.last_seen,
         }
     ]
+
+
+def test_sender_never_reads_its_own_mail(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop", "api"), make_session("laptop", "api")
+    send(conn, a, "laptop/api", "for my sibling", None, clock.now())
+    assert peek(conn, a, clock.now()) == PeekResult(0, 0)
+    assert inbox(conn, a, 20, clock.now()).messages == []
+    sender = load_session(conn, a.id)
+    assert sender is not None and sender.max_depth_seen == -1
+    assert inbox(conn, b, 20, clock.now()).messages[0]["body"] == "for my sibling"

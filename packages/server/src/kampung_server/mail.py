@@ -141,9 +141,11 @@ def send(
 
 
 # Mail one session may read: its mailbox, undelivered, unexpired, and either
-# untargeted, targeted at it, or targeted at a session that has ended.
+# untargeted, targeted at it, or targeted at a session that has ended; never
+# mail it sent itself.
 _READABLE = (
-    "msg.to_mailbox_id = :mailbox AND msg.delivered_at IS NULL "
+    "msg.to_mailbox_id = :mailbox AND msg.from_session_id != :me "
+    "AND msg.delivered_at IS NULL "
     "AND msg.expires_at > :now AND (msg.to_session_id IS NULL "
     "OR msg.to_session_id = :me OR msg.to_session_id IN "
     "(SELECT id FROM sessions WHERE ended_at IS NOT NULL))"

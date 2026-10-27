@@ -148,3 +148,23 @@ async def test_tool_errors_are_inline(server: Server) -> None:
             "hint": "Use machine/repo or machine/repo#xx; call list_peers to see "
             "addresses.",
         }
+
+
+async def test_revoked_key_rejected_on_mcp(server: Server) -> None:
+    a = register(server, "laptop", "api")
+    async with client_for(server, server.keys["laptop"], a) as c:
+        assert "peers" in (await c.call_tool("list_peers", {})).data
+    admin = AdminService(lambda: db.connect(server.deps.db_path), utcnow)
+    admin.revoke("laptop", "admin:cli")
+    with pytest.raises(Exception):
+        async with client_for(server, server.keys["laptop"], a):
+            pass
+    r = httpx.post(
+        f"{server.url}/mcp",
+        headers={
+            "Authorization": f"Bearer {server.keys['laptop']}",
+            "accept": "application/json, text/event-stream",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+    )
+    assert r.status_code == 401
