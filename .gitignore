@@ -1,0 +1,47 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Test / coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments (.env holds live API keys)
+.env
+.env.*
+!.env.example
+.venv
+venv/
+.python-version
+
+# IDEs / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local SQLite stores
+*.db
+*.db-wal
+*.db-shm
+
+# Claude / agent guidance (local only)
+CLAUDE.md
+AGENTS.md
+.claude/
+
+# Private working documents
+backlog.md
+docs_internal/
+docs/superpowers/
+.superpowers/
