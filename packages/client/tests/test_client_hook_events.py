@@ -204,3 +204,84 @@ def test_stuck_handler_is_cut_off_at_the_deadline(
     assert time.monotonic() - t < 2
     assert out.getvalue() == ""
     assert "deadline" in (home / ".cache" / "kampung" / "hooks.log").read_text()
+
+
+CHANNEL_PROMPT = '<channel source="kampung">\n1 Kampung message(s) waiting.\n</channel>'
+
+
+def test_channel_prompt_does_not_reset_depth(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    # A turn started by a Channels push is not the user typing.
+    start(home, repo)
+    sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
+    db_query(server, "UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", sid)
+    r = run_hook(home, event("UserPromptSubmit", prompt=CHANNEL_PROMPT))
+    assert r.returncode == 0 and r.stdout == ""
+    assert db_query(
+        server, "SELECT max_depth_seen FROM sessions WHERE id = ?", sid
+    ) == [(4,)]
+
+
+NUDGE = {
+    "hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": REASON,
+    }
+}
+
+
+def tool_used(name: str = "Bash") -> dict[str, object]:
+    return event("PostToolUse", tool_name=name, tool_input={})
+
+
+def test_post_tool_use_nudges_once_per_new_mail(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    peer_send(server, "laptop/api", "while you work")
+    first = run_hook(home, tool_used())
+    assert json.loads(first.stdout) == NUDGE
+    # Same mail, later tool call past the throttle window: no repeat.
+    state = hook.cache_dir() / "nudge" / "cc-1.json"
+    state.write_text(json.dumps({"checked": 0, "notified": 1}))
+    assert run_hook(home, tool_used()).stdout == ""
+
+
+def test_post_tool_use_is_throttled(home: Path, server: LiveServer, repo: Path) -> None:
+    start(home, repo)
+    assert run_hook(home, tool_used()).stdout == ""  # checked now, nothing waiting
+    peer_send(server, "laptop/api", "arrives inside the window")
+    assert run_hook(home, tool_used()).stdout == ""  # within 30 s: no HTTP, no nudge
+
+
+def test_post_tool_use_skips_kampung_tools(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    peer_send(server, "laptop/api", "hello")
+    assert run_hook(home, tool_used("mcp__kampung__inbox")).stdout == ""
+    assert (
+        not (hook.cache_dir() / "nudge" / "cc-1.json").exists()
+        or json.loads((hook.cache_dir() / "nudge" / "cc-1.json").read_text())[
+            "notified"
+        ]
+        == 0
+    )
+
+
+def test_post_tool_use_fails_open(home: Path, repo: Path) -> None:
+    write_config(home, "http://10.255.255.1:9", "kmp_x")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
+    r = run_hook(home, tool_used())
+    assert r.returncode == 0 and r.stdout == ""
+
+
+def test_session_end_removes_nudge_state(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    run_hook(home, tool_used())
+    assert (hook.cache_dir() / "nudge" / "cc-1.json").exists()
+    run_hook(home, event("SessionEnd", reason="exit"))
+    assert not (hook.cache_dir() / "nudge" / "cc-1.json").exists()

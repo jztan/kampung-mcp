@@ -26,6 +26,8 @@ _NAME_BAD = re.compile(r"[^A-Za-z0-9._-]")
 
 HTTP_TIMEOUT = 2.0
 HOOK_DEADLINE = 4.0
+NUDGE_INTERVAL = 30.0  # seconds between mid-turn peeks per session
+CHANNEL_PREFIX = "<channel"  # how a Channels push arrives as a UserPromptSubmit
 STOP_REASON = (
     "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
 )
@@ -298,9 +300,60 @@ def on_session_start(event: Event, clock: _Clock) -> None:
 
 
 def on_user_prompt(event: Event, clock: _Clock) -> None:
+    # A turn started by a Channels push also fires UserPromptSubmit, with the
+    # notification as the prompt. That is not the user typing, so it must not
+    # reset the loop guard.
+    if str(event.get("prompt", "")).lstrip().startswith(CHANNEL_PREFIX):
+        return
     # Registers when the session file is missing (SessionStart failed earlier):
     # a deliberate departure from fail-open, so the window recovers.
     _call(event, clock, "POST", "human-turn", revive=True)
+
+
+def _nudge_path(event: Event) -> Path:
+    return (
+        cache_dir() / "nudge" / f"{_NAME_BAD.sub('_', str(event['session_id']))}.json"
+    )
+
+
+def _nudge_state(path: Path) -> dict[str, float]:
+    try:
+        data = json.loads(path.read_text())
+        return {"checked": float(data["checked"]), "notified": float(data["notified"])}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {"checked": 0.0, "notified": 0.0}
+
+
+def _save_nudge_state(path: Path, state: dict[str, float]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".tmp{os.getpid()}")
+    tmp.write_text(json.dumps(state))
+    os.replace(tmp, path)
+
+
+def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
+    """Mid-turn nudge: tell a busy agent about new wakeable mail, at most once
+    per new message and at most one server check every NUDGE_INTERVAL."""
+    path = _nudge_path(event)
+    state = _nudge_state(path)
+    if str(event.get("tool_name", "")).startswith("mcp__kampung__"):
+        # The agent is already talking to Kampung; whatever it read is handled.
+        _save_nudge_state(path, {"checked": time.time(), "notified": 0.0})
+        return None
+    if time.time() - state["checked"] < NUDGE_INTERVAL:
+        return None
+    body = _call(event, clock, "GET", "peek", revive=False)
+    wakeable = int(str(body.get("wakeable", 0)))
+    notify = wakeable > state["notified"]
+    _save_nudge_state(path, {"checked": time.time(), "notified": float(wakeable)})
+    if not notify:
+        return None
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": STOP_REASON.format(n=wakeable),
+        }
+    }
 
 
 def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
@@ -320,12 +373,14 @@ def on_session_end(event: Event, clock: _Clock) -> None:
         api("POST", f"/v1/sessions/{data['session']}/end", None, clock.timeout())
     finally:
         delete_session_file(sid)
+        _nudge_path(event).unlink(missing_ok=True)
 
 
 HANDLERS: dict[str, Callable[[Event, _Clock], dict[str, object] | None]] = {
     "SessionStart": on_session_start,
     "UserPromptSubmit": on_user_prompt,
     "Stop": on_stop,
+    "PostToolUse": on_post_tool_use,
     "SessionEnd": on_session_end,
 }
 

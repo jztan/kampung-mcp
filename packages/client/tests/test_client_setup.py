@@ -10,7 +10,7 @@ from client_testlib import LiveServer
 from kampung_client import cli, hook
 from kampung_client.setup import SetupError, run_setup
 
-EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
+EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse"]
 
 
 class Recorder:

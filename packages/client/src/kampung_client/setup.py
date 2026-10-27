@@ -17,7 +17,7 @@ from typing import Any
 from . import hook
 
 Runner = Callable[[list[str]], int]
-EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd")
+EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse")
 HOOK_TIMEOUT = 5  # seconds; also lifts Claude Code's 1.5 s SessionEnd budget
 
 
