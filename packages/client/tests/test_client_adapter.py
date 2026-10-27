@@ -46,20 +46,21 @@ async def test_send_and_inbox_through_two_adapters(
     assert blog["mailbox"] == "desktop/blog"
 
 
-async def test_adapter_retries_after_session_ended(
+async def test_admin_end_keeps_one_session_per_window(
     home: Path, server: LiveServer, tmp_path: Path
 ) -> None:
     repo = git_repo(tmp_path, "api")
     first = hooked_session(repo, "cc-1")
+    sid = int(str(first["session"]))
     async with Client(build_adapter("claude-code", str(repo))) as c:
         assert "peers" in (await c.call_tool("list_peers", {})).data
-        server.admin.end_session(int(str(first["session"])), "admin:cli")
-        r = await c.call_tool("list_peers", {})
-        assert "peers" in r.data
-    ended = db_query(
-        server, "SELECT ended_at FROM sessions WHERE id = ?", int(str(first["session"]))
-    )
-    assert ended[0][0] is not None
+        server.admin.end_session(sid, "admin:cli")
+        assert "peers" in (await c.call_tool("list_peers", {})).data
+    # The window's own session is revived; no parallel no-hooks session appears.
+    assert db_query(server, "SELECT ended_at FROM sessions WHERE id = ?", sid) == [
+        (None,)
+    ]
+    assert db_query(server, "SELECT count(*) FROM sessions WHERE hooks = 0") == [(0,)]
 
 
 async def test_adapter_revoked_key_is_unauthorized(

@@ -112,22 +112,62 @@ class SessionResolver:
         hook.write_session_file(f"adapter-{os.getpid()}", data)
         return data
 
-    def current(self) -> dict[str, object]:
-        if self._data is None:
-            end = time.monotonic() + self.wait
+    def _wait_pick(self) -> dict[str, object] | None:
+        end = time.monotonic() + self.wait
+        found = self._pick()
+        while found is None and time.monotonic() < end:
+            time.sleep(self.poll)
             found = self._pick()
-            while found is None and time.monotonic() < end:
-                time.sleep(self.poll)
-                found = self._pick()
+        return found
+
+    def _revive(self, found: dict[str, object]) -> dict[str, object]:
+        """Re-register the window's own hook session (same id) after an admin end.
+
+        Safe where a blind revive is not: the hook file is the authority on
+        which session this window owns now, so this can never resurrect a
+        session that `/clear` replaced.
+        """
+        cwd = str(found.get("cwd") or self.cwd)
+        status, _ = hook.api(
+            "POST",
+            "/v1/sessions",
+            {
+                "agent": self.agent,
+                "cwd": cwd,
+                "repo": hook.repo_name(cwd),
+                "hooks": True,
+                "agent_session_id": found.get("agent_session_id"),
+            },
+        )
+        if status != 200:
+            raise hook.HookError(f"revive failed: HTTP {status}")
+        return found
+
+    def current(self) -> dict[str, object]:
+        if self._data is not None and self._data.get("hooks") is True:
+            return self._data
+        found = self._pick()
+        if found is not None:  # a hook session beats any fallback
+            self._data = found
+        elif self._data is None:
+            found = self._wait_pick()
             self._data = found if found is not None else self._self_register()
         return self._data
 
     def refresh(self) -> dict[str, object]:
-        """After `session_ended`: adopt a newer hook session, or start a fresh one."""
+        """After `session_ended`/`unknown_session`: keep one session per window.
+
+        A newer hook file (after `/clear`) is adopted; the same hook session is
+        revived; only with no hook file at all does the adapter register its own.
+        """
         old = self._data.get("session") if self._data else None
-        found = self._pick()
-        if found is not None and found.get("session") != old:
+        found = self._wait_pick()
+        if found is None:
+            self._data = self._self_register()
+        elif found.get("session") != old:
             self._data = found
+        elif found.get("agent_session_id"):
+            self._data = self._revive(found)
         else:
             self._data = self._self_register()
         return self._data

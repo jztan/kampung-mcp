@@ -116,3 +116,39 @@ def test_other_agents_file_is_not_adopted() -> None:
     claude = f("1", [[50, "b"], [10, "c"]], agent="claude-code")
     assert pick_session(CHAIN, "/x", [claude], agent="codex") is None
     assert pick_session(CHAIN, "/x", [claude], agent="claude-code") is not None
+
+
+def test_clear_gap_waits_for_new_file(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    old = hook.register("claude-code", "/w/api", True, "cc-1")
+    old["ancestors"] = hook_chain()
+    hook.write_session_file("cc-1", old)
+    r = SessionResolver("claude-code", "/w/api", wait=2.0)
+    assert r.current()["session"] == old["session"]
+    hook.delete_session_file("cc-1")  # SessionEnd for the old id
+    server.admin.end_session(int(str(old["session"])), "admin:cli")
+
+    def start_new() -> None:  # SessionStart (source "clear") lands a moment later
+        time.sleep(0.5)
+        new = hook.register("claude-code", "/w/api", True, "cc-2")
+        new["ancestors"] = hook_chain()
+        hook.write_session_file("cc-2", new)
+
+    writer = threading.Thread(target=start_new)
+    writer.start()
+    got = r.refresh()
+    writer.join()
+    assert got["session"] != old["session"] and got["hooks"] is True
+    assert db_query(server, "SELECT count(*) FROM sessions WHERE hooks = 0") == [(0,)]
+
+
+def test_fallback_switches_to_hook_file_when_it_appears(
+    home: Path, server: LiveServer
+) -> None:
+    r = SessionResolver("claude-code", "/w/api", wait=0)
+    assert r.current()["hooks"] is False
+    later = hook.register("claude-code", "/w/api", True, "cc-1")
+    later["ancestors"] = hook_chain()
+    hook.write_session_file("cc-1", later)
+    assert r.current()["session"] == later["session"]
