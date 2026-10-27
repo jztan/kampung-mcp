@@ -11,14 +11,23 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Callable, TextIO
 
 Ancestor = tuple[int, str]
 
 _NAME_BAD = re.compile(r"[^A-Za-z0-9._-]")
+
+HTTP_TIMEOUT = 2.0
+HOOK_DEADLINE = 4.0
+STOP_REASON = (
+    "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
+)
 
 
 class HookError(Exception):
@@ -219,3 +228,131 @@ def register(
         "hooks": hooks,
         "ancestors": [list(a) for a in ancestors()],
     }
+
+
+# Hook events --------------------------------------------------------------
+
+Event = dict[str, Any]
+
+
+class _Clock:
+    """Per-run deadline, so retries never push a hook past Claude Code's limit."""
+
+    def __init__(self, seconds: float) -> None:
+        self._end = time.monotonic() + seconds
+
+    def timeout(self) -> float:
+        left = self._end - time.monotonic()
+        if left <= 0:
+            raise HookError("hook deadline passed")
+        return min(HTTP_TIMEOUT, left)
+
+
+def _register_and_save(event: Event, clock: _Clock) -> dict[str, object]:
+    sid = str(event["session_id"])
+    data = register("claude-code", str(event["cwd"]), True, sid, clock.timeout())
+    write_session_file(sid, data)
+    return data
+
+
+def _session(event: Event) -> dict[str, object]:
+    data = read_session_file(str(event["session_id"]))
+    if data is None:
+        raise HookError("no session file for this session")
+    return data
+
+
+def _call(
+    event: Event, clock: _Clock, method: str, action: str, revive: bool
+) -> dict[str, object]:
+    """Call /v1/sessions/{id}/{action}; on 409 re-register (revive) and retry once."""
+    data = (
+        _session(event)
+        if not revive
+        else (
+            read_session_file(str(event["session_id"]))
+            or _register_and_save(event, clock)
+        )
+    )
+    for attempt in range(2):
+        path = f"/v1/sessions/{data['session']}/{action}"
+        status, body = api(method, path, None, clock.timeout())
+        if status == 200:
+            return body
+        if status == 409 and attempt == 0:
+            data = _register_and_save(event, clock)
+            continue
+        raise HookError(f"{action}: HTTP {status} {body.get('error')}")
+    raise HookError(f"{action}: gave up")
+
+
+def on_session_start(event: Event, clock: _Clock) -> None:
+    sweep_stale_files()
+    _register_and_save(event, clock)
+
+
+def on_user_prompt(event: Event, clock: _Clock) -> None:
+    # Registers when the session file is missing (SessionStart failed earlier):
+    # a deliberate departure from fail-open, so the window recovers.
+    _call(event, clock, "POST", "human-turn", revive=True)
+
+
+def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
+    if event.get("stop_hook_active"):
+        return None
+    body = _call(event, clock, "GET", "peek", revive=False)
+    wakeable = int(str(body.get("wakeable", 0)))
+    if wakeable > 0:
+        return {"decision": "block", "reason": STOP_REASON.format(n=wakeable)}
+    return None
+
+
+def on_session_end(event: Event, clock: _Clock) -> None:
+    sid = str(event["session_id"])
+    try:
+        data = _session(event)
+        api("POST", f"/v1/sessions/{data['session']}/end", None, clock.timeout())
+    finally:
+        delete_session_file(sid)
+
+
+HANDLERS: dict[str, Callable[[Event, _Clock], dict[str, object] | None]] = {
+    "SessionStart": on_session_start,
+    "UserPromptSubmit": on_user_prompt,
+    "Stop": on_stop,
+    "SessionEnd": on_session_end,
+}
+
+
+def _log(name: str, error: BaseException) -> None:
+    try:
+        cache_dir().mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with open(cache_dir() / "hooks.log", "a") as f:
+            f.write(f"{stamp} {name}: {type(error).__name__}: {error}\n")
+    except OSError:
+        pass
+
+
+def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
+    """Run one hook event. Always exits 0; prints at most one JSON object."""
+    clock = _Clock(HOOK_DEADLINE)
+    name = "unknown"
+    try:
+        event = json.load(stdin or sys.stdin)
+        if not isinstance(event, dict):
+            raise HookError("hook input is not a JSON object")
+        name = str(event.get("hook_event_name", "unknown"))
+        handler = HANDLERS.get(name)
+        if handler is not None:
+            load_config()  # report a broken config before anything else
+            output = handler(event, clock)
+            if output is not None:
+                print(json.dumps(output))
+    except Exception as e:  # noqa: BLE001 - a hook must never fail the agent
+        _log(name, e)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

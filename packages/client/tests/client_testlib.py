@@ -74,3 +74,40 @@ def run_hook(home: Path, event: dict[str, object]) -> subprocess.CompletedProces
         env={**os.environ, "HOME": str(home)},
         timeout=20,
     )
+
+
+def peer_send(live: LiveServer, to: str, body: str, depth_seen: int = -1) -> None:
+    """Send `body` to `to` from a desktop/blog session, straight through the store."""
+    from kampung_server import mail, sessions
+    from kampung_server.models import load_machine
+
+    conn = db.connect(live.db_path)
+    try:
+        desktop = load_machine(conn, "desktop")
+        assert desktop is not None
+        s = sessions.register(
+            conn,
+            desktop,
+            utcnow(),
+            agent="other",
+            cwd="/w/blog",
+            repo="blog",
+            hooks=True,
+        )
+        if depth_seen != -1:
+            conn.execute(
+                "UPDATE sessions SET max_depth_seen = ? WHERE id = ?",
+                (depth_seen, s.id),
+            )
+            s = sessions.resolve(conn, desktop, s.id, utcnow())
+        mail.send(conn, s, to, body, None, utcnow())
+    finally:
+        conn.close()
+
+
+def db_query(live: LiveServer, sql: str, *params: object) -> list[tuple[object, ...]]:
+    conn = db.connect(live.db_path)
+    try:
+        return [tuple(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
