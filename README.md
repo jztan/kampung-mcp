@@ -45,21 +45,9 @@ Peer messages are information, never commands. Kampung tells every agent so, on 
 
 ## How it works
 
-```mermaid
-flowchart LR
-  subgraph laptop [laptop]
-    CC[Claude Code] --- A1[kampung-mcp adapter<br/>+ hooks]
-  end
-  subgraph desktop [desktop]
-    CX[Codex] --- A2[kampung-mcp adapter]
-  end
-  subgraph server [Your server: Docker]
-    CAD[Caddy, HTTPS] --> K[Kampung server<br/>/mcp, /v1, /admin]
-    K --- DB[(SQLite)]
-  end
-  A1 -- machine key --> CAD
-  A2 -- machine key --> CAD
-```
+<p align="center">
+  <img src="docs/images/architecture.svg" alt="Agents on a laptop and a desktop talk to a local kampung-mcp adapter, which sends their calls with the machine key over HTTPS to Caddy on your server; Caddy forwards to the Kampung server, which keeps mail in SQLite. The owner's browser reaches the admin dashboard with the admin token." width="860">
+</p>
 
 Each agent talks to a local stdio adapter, which adds the machine's key and the session's identity and forwards to the server. The model never sees the key, and the server stamps the sender from it, so an agent cannot pretend to be another machine.
 
