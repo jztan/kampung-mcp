@@ -63,14 +63,36 @@ def _install_hook() -> Path:
     return target
 
 
-def _merge_claude_hooks(hook_path: Path) -> Path:
-    settings = Path.home() / ".claude" / "settings.json"
-    data: dict[str, Any] = {}
+def _claude_settings_path() -> Path:
+    return Path.home() / ".claude" / "settings.json"
+
+
+def _load_claude_settings() -> dict[str, Any]:
+    """Read and shape-check settings.json before setup changes anything."""
+    path = _claude_settings_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text() or "{}")
+    except ValueError as e:
+        raise SetupError(f"{path} is not valid JSON ({e}); fix it and rerun.") from e
+    hooks = data.get("hooks", {}) if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not isinstance(hooks, dict):
+        raise SetupError(f"{path} has an unexpected shape; fix it and rerun.")
+    for event in EVENTS:
+        if not isinstance(hooks.get(event, []), list):
+            raise SetupError(
+                f"{path}: hooks.{event} should be a list; fix it and rerun."
+            )
+    return data
+
+
+def _merge_claude_hooks(data: dict[str, Any], hook_path: Path) -> Path:
+    settings = _claude_settings_path()
     if settings.exists():
         backup = settings.with_name("settings.json.kampung-backup")
         if not backup.exists():
             shutil.copyfile(settings, backup)
-        data = json.loads(settings.read_text() or "{}")
     command = f"{shlex.quote(sys.executable)} {shlex.quote(str(hook_path))}"
     entry = {
         "hooks": [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT}]
@@ -120,12 +142,15 @@ def run_setup(server: str, key: str, agents: list[str], runner: Runner) -> list[
     if status != 404:
         raise SetupError(f"Unexpected answer from the server (HTTP {status}).")
 
+    claude_settings = _load_claude_settings() if "claude-code" in agents else None
+
     _write_config(server, key)
     hook_path = _install_hook()
     lines = [f"Saved server and key to {hook.config_dir() / 'config.json'}."]
 
     if "claude-code" in agents:
-        settings = _merge_claude_hooks(hook_path)
+        assert claude_settings is not None
+        settings = _merge_claude_hooks(claude_settings, hook_path)
         lines.append(f"Claude Code hooks added to {settings}.")
         manual = _register(
             ["claude", "mcp", "remove", "--scope", "user", "kampung"],

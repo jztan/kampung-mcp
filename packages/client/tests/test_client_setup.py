@@ -171,3 +171,23 @@ def test_cli_setup_exit_codes(
     assert "Claude Code" in capsys.readouterr().out
     assert cli.main(["setup", "--server", server.url, "--key", "kmp_wrong"]) == 1
     assert capsys.readouterr().err.startswith("error: ")
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["{not json", "[]", '{"hooks": []}', '{"hooks": {"Stop": {"x": 1}}}'],
+)
+def test_setup_refuses_malformed_settings_before_changing_anything(
+    home: Path, server: LiveServer, content: str
+) -> None:
+    settings_file = home / ".claude" / "settings.json"
+    settings_file.parent.mkdir()
+    settings_file.write_text(content)
+    rec = Recorder()
+    with pytest.raises(SetupError, match="settings.json"):
+        run_setup(server.url, server.keys["desktop"], ["claude-code"], rec)
+    assert settings_file.read_text() == content
+    cfg = json.loads((home / ".config" / "kampung" / "config.json").read_text())
+    assert cfg["key"] == server.keys["laptop"]  # not overwritten with desktop's
+    assert not (home / ".config" / "kampung" / "kampung_hook.py").exists()
+    assert rec.calls == []
