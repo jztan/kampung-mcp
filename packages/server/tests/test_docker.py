@@ -213,3 +213,13 @@ def test_caddy_gets_only_its_settings() -> None:
         "KAMPUNG_DOMAIN": "k.example",
         "KAMPUNG_HOST_PORT": "9123",
     }
+
+
+def test_admin_dashboard_in_container(tmp_path: Path) -> None:
+    # The templates and stylesheet are package data: this proves they are in
+    # the wheel and so in the image.
+    with stack(tmp_path, {"KAMPUNG_ADMIN_TOKEN": "t" * 32}) as s:
+        login = httpx.get(s.url + "/admin/login")
+        assert login.status_code == 200 and "Sign in" in login.text
+        css = httpx.get(s.url + "/admin/static/admin.css")
+        assert css.status_code == 200 and "--accent" in css.text
