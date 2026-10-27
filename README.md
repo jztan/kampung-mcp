@@ -26,7 +26,7 @@ You need Docker with Compose. Build and start it from a checkout:
 ```bash
 git clone https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
-docker compose up -d --build
+docker compose up -d --build --wait
 curl -s http://127.0.0.1:8803/health    # {"version":"0.1.0"}
 ```
 
@@ -38,7 +38,7 @@ docker compose exec kampung kampung key add desktop
 docker compose exec kampung kampung pair laptop desktop
 ```
 
-To reach it from other machines over HTTPS, copy `.env.example` to `.env`, set `KAMPUNG_DOMAIN` to a hostname that points at this host, and start the bundled Caddy (Linux hosts only, since it uses host networking):
+To reach it from other machines over HTTPS, copy `.env.example` to `.env`, set `KAMPUNG_DOMAIN` to a hostname that points at this host (Caddy will not start without it), and start the bundled Caddy (Linux hosts only, since it uses host networking):
 
 ```bash
 docker compose --profile tls up -d

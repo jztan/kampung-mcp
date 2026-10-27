@@ -44,9 +44,22 @@ services:
     image: caddy:2.11.7
     profiles: ["tls"]
     network_mode: host
-    env_file:
-      - path: .env
-        required: false
+    # Only what Caddy needs, interpolated the same way as the publish above
+    # (shell, then .env), so the upstream always matches it and no other
+    # .env secret reaches this container.
+    environment:
+      KAMPUNG_DOMAIN: ${KAMPUNG_DOMAIN:-}
+      KAMPUNG_HOST_PORT: ${KAMPUNG_HOST_PORT:-8803}
+    # An empty site address would make Caddy misread the file, so say why.
+    # (${VAR:?} would also break plain `docker compose up`.)
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -z "$$KAMPUNG_DOMAIN" ]; then
+        echo "kampung: set KAMPUNG_DOMAIN in .env to use the tls profile" >&2;
+        exit 1; fi;
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

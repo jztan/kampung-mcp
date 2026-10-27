@@ -15,7 +15,6 @@
 
 # Private working documents.
 .superpowers/
-docs/superpowers/
 docs/
 CLAUDE.md
 backlog.md

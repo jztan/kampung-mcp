@@ -2,6 +2,13 @@
 # KAMPUNG_DOMAIN (in .env) is the public hostname; Caddy gets and renews its
 # certificate automatically. Caddy runs on the host network, so it reaches
 # the loopback publish and sees real client addresses for the /admin rule.
+{
+	# Caddy shares the host network, so its admin API would listen on the
+	# host's localhost:2019 where any local process could rewrite the proxy.
+	# Restart the container to apply changes instead.
+	admin off
+}
+
 {$KAMPUNG_DOMAIN} {
 	# The dashboard shows message bodies: only loopback and the Tailscale
 	# range may reach it. The admin token is the second layer, not the only one.

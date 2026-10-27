@@ -1,6 +1,10 @@
 """The real image and compose stack, driven through the docker CLI."""
 
+import json
+import os
+import subprocess
 import time
+import uuid
 from pathlib import Path
 
 import httpx
@@ -148,3 +152,64 @@ def test_tls_profile_renders() -> None:
     )
     assert plain.stdout.split() == ["kampung"]
     assert sorted(tls.stdout.split()) == ["caddy", "kampung"]
+
+
+def test_caddy_admin_api_is_off() -> None:
+    # Caddy runs on the host network: an open admin API on localhost:2019
+    # would let any local process rewrite the proxy and drop the /admin rule.
+    assert (REPO / "deploy" / "Caddyfile").is_file()
+    r = docker_run(
+        "run",
+        "--rm",
+        "-e",
+        "KAMPUNG_DOMAIN=kampung.example.com",
+        "-v",
+        f"{REPO}/deploy/Caddyfile:/etc/caddy/Caddyfile:ro",
+        CADDY,
+        "caddy",
+        "adapt",
+        "--config",
+        "/etc/caddy/Caddyfile",
+        "--adapter",
+        "caddyfile",
+    )
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout).get("admin") == {"disabled": True}
+
+
+def test_caddy_without_domain_says_so() -> None:
+    compose = str(REPO / "docker-compose.yml")
+    env = {k: v for k, v in os.environ.items() if k != "KAMPUNG_DOMAIN"}
+    base = ["docker", "compose", "-p", f"kampungtest{uuid.uuid4().hex[:8]}"]
+    base += ["-f", compose, "--profile", "tls"]
+    try:
+        r = subprocess.run(
+            base + ["run", "--rm", "--no-deps", "caddy"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+    finally:  # `run --rm` keeps the project's network and volumes
+        subprocess.run(base + ["down", "-v"], capture_output=True, env=env)
+    assert r.returncode != 0
+    assert "KAMPUNG_DOMAIN" in r.stderr + r.stdout
+
+
+def test_caddy_gets_only_its_settings() -> None:
+    compose = str(REPO / "docker-compose.yml")
+    env = {**os.environ, "KAMPUNG_HOST_PORT": "9123", "KAMPUNG_DOMAIN": "k.example"}
+    r = subprocess.run(
+        ["docker", "compose", "-f", compose, "--profile", "tls"]
+        + ["config", "--format", "json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    caddy = json.loads(r.stdout)["services"]["caddy"]
+    # Same port as the publish (shell or .env), and no other .env secrets.
+    assert caddy["environment"] == {
+        "KAMPUNG_DOMAIN": "k.example",
+        "KAMPUNG_HOST_PORT": "9123",
+    }
