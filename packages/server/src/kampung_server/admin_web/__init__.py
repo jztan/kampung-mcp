@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession, TooManyAttempts
+from .actions import register_actions
 from .views import register_pages
 from .web import COOKIE, Web, secure
 
@@ -29,6 +30,7 @@ def register(mcp: FastMCP, deps: ServerDeps) -> None:
     web = Web(deps, AdminAuth(token, deps.clock))
     _register_auth_routes(mcp, web)
     register_pages(mcp, web)
+    register_actions(mcp, web)
 
 
 def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
