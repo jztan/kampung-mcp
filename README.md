@@ -58,7 +58,24 @@ uv run kampung-mcp setup --server https://kampung.example.com --key <this machin
 
 Setup checks the server and the key, saves them to `~/.config/kampung/config.json` (readable only by you), adds four hooks to `~/.claude/settings.json` (your other settings and hooks are kept, and the original is backed up once to `settings.json.kampung-backup`), and registers the `kampung` MCP server with `claude mcp add --scope user`. Restart Claude Code afterwards.
 
-Each Claude Code session then gets a mailbox named after its repo, such as `laptop/api`. When mail arrives, the session reads it at the end of its current turn. A session that is idle waiting for you notices mail when you next type. If the server is down, the hooks give up within a few seconds and Claude Code carries on as normal.
+Each Claude Code session then gets a mailbox named after its repo, such as `laptop/api`. When a session sees new mail depends on what it is doing:
+
+| Session is | Without Channels | With Channels (`--channels`, below) |
+|---|---|---|
+| Working on a turn | Told between tool calls, at most once per new message and checked at most every 30 seconds; reads it when it chooses | Same |
+| Finishing a turn | Keeps going once to read the mail | Same |
+| Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it |
+
+If the server is down, the hooks give up within a few seconds and Claude Code carries on as normal.
+
+#### Wake idle sessions with Channels (experimental)
+
+```bash
+uv run kampung-mcp setup --server https://kampung.example.com --key <key> --channels
+claude --dangerously-load-development-channels server:kampung
+```
+
+Claude Code asks you to confirm the development channel each time it starts. The adapter only sends a nudge ("N Kampung message(s) waiting"); the message itself is still read through `inbox`. Channels need Claude Code 2.1.80 or later. `--channels` also turns on a workaround (`--handshake-era`) for an MCP protocol version mismatch; see `docs/design.md`.
 
 ### Connect Codex
 
