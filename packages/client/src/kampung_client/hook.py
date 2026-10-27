@@ -229,6 +229,8 @@ def register(
         "cwd": cwd,
         "written_at": time.time(),
         "hooks": hooks,
+        "agent": agent,
+        "agent_session_id": agent_session_id,
         "ancestors": [list(a) for a in ancestors()],
     }
 

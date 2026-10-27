@@ -15,6 +15,7 @@ def f(
     cwd: str = "/x",
     written_at: float = 1.0,
     hooks: bool = True,
+    agent: str = "claude-code",
 ) -> dict[str, object]:
     return {
         "session": session,
@@ -22,6 +23,7 @@ def f(
         "written_at": written_at,
         "hooks": hooks,
         "ancestors": ancestors,
+        "agent": agent,
     }
 
 
@@ -101,3 +103,16 @@ def test_refresh_never_revives(home: Path, server: LiveServer) -> None:
         server, "SELECT ended_at FROM sessions WHERE id = ?", int(str(first["session"]))
     )
     assert ended[0][0] is not None
+
+
+def test_sibling_file_alone_is_not_adopted() -> None:
+    # Only another window's file exists (ours is missing): sharing a terminal
+    # or editor ancestor further up must not be enough.
+    sibling = f("2", [[60, "z"], [10, "c"]])
+    assert pick_session(CHAIN, "/x", [sibling]) is None
+
+
+def test_other_agents_file_is_not_adopted() -> None:
+    claude = f("1", [[50, "b"], [10, "c"]], agent="claude-code")
+    assert pick_session(CHAIN, "/x", [claude], agent="codex") is None
+    assert pick_session(CHAIN, "/x", [claude], agent="claude-code") is not None

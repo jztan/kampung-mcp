@@ -114,7 +114,9 @@ def db_query(live: LiveServer, sql: str, *params: object) -> list[tuple[object, 
 
 
 def hook_chain() -> list[list[object]]:
-    """The ancestors a hook spawned by this test process would record."""
-    me = hook._process(os.getpid())
-    assert me is not None
-    return [[os.getpid(), me[1]]] + [list(a) for a in hook.ancestors()]
+    """Ancestors as if this process were a hook run by its parent (the agent).
+
+    An in-process resolver's chain starts at that same parent, so the file's
+    first ancestor is the shared agent process, as in a real window.
+    """
+    return [list(a) for a in hook.ancestors()]

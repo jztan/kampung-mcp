@@ -36,28 +36,39 @@ _STALE = ("session_ended", "unknown_session")
 
 
 def _distance(chain: list[Ancestor], ancestors: object) -> int | None:
-    if not isinstance(ancestors, list):
+    """Where the file's own agent process (its first ancestor) sits in `chain`.
+
+    Only that link counts: two windows under one terminal, editor or tmux
+    server share every ancestor above their agents, so matching on any shared
+    link would let one window adopt another's session.
+    """
+    if not isinstance(ancestors, list) or not ancestors:
         return None
-    recorded = {tuple(a) for a in ancestors if isinstance(a, list) and len(a) == 2}
-    for i, link in enumerate(chain):
-        if link in recorded:
-            return i
-    return None
+    first = ancestors[0]
+    if not isinstance(first, list) or len(first) != 2:
+        return None
+    link = (first[0], first[1])
+    return chain.index(link) if link in chain else None
 
 
 def pick_session(
-    chain: list[Ancestor], cwd: str, files: list[dict[str, object]]
+    chain: list[Ancestor],
+    cwd: str,
+    files: list[dict[str, object]],
+    agent: str | None = None,
 ) -> dict[str, object] | None:
-    """The hook-written session file whose ancestors meet `chain` nearest.
+    """The hook-written session file whose agent process is in `chain`.
 
     Ties prefer a matching cwd, then the newest file. Files written by an
-    adapter (hooks false) are never adopted: their chain is the adapter's own,
-    so they would always win.
+    adapter (hooks false) are never adopted: their chain is the adapter's own.
+    With `agent`, only files written for that agent are considered.
     """
     best: tuple[int, int, float] | None = None
     choice = None
     for f in files:
         if f.get("hooks") is not True:
+            continue
+        if agent is not None and f.get("agent") != agent:
             continue
         d = _distance(chain, f.get("ancestors"))
         if d is None:
@@ -92,7 +103,9 @@ class SessionResolver:
         return self._chain
 
     def _pick(self) -> dict[str, object] | None:
-        return pick_session(self._ancestors(), self.cwd, hook.list_session_files())
+        return pick_session(
+            self._ancestors(), self.cwd, hook.list_session_files(), self.agent
+        )
 
     def _self_register(self) -> dict[str, object]:
         data = hook.register(self.agent, self.cwd, False)
