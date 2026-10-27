@@ -36,5 +36,26 @@ services:
       start_interval: 2s
       retries: 3
 
+  # Optional TLS in front of the server: docker compose --profile tls up -d
+  # Needs KAMPUNG_DOMAIN in .env and a Linux host. Host networking is what
+  # lets Caddy reach the loopback publish and see real client addresses for
+  # the /admin rule; Docker Desktop on macOS or Windows does not give that.
+  caddy:
+    image: caddy:2.11.7
+    profiles: ["tls"]
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - kampung
+    restart: unless-stopped
+
 volumes:
   kampung-data:
+  caddy-data:
+  caddy-config:

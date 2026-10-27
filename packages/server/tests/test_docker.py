@@ -9,6 +9,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from docker_testlib import (
+    REPO,
     build_image,
     docker_required,
     docker_run,
@@ -17,6 +18,7 @@ from docker_testlib import (
 )
 
 pytestmark = [pytest.mark.docker, docker_required()]
+CADDY = "caddy:2.11.7"
 
 
 def test_image_runs_as_uid_1000() -> None:
@@ -109,3 +111,40 @@ def test_env_file_cannot_move_port_or_db(tmp_path: Path) -> None:
         assert httpx.get(s.url + "/health").status_code == 200
         assert s.exec("kampung", "key", "add", "laptop").returncode == 0
         assert s.exec("test", "-s", "/data/kampung.db").returncode == 0
+
+
+def test_caddyfile_validates() -> None:
+    # A missing bind-mount source would make docker create it as a directory.
+    assert (REPO / "deploy" / "Caddyfile").is_file()
+    r = docker_run(
+        "run",
+        "--rm",
+        "-e",
+        "KAMPUNG_DOMAIN=kampung.example.com",
+        "-v",
+        f"{REPO}/deploy/Caddyfile:/etc/caddy/Caddyfile:ro",
+        CADDY,
+        "caddy",
+        "validate",
+        "--config",
+        "/etc/caddy/Caddyfile",
+        "--adapter",
+        "caddyfile",
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_caddyfile_keeps_streaming_and_admin_guard() -> None:
+    text = (REPO / "deploy" / "Caddyfile").read_text()
+    assert "flush_interval -1" in text
+    assert "not remote_ip 127.0.0.1/8 100.64.0.0/10" in text
+
+
+def test_tls_profile_renders() -> None:
+    compose = str(REPO / "docker-compose.yml")
+    plain = docker_run("compose", "-f", compose, "config", "--services")
+    tls = docker_run(
+        "compose", "-f", compose, "--profile", "tls", "config", "--services"
+    )
+    assert plain.stdout.split() == ["kampung"]
+    assert sorted(tls.stdout.split()) == ["caddy", "kampung"]
