@@ -65,6 +65,9 @@ def _process(pid: int) -> tuple[int, str] | None:
             capture_output=True,
             text=True,
             timeout=2,
+            # Hooks and the adapter may run with different locales, and
+            # lstart is locale-formatted; pin it so start times compare equal.
+            env={**os.environ, "LC_ALL": "C"},
         ).stdout.split()
     except (OSError, subprocess.SubprocessError):
         return None

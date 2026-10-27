@@ -1,4 +1,5 @@
 import json
+import re
 import os
 from pathlib import Path
 
@@ -115,3 +116,16 @@ def test_register_with_awkward_dir_name(server: LiveServer, tmp_path: Path) -> N
     d = tmp_path / "plain" / ".My Repo!"
     d.mkdir(parents=True)
     assert hook.register("codex", str(d), False)["mailbox"] == "laptop/My-Repo-"
+
+
+def test_ancestor_start_times_ignore_locale(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Hooks and the adapter can run with different locales; start times must
+    # still compare equal, so `ps` always runs in the C locale.
+    pattern = r"^[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \d{4}$"
+    monkeypatch.setenv("LANG", "en_SG.UTF-8")
+    monkeypatch.setenv("LC_ALL", "en_SG.UTF-8")
+    with_locale = hook.ancestors()
+    monkeypatch.delenv("LANG")
+    monkeypatch.delenv("LC_ALL")
+    assert hook.ancestors() == with_locale
+    assert all(re.match(pattern, start) for _, start in with_locale)
