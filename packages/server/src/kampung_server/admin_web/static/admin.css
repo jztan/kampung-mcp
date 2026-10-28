@@ -106,7 +106,7 @@ td.right, th.right { text-align: right; }
 .depth.hot { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 
 .filters { display: flex; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; align-items: end; }
-label.f { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+label.f { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 input, select, textarea { font: inherit; font-size: 13px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 9px; min-width: 0; }
 input:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 
@@ -133,7 +133,9 @@ input:focus, select:focus { border-color: var(--accent); outline: none; box-shad
 @media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); }
   .nav { padding-block: 10px; gap: 10px; }
-  .nav ul { flex-direction: row; overflow-x: auto; padding-inline: max(10px, env(safe-area-inset-left, 0px)) max(10px, env(safe-area-inset-right, 0px)); }
+  /* A scroll container in the .nav flex column may shrink below its content and,
+     with classic scrollbars, grows a vertical scrollbar over the labels. */
+  .nav ul { flex-direction: row; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; scrollbar-width: thin; padding-bottom: 4px; padding-inline: max(10px, env(safe-area-inset-left, 0px)) max(10px, env(safe-area-inset-right, 0px)); }
   .nav a { white-space: nowrap; }
   .nav-foot { padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); display: flex; gap: 8px; align-items: center; }
   .brand { padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); }
