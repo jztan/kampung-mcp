@@ -3,7 +3,15 @@ from pathlib import Path
 import pytest
 from fastmcp import Client
 
-from client_testlib import LiveServer, db_query, git_repo, hook_chain, write_config
+from client_testlib import (
+    LiveServer,
+    db_query,
+    git_repo,
+    hook_chain,
+    peer_send,
+    run_hook,
+    write_config,
+)
 from kampung_client import hook
 from kampung_client.adapter import build_adapter
 from kampung_server.tools import SERVER_INSTRUCTIONS
@@ -102,4 +110,58 @@ async def test_codex_agent_registers_without_hooks(
     repo = git_repo(tmp_path, "api")
     async with Client(build_adapter("codex", str(repo), wait=0)) as c:
         assert "peers" in (await c.call_tool("list_peers", {})).data
+    assert db_query(server, "SELECT agent, hooks FROM sessions") == [("codex", 0)]
+
+
+def codex_meta(sid: str) -> dict[str, object]:
+    return {"x-codex-turn-metadata": {"session_id": sid, "thread_id": sid}}
+
+
+async def test_codex_tool_call_meta_binds_the_session(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    for sid in ("cx-1", "cx-2"):
+        hook.write_session_file(
+            sid, hook.register("codex", str(repo), True, sid, ancestry=False)
+        )
+    two = hook.read_session_file("cx-2")
+    assert two is not None
+    peer_send(server, f"laptop/api#{two['suffix']}", "for two only")
+    async with Client(build_adapter("codex", str(repo), wait=0)) as c:
+        got = await c.call_tool("inbox", {}, meta=codex_meta("cx-2"))
+        assert [m["body"] for m in got.data["messages"]] == ["for two only"]
+    codex_rows = "SELECT count(*) FROM sessions WHERE agent = 'codex'"
+    assert db_query(server, codex_rows) == [(2,)]  # no extra session registered
+
+
+async def test_codex_unapproved_hooks_then_start_keeps_one_session(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    # Tool calls before the hooks are trusted register the id; the first
+    # SessionStart after trusting them revives that same session.
+    repo = git_repo(tmp_path, "api")
+    async with Client(build_adapter("codex", str(repo), wait=0)) as c:
+        await c.call_tool("inbox", {}, meta=codex_meta("cx-9"))
+    run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "cx-9",
+            "cwd": str(repo),
+            "source": "startup",
+        },
+        "--agent",
+        "codex",
+    )
+    assert db_query(server, "SELECT count(*), max(hooks) FROM sessions") == [(1, 1)]
+
+
+async def test_codex_malformed_meta_falls_back_to_polling(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    async with Client(build_adapter("codex", str(repo), wait=0)) as c:
+        bad = {"x-codex-turn-metadata": {"session_id": 7}}
+        assert "peers" in (await c.call_tool("list_peers", {}, meta=bad)).data
     assert db_query(server, "SELECT agent, hooks FROM sessions") == [("codex", 0)]

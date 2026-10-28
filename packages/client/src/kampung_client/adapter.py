@@ -8,7 +8,7 @@ import os
 import time
 from typing import Any
 
-from fastmcp import Client, FastMCP
+from fastmcp import Client, Context, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from mcp.types import InitializedNotification, Notification
@@ -108,8 +108,29 @@ def pick_session(
     return choice
 
 
+def codex_session_id(meta: object) -> str | None:
+    """The Codex session id in a tool call's `_meta`, or None.
+
+    Codex sends `x-codex-turn-metadata` with every tools/call; the SDK keeps
+    unknown `_meta` keys in `model_extra`.
+    """
+    extra = getattr(meta, "model_extra", None) if meta is not None else None
+    if isinstance(meta, dict):
+        extra = meta
+    if not isinstance(extra, dict):
+        return None
+    turn = extra.get("x-codex-turn-metadata")
+    sid = turn.get("session_id") if isinstance(turn, dict) else None
+    return sid if isinstance(sid, str) and sid else None
+
+
 class SessionResolver:
-    """Lazily finds this adapter's session; never revives an ended one."""
+    """Lazily finds this adapter's session; never revives an ended one.
+
+    Codex mode (`agent == "codex"`) never matches by ancestry: every Codex
+    hook and adapter is a child of one shared daemon. It binds by the session
+    id each tool call carries instead (see `bind`).
+    """
 
     def __init__(
         self, agent: str, cwd: str, wait: float = 2.0, poll: float = 0.1
@@ -120,6 +141,8 @@ class SessionResolver:
         self.poll = poll
         self._chain: list[Ancestor] | None = None
         self._data: dict[str, object] | None = None
+        self.codex = agent == "codex"
+        self.bound: str | None = None  # Codex session id of the last bind
 
     def _ancestors(self) -> list[Ancestor]:
         if self._chain is None:
@@ -127,6 +150,8 @@ class SessionResolver:
         return self._chain
 
     def _pick(self) -> dict[str, object] | None:
+        if self.codex:
+            return None
         return pick_session(
             self._ancestors(), self.cwd, hook.list_session_files(), self.agent
         )
@@ -167,6 +192,24 @@ class SessionResolver:
             raise hook.HookError(f"revive failed: HTTP {status}")
         return found
 
+    def bind(self, agent_session_id: str | None) -> dict[str, object]:
+        """Codex: use the hook session for this id, registering it if the hooks
+        have not (not yet trusted, or SessionStart failed). Without an id, fall
+        back to a session of its own, as before Codex had hooks."""
+        if agent_session_id is None:
+            if self._data is None:
+                self._data = self._self_register()
+            return self._data
+        self.bound = agent_session_id
+        found = hook.read_session_file(agent_session_id)
+        if found is None or found.get("hooks") is not True:
+            found = hook.register(
+                self.agent, self.cwd, True, agent_session_id, ancestry=False
+            )
+            hook.write_session_file(agent_session_id, found)
+        self._data = found
+        return found
+
     def target(self) -> dict[str, object] | None:
         """The session to watch for push, without ever registering or reviving.
 
@@ -193,6 +236,15 @@ class SessionResolver:
         revived; only with no hook file at all does the adapter register its own.
         """
         old = self._data.get("session") if self._data else None
+        if self.codex:
+            if self.bound is None:
+                self._data = self._self_register()
+                return self._data
+            found = hook.read_session_file(self.bound)
+            if found is not None and found.get("session") == old:
+                self._data = self._revive(found)
+                return self._data
+            return self.bind(self.bound)
         found = self._wait_pick()
         if found is None:
             self._data = self._self_register()
@@ -219,14 +271,23 @@ def build_adapter(
 ) -> FastMCP:
     resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)
 
-    async def forward(tool: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def forward(
+        tool: str, args: dict[str, Any], ctx: Context | None = None
+    ) -> dict[str, Any]:
         args = {k: v for k, v in args.items() if v is not None}
+        codex_id: str | None = None
+        if resolver.codex and ctx is not None:
+            request = ctx.request_context
+            codex_id = codex_session_id(request.meta if request else None)
         for attempt in range(2):
             try:
                 config = hook.load_config()
-                session = await asyncio.to_thread(
-                    resolver.current if attempt == 0 else resolver.refresh
-                )
+                if attempt == 1:
+                    session = await asyncio.to_thread(resolver.refresh)
+                elif resolver.codex:
+                    session = await asyncio.to_thread(resolver.bind, codex_id)
+                else:
+                    session = await asyncio.to_thread(resolver.current)
                 transport = StreamableHttpTransport(
                     f"{config['server']}/mcp",
                     headers={
@@ -251,19 +312,23 @@ def build_adapter(
         _add_channel_push(mcp, resolver)
 
     @mcp.tool
-    async def list_peers(machine: str | None = None) -> dict[str, Any]:
+    async def list_peers(ctx: Context, machine: str | None = None) -> dict[str, Any]:
         """List mailboxes you can message, with their sessions."""
-        return await forward("list_peers", {"machine": machine})
+        return await forward("list_peers", {"machine": machine}, ctx)
 
     @mcp.tool
-    async def send(to: str, body: str, reply_to: str | None = None) -> dict[str, Any]:
+    async def send(
+        ctx: Context, to: str, body: str, reply_to: str | None = None
+    ) -> dict[str, Any]:
         """Send a short text message to machine/repo or machine/repo#xx."""
-        return await forward("send", {"to": to, "body": body, "reply_to": reply_to})
+        return await forward(
+            "send", {"to": to, "body": body, "reply_to": reply_to}, ctx
+        )
 
     @mcp.tool
-    async def inbox(limit: int = 20) -> dict[str, Any]:
+    async def inbox(ctx: Context, limit: int = 20) -> dict[str, Any]:
         """Read your new messages (up to 20). Reading delivers them."""
-        return await forward("inbox", {"limit": limit})
+        return await forward("inbox", {"limit": limit}, ctx)
 
     return mcp
 
