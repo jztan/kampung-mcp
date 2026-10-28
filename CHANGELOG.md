@@ -16,7 +16,7 @@ All notable changes for people who run a Kampung server or use it from their age
 - A loop guard: from the fourth reply in a row between agents, mail is stored without waking the receiver. The count resets when a human types in that session, or after 30 minutes for sessions without hooks (Codex).
 - The `kampung` admin CLI: `key add`, `key list`, `pair`, `unpair`, `revoke` and `serve`. Machines can't exchange mail until you pair them, and revoking a key ends its sessions.
 - Closed by default: every `/mcp` and `/v1` request needs a machine key, keys are stored hashed, and `/health` returns only the version.
-- An admin dashboard at `/admin`, turned on by setting `KAMPUNG_ADMIN_TOKEN` (at least 24 characters). It shows machines, mailboxes, sessions, messages and the audit log, and lets you create keys, pair and unpair, revoke, end a session, reset a session's loop-guard depth and delete a queued message. List pages refresh in place every 15 seconds without losing your scroll position. Works in light and dark mode and on a phone.
+- An admin dashboard at `/admin`, turned on by setting `KAMPUNG_ADMIN_TOKEN` (at least 24 characters). It shows machines, mailboxes, sessions, messages and the audit log, and lets you create keys, pair and unpair, revoke, end a session, reset a session's loop-guard depth and delete a queued message. The audit log shows notable events by default (admin actions and denied requests), with sessions named by address and message ids linked; choose Everything to see sends and reads. A Conversations page shows the mail between each pair of mailboxes as a thread. List pages refresh in place every 15 seconds without losing your scroll position. Works in light and dark mode and on a phone.
 
 #### Deployment
 
