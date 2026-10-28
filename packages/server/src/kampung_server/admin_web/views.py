@@ -82,7 +82,14 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
     async def overview(request: Request, session: AdminSession) -> Response:
         with connection(web) as conn:
             o = queries.overview(conn, web.deps.clock())
-        return web.render(request, "overview.html", session, title="Overview", o=o)
+        return web.render(
+            request,
+            "overview.html",
+            session,
+            title="Overview",
+            auto_refresh=True,
+            o=o,
+        )
 
     async def machines(request: Request, session: AdminSession) -> Response:
         with connection(web) as conn:
@@ -93,6 +100,8 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
             "machines.html",
             session,
             title="Machines",
+            # A refresh would wipe a key that is shown only once.
+            auto_refresh=new_key is None,
             rows=rows,
             active=[m.name for m in rows if m.active],
             new_key=new_key,
@@ -102,7 +111,12 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
         with connection(web) as conn:
             rows = queries.mailboxes(conn, web.deps.clock())
         return web.render(
-            request, "mailboxes.html", session, title="Mailboxes", rows=rows
+            request,
+            "mailboxes.html",
+            session,
+            title="Mailboxes",
+            auto_refresh=True,
+            rows=rows,
         )
 
     async def sessions(request: Request, session: AdminSession) -> Response:
@@ -116,6 +130,7 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
             "sessions.html",
             session,
             title="Sessions",
+            auto_refresh=True,
             page=page,
             state=state,
             agent=agent,
@@ -135,6 +150,7 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
             "messages.html",
             session,
             title="Messages",
+            auto_refresh=True,
             page=page,
             boxes=boxes,
             mailbox=mailbox,
@@ -155,7 +171,14 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
                 message="No such message. It may have been deleted or swept "
                 "after it expired.",
             )
-        return web.render(request, "message.html", session, title="Message", m=m)
+        return web.render(
+            request,
+            "message.html",
+            session,
+            title="Message",
+            auto_refresh=True,
+            m=m,
+        )
 
     async def audit(request: Request, session: AdminSession) -> Response:
         with connection(web) as conn:
@@ -170,6 +193,7 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
             "audit.html",
             session,
             title="Audit log",
+            auto_refresh=True,
             page=page,
             actors=actors,
             actions=actions,

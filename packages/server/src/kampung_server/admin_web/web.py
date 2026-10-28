@@ -22,8 +22,9 @@ SECTIONS = {
 }
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
-        "default-src 'none'; style-src 'self'; img-src 'self' data:; "
-        "form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+        "default-src 'none'; script-src 'self'; connect-src 'self'; "
+        "style-src 'self'; img-src 'self' data:; form-action 'self'; "
+        "frame-ancestors 'none'; base-uri 'none'"
     ),
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
@@ -66,8 +67,13 @@ class Web:
         template: str,
         session: AdminSession | None = None,
         status: int = 200,
+        auto_refresh: bool = False,
         **ctx: Any,
     ) -> Response:
+        """Render a page; `auto_refresh` lets admin.js refresh it in place.
+
+        Never for a page shown in answer to a POST.
+        """
         flash = None
         if session is not None:
             flash, session.flash = session.flash, None
@@ -85,6 +91,7 @@ class Web:
             version=__version__,
             now=self.deps.clock(),
             nav=self.nav_counts() if session else {},
+            auto_refresh=auto_refresh and request.method == "GET",
             **ctx,
         )
         return secure(HTMLResponse(html, status_code=status))

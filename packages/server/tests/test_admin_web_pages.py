@@ -142,3 +142,35 @@ def test_refresh_never_points_at_a_post_only_path(web: TestClient) -> None:
         page = web.post(path, data={"csrf": "stale"})
         assert page.status_code == 403
         assert f'href="{section}">Refresh' in page.text, path
+
+
+AUTO = "data-auto-refresh"
+
+
+def test_list_pages_auto_refresh(web: TestClient, seeded: Seeded) -> None:
+    login(web)
+    for path in PAGES + [f"/admin/messages/{seeded.message_id}"]:
+        page = web.get(path).text
+        assert AUTO in page, path
+        assert '<script src="/admin/static/admin.js" defer></script>' in page, path
+
+
+def test_login_error_and_confirm_pages_do_not_auto_refresh(
+    web: TestClient, seeded: Seeded
+) -> None:
+    assert AUTO not in web.get("/admin/login").text
+    login(web)
+    for path in (
+        "/admin/messages/msg_missing",
+        "/admin/machines/laptop/revoke",
+        f"/admin/messages/{seeded.message_id}/delete",
+    ):
+        page = web.get(path).text
+        assert AUTO not in page and "admin.js" not in page, path
+
+
+def test_pages_have_no_inline_scripts(web: TestClient, seeded: Seeded) -> None:
+    login(web)
+    for path in PAGES:
+        page = web.get(path).text
+        assert page.count("<script") == page.count("<script src="), path

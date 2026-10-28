@@ -187,3 +187,23 @@ def test_stale_revoke_and_end_say_so(
         page = web.post(f"/admin/sessions/{s.id}/{action}", data={"csrf": csrf}).text
         assert "already ended" in page, action
     assert audit_rows(conn) == ["revoke"]
+
+
+def test_new_key_and_post_result_pages_do_not_auto_refresh(
+    web: TestClient, make_session: MakeSession
+) -> None:
+    # A refresh would wipe a key that is shown only once.
+    make_session("laptop", "api")
+    csrf = login(web)
+    r = web.post(
+        "/admin/machines", data={"csrf": csrf, "name": "vps"}, follow_redirects=False
+    )
+    key_page = web.get(r.headers["location"]).text
+    assert "kmp_" in key_page and "data-auto-refresh" not in key_page
+    assert "data-auto-refresh" in web.get("/admin/machines").text
+    wrong = web.post(
+        "/admin/machines/laptop/revoke", data={"csrf": csrf, "confirm": "lap"}
+    ).text
+    assert "did not match" in wrong and "data-auto-refresh" not in wrong
+    expired = web.post("/admin/machines", data={"csrf": "nope", "name": "x"})
+    assert expired.status_code == 403 and "data-auto-refresh" not in expired.text

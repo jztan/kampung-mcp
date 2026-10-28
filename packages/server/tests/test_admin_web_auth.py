@@ -12,8 +12,9 @@ from kampung_server.ratelimit import RateLimiter
 from server_testlib import FakeClock
 
 CSP = (
-    "default-src 'none'; style-src 'self'; img-src 'self' data:; "
-    "form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+    "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; "
+    "img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; "
+    "base-uri 'none'"
 )
 
 
@@ -128,12 +129,29 @@ def test_logout_needs_csrf(web: TestClient) -> None:
 
 
 def test_security_headers(web: TestClient) -> None:
-    for path in ("/admin/login", "/admin", "/admin/static/admin.css"):
+    for path in (
+        "/admin/login",
+        "/admin",
+        "/admin/static/admin.css",
+        "/admin/static/admin.js",
+    ):
         r = web.get(path, follow_redirects=False)
         assert r.headers["content-security-policy"] == CSP, path
         assert r.headers["x-frame-options"] == "DENY"
         assert r.headers["referrer-policy"] == "no-referrer"
         assert r.headers["cache-control"] == "no-store"
+
+
+def test_csp_allows_only_the_same_origin_script() -> None:
+    assert "'unsafe-inline'" not in CSP and "'unsafe-eval'" not in CSP
+
+
+def test_auto_refresh_script_served(web: TestClient) -> None:
+    r = web.get("/admin/static/admin.js")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/javascript")
+    assert r.headers["content-security-policy"] == CSP
+    assert "data-auto-refresh" in r.text or "autoRefresh" in r.text
 
 
 def test_stylesheet_served(web: TestClient) -> None:
