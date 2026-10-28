@@ -1,5 +1,5 @@
--- Kampung schema, version 1. Matches "Data model (SQLite)" in docs/design.md,
--- plus sessions.last_delivered_at for the no-hooks depth reset.
+-- Kampung schema, version 1. sessions.last_delivered_at drives the no-hooks
+-- depth reset.
 
 CREATE TABLE machines (
   id           INTEGER PRIMARY KEY,

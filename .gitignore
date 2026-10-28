@@ -45,3 +45,6 @@ backlog.md
 docs_internal/
 docs/superpowers/
 .superpowers/
+
+# Design notes stay local (not published)
+docs/design.md
