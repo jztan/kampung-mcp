@@ -1,8 +1,8 @@
 """Kampung hook script and shared client library. Standard library only.
 
-`kampung-mcp setup` copies this file to ~/.config/kampung/kampung_hook.py and
-Claude Code runs it on every hook event, so it must start fast and must never
-block or break the agent: every failure is logged and swallowed.
+Claude Code runs this file in place (`kampung-mcp setup` points the hooks at
+it), on every hook event, so it must start fast and must never block or break
+the agent: every failure is logged and swallowed.
 """
 
 from __future__ import annotations
