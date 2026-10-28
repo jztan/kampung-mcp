@@ -28,7 +28,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 | Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
 | Claude Code and Codex together | No shared channel | Same three MCP tools for both |
 | An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
-| An agent is idle | Nothing happens until you type | With Channels (opt-in, see [below](#wake-idle-sessions-with-channels-experimental)), it wakes within seconds |
+| An agent is idle | Nothing happens until you type | Codex wakes within seconds; Claude Code does with Channels (opt-in, see [below](#wake-idle-sessions-with-channels-experimental)) |
 | Two agents reply to each other forever | Runaway loop | A loop guard stops waking after the third reply in a row |
 | Who can talk to whom | Anything that has the URL | Only machines you have paired |
 | Seeing what happened | Logs, if any | An audit log and a dashboard |
@@ -38,7 +38,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 - **Mailboxes per repo.** Addresses look like `laptop/api` or `desktop/blog`, or `laptop/api#3f` for one specific session. Mail waits until a session in that repo reads it.
 - **Delivered when read.** The first `inbox` call gets a message; there is no acknowledging to forget.
 - **Claude Code hooks.** Mail is announced between tool calls, read at the end of a turn, and the loop guard resets when you type. If the server is slow or down, the hooks give up within seconds and Claude Code carries on.
-- **Codex support** through the same MCP tools (polling for now).
+- **Codex hooks** with the same behaviour, and idle Codex sessions wake when mail arrives.
 - **Pairing and keys.** One key per machine, stored hashed. A new machine can do nothing until you pair it.
 - **Admin dashboard and CLI** for keys, pairing, sessions, messages and the audit log.
 - **Boring to run.** One container, SQLite on a named volume, published on loopback, with optional Caddy for HTTPS.
@@ -128,11 +128,23 @@ Claude Code asks you to confirm the development channel each time it starts, and
 uv run kampung-mcp setup --server https://kampung.example.com --key <key> --agent codex
 ```
 
-Codex gets the same tools but no hooks yet, so it reads mail when it calls `inbox` (the tool instructions ask it to before large tasks). Use `--agent both` on a machine that runs both.
+Setup adds the same five hooks to `~/.codex/hooks.json` (keeping your own hooks, backing up the original once) and registers the `kampung` MCP server with `codex mcp add`. Codex runs a hook only after you approve it, so open Codex once and approve the Kampung hooks with `/hooks`. Until then Codex reads mail only when it calls `inbox`.
+
+With the hooks approved, Codex behaves like Claude Code: mail is announced between tool calls, read at the end of a turn, and the loop guard resets when you type. An idle Codex session also wakes within a few seconds of new mail, through `codex queue`; setup turns this on when it finds `codex` on your `PATH`. On Windows, Codex stays polling only for now.
+
+Use `--agent both` on a machine that runs both. A Claude Code session and a Codex session in the same repo share one mailbox, and plain mail to `laptop/api` goes to whichever reads first (often Codex, which wakes on its own). Address one session with its suffix, such as `laptop/api#3f`, to reach that one.
+
+**Closed Codex windows can still be woken.** Codex keeps a thread alive in the background after you close its window or run `/clear`, and only ends it after 30 minutes without a turn. Until then:
+
+- new mail wakes that thread, and Codex reads it and may act on it with nobody watching (you see what happened when you resume the thread);
+- each such wake restarts the 30 minutes, so a thread that keeps getting mail may never end;
+- it can read mailbox mail before the window you are actually using.
+
+The loop guard still stops a chain of replies after three. To end a finished thread right away, archive it with `codex archive <session id>`.
 
 ## When mail is seen
 
-| Claude Code session is | Without Channels | With Channels |
+| Session is | Claude Code without Channels | Claude Code with Channels, or Codex |
 |---|---|---|
 | Working on a turn | Told between tool calls (at most every 30 seconds, only about new mail); reads it when it chooses | Same |
 | Finishing a turn | Keeps going once to read the mail | Same |
@@ -205,7 +217,6 @@ Compose pins the server's own settings to match the container. Without Docker, t
 - Server-sent events to replace the adapter's polling.
 - The client as a Claude Code plugin, so Channels load without the development flag.
 - Published packages on PyPI and an image on GHCR.
-- Push for idle Codex sessions.
 
 ## Contributing
 
