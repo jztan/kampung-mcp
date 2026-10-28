@@ -1,5 +1,8 @@
 import json
 import re
+import shlex
+import subprocess
+import sys
 import time
 import os
 from pathlib import Path
@@ -151,6 +154,30 @@ def test_walk_skips_shell_wrappers() -> None:
         4: (0, "t4", "System"),
     }
     assert hook._walk(300, _table(rows)) == [(100, "t100"), (10, "t10"), (4, "t4")]
+
+
+def test_walk_skips_posix_shells() -> None:
+    # macOS and Linux: Claude Code runs `<python> hook.py || true` through
+    # /bin/sh, which stays alive as the hook's parent until the hook exits.
+    rows = {
+        300: (200, "t300", "python3.12"),  # the hook
+        200: (100, "t200", "sh"),
+        100: (50, "t100", "claude"),
+        50: (10, "t50", "zsh"),
+        10: (4, "t10", "tmux"),
+        4: (0, "t4", "launchd"),
+    }
+    assert hook._walk(300, _table(rows)) == [(100, "t100"), (10, "t10"), (4, "t4")]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shells and ps")
+def test_ancestors_skip_the_shell_running_the_hook() -> None:
+    probe = "from kampung_client import hook; print(hook.ancestors()[0][0])"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(probe)} || true"
+    out = subprocess.run(
+        ["/bin/sh", "-c", command], capture_output=True, text=True, timeout=10
+    )
+    assert int(out.stdout) == os.getpid()
 
 
 def test_walk_stops_on_a_pid_loop() -> None:

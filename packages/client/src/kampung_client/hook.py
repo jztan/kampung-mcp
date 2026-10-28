@@ -71,9 +71,13 @@ def load_config() -> dict[str, str]:
 
 ProcessInfo = tuple[int, str, str]  # (parent pid, start time, exe name)
 
-# Skipped in a chain: on Windows, Claude Code runs hooks through Git Bash, so a
-# hook's parent is a short-lived bash.exe that the adapter's chain never has.
-SHELLS = frozenset({"bash.exe", "sh.exe", "cmd.exe", "powershell.exe", "pwsh.exe"})
+# Skipped in a chain: agents run hook commands through a shell (Git Bash on
+# Windows, /bin/sh elsewhere), so a hook's parent is a short-lived shell that
+# the adapter's chain never has.
+SHELLS = frozenset(
+    {"bash.exe", "sh.exe", "cmd.exe", "powershell.exe", "pwsh.exe"}
+    | {"sh", "bash", "zsh", "dash"}
+)
 # Skipped at the bottom of a chain only: a Windows venv's Scripts\python.exe is
 # a launcher that runs the real interpreter as its child.
 LAUNCHERS = frozenset({"python.exe", "pythonw.exe"})
@@ -83,7 +87,7 @@ MAX_ANCESTORS = 64
 def _ps_lookup(pid: int) -> ProcessInfo | None:
     try:
         out = subprocess.run(
-            ["ps", "-o", "ppid=,lstart=", "-p", str(pid)],
+            ["ps", "-o", "ppid=,lstart=,comm=", "-p", str(pid)],
             capture_output=True,
             text=True,
             timeout=2,
@@ -93,9 +97,12 @@ def _ps_lookup(pid: int) -> ProcessInfo | None:
         ).stdout.split()
     except (OSError, subprocess.SubprocessError):
         return None
-    if len(out) < 2:
+    # lstart is five words in the C locale; comm is a path (login shells
+    # start with "-") and may contain spaces.
+    if len(out) < 7:
         return None
-    return int(out[0]), " ".join(out[1:]), ""
+    name = os.path.basename(" ".join(out[6:])).lstrip("-")
+    return int(out[0]), " ".join(out[1:6]), name
 
 
 if sys.platform == "win32":
