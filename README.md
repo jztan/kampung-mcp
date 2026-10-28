@@ -17,7 +17,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 </p>
 <p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
-## [Design](./docs/design.md) | [Changelog](./CHANGELOG.md) | [Quick start](#quick-start) | [Tools](#tools) | [Security](#security-model)
+## [Changelog](./CHANGELOG.md) | [Quick start](#quick-start) | [Tools](#tools) | [Security](#security-model)
 
 > **Status: early v1.** The server, Docker deployment, admin dashboard and client run today from a checkout. Packages on PyPI and a published image come later.
 
@@ -206,8 +206,6 @@ Compose pins the server's own settings to match the container. Without Docker, t
 - The client as a Claude Code plugin, so Channels load without the development flag.
 - Published packages on PyPI and an image on GHCR.
 - Push for idle Codex sessions.
-
-The full design and its open items are in [`docs/design.md`](docs/design.md).
 
 ## Contributing
 
