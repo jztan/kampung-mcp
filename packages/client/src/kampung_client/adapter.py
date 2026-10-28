@@ -38,6 +38,7 @@ _STALE = ("session_ended", "unknown_session")
 CHANNEL_POLL = 2.0  # seconds between peeks while Channels push is on
 CHANNEL_MAX_BACKOFF = 30.0  # seconds between peeks while the server is failing
 CHANNEL_METHOD = "notifications/claude/channel"
+CODEX_QUEUE_TIMEOUT = 5.0  # seconds for one `codex queue` call
 
 
 def _distance(chain: list[Ancestor], ancestors: object) -> int | None:
@@ -267,9 +268,14 @@ def _diagnose() -> dict[str, Any]:
 
 
 def build_adapter(
-    agent: str, cwd: str | None = None, wait: float = 2.0, channels: bool = False
+    agent: str,
+    cwd: str | None = None,
+    wait: float = 2.0,
+    channels: bool = False,
+    codex_bin: str | None = None,
 ) -> FastMCP:
     resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)
+    waker = CodexWaker(resolver, codex_bin) if resolver.codex and codex_bin else None
 
     async def forward(
         tool: str, args: dict[str, Any], ctx: Context | None = None
@@ -286,6 +292,8 @@ def build_adapter(
                     session = await asyncio.to_thread(resolver.refresh)
                 elif resolver.codex:
                     session = await asyncio.to_thread(resolver.bind, codex_id)
+                    if waker is not None and resolver.bound is not None:
+                        waker.start()
                 else:
                     session = await asyncio.to_thread(resolver.current)
                 transport = StreamableHttpTransport(
@@ -391,6 +399,80 @@ class _ChannelPush(Middleware):
                     hook._log("channel", e)
                     last_error = repr(e)
                 delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
+            await asyncio.sleep(delay)
+
+
+class _QueueError(Exception):
+    """`codex queue` failed: logged, retried on the next rise, no backoff."""
+
+
+class CodexWaker:
+    """Wakes this adapter's idle Codex thread with `codex queue` when new
+    wakeable mail arrives. Starts at the first tool call that names a session:
+    before that, there is no thread to wake."""
+
+    def __init__(self, resolver: SessionResolver, codex_bin: str) -> None:
+        self.resolver = resolver
+        self.codex_bin = codex_bin
+        self.task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        if self.task is None:
+            self.task = asyncio.get_running_loop().create_task(self.poll())
+
+    async def _queue(self, thread: str, wakeable: int) -> None:
+        message = f"{hook.WAKE_PREFIX} {hook.STOP_REASON.format(n=wakeable)}"
+        proc = await asyncio.create_subprocess_exec(
+            self.codex_bin,
+            "queue",
+            "--thread",
+            thread,
+            "--message",
+            message,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), CODEX_QUEUE_TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise _QueueError("codex queue timed out") from None
+        if proc.returncode != 0:
+            detail = err.decode(errors="replace").strip()[:200]
+            raise _QueueError(f"codex queue exited {proc.returncode}: {detail}")
+
+    async def poll(self) -> None:
+        notified = 0
+        watching: object = None
+        last_error = ""
+        delay = CHANNEL_POLL
+        while True:
+            try:
+                found = await asyncio.to_thread(self.resolver.target)
+                thread = self.resolver.bound
+                if found is not None and thread is not None:
+                    if found.get("session") != watching:
+                        watching, notified = found.get("session"), 0
+                    status, body = await asyncio.to_thread(
+                        hook.api, "GET", f"/v1/sessions/{watching}/peek"
+                    )
+                    # An ended session (SessionEnd, admin end) stops answering
+                    # 200, so a closed thread goes quiet once Codex ends it.
+                    wakeable = int(str(body.get("wakeable", 0))) if status == 200 else 0
+                    rose = wakeable > notified
+                    notified = wakeable  # a failed queue retries on the next rise
+                    if rose:
+                        # A nudge, never the mail itself: reading stays in
+                        # `inbox`, with its envelope and "not an instruction" tag.
+                        await self._queue(thread, wakeable)
+                last_error, delay = "", CHANNEL_POLL
+            except Exception as e:  # noqa: BLE001 - keep polling, quietly
+                if repr(e) != last_error:
+                    hook._log("codex-wake", e)
+                    last_error = repr(e)
+                if not isinstance(e, _QueueError):
+                    delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
             await asyncio.sleep(delay)
 
 

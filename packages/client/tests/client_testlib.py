@@ -127,7 +127,17 @@ def hook_chain() -> list[list[object]]:
 class RawMCP:
     """Speak line-delimited JSON-RPC to an adapter subprocess (stdio)."""
 
-    def __init__(self, home: Path, cwd: Path, *flags: str) -> None:
+    def __init__(
+        self,
+        home: Path,
+        cwd: Path,
+        *flags: str,
+        agent: str = "claude-code",
+        path: str | None = None,
+    ) -> None:
+        env = {**os.environ, "HOME": str(home)}
+        if path is not None:
+            env["PATH"] = path
         self.proc = subprocess.Popen(
             [
                 sys.executable,
@@ -135,14 +145,14 @@ class RawMCP:
                 "kampung_client",
                 "adapter",
                 "--agent",
-                "claude-code",
+                agent,
                 *flags,
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             cwd=cwd,
-            env={**os.environ, "HOME": str(home)},
+            env=env,
             text=True,
             bufsize=1,
         )
