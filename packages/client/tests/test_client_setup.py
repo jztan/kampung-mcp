@@ -1,6 +1,7 @@
 import json
 import shlex
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -8,7 +9,8 @@ import pytest
 
 from client_testlib import LiveServer
 from kampung_client import cli, hook
-from kampung_client.setup import SetupError, run_setup
+from kampung_client import setup
+from kampung_client.setup import SetupError, manual_command, run_setup
 
 EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse"]
 
@@ -139,6 +141,68 @@ def test_setup_missing_cli_prints_manual_command(
 def test_setup_failed_cli_prints_manual_command(home: Path, server: LiveServer) -> None:
     lines = run_setup(server.url, server.keys["laptop"], ["codex"], Recorder(fail=True))
     assert any("codex mcp add kampung --" in line for line in lines)
+
+
+def test_default_runner_runs_the_resolved_program(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # On Windows an npm install of Claude Code is claude.cmd, which
+    # CreateProcess only finds through PATHEXT, i.e. through shutil.which.
+    cmd_path = r"C:\nvm4w\nodejs\claude.CMD"
+    ran: list[list[str]] = []
+    monkeypatch.setattr(setup.shutil, "which", lambda name: cmd_path)
+
+    def run(cmd: list[str]) -> subprocess.CompletedProcess[bytes]:
+        ran.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(setup.subprocess, "run", run)
+    assert setup.default_runner(["claude", "mcp", "list"]) == 0
+    assert ran == [[cmd_path, "mcp", "list"]]
+
+
+def test_default_runner_missing_program_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup.shutil, "which", lambda name: None)
+    with pytest.raises(FileNotFoundError):
+        setup.default_runner(["claude", "mcp", "list"])
+
+
+def test_manual_command_posix_uses_shell_quoting() -> None:
+    cmd = ["claude", "mcp", "add", "kampung", "--", "/my venv/python", "-m", "x"]
+    assert manual_command(cmd, windows=False) == (
+        "claude mcp add kampung -- '/my venv/python' -m x"
+    )
+
+
+def test_manual_command_windows_quotes_for_powershell() -> None:
+    cmd = [
+        "claude",
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        "kampung",
+        "--",
+        r"C:\src\kampung-mcp\.venv\Scripts\python.exe",
+        "-m",
+        "kampung_client",
+        "adapter",
+        "--agent",
+        "claude-code",
+    ]
+    assert manual_command(cmd, windows=True) == (
+        "claude mcp add --scope user kampung '--' "
+        r"'C:\src\kampung-mcp\.venv\Scripts\python.exe' "
+        "-m kampung_client adapter --agent claude-code"
+    )
+
+
+def test_manual_command_windows_escapes_single_quotes() -> None:
+    assert manual_command([r"C:\it's\python.exe"], windows=True) == (
+        r"'C:\it''s\python.exe'"
+    )
 
 
 def test_setup_sweeps_stale_files(home: Path, server: LiveServer) -> None:

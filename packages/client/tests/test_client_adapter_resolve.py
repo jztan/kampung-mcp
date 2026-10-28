@@ -152,3 +152,35 @@ def test_fallback_switches_to_hook_file_when_it_appears(
     later["ancestors"] = hook_chain()
     hook.write_session_file("cc-1", later)
     assert r.current()["session"] == later["session"]
+
+
+def test_without_ancestry_the_only_hook_session_in_cwd_is_adopted() -> None:
+    # Windows before process ancestry worked: the chain is empty.
+    only = f("1", [])
+    assert pick_session([], "/x", [only])["session"] == "1"
+
+
+def test_without_ancestry_two_hook_sessions_in_cwd_adopt_neither() -> None:
+    assert pick_session([], "/x", [f("1", []), f("2", [])]) is None
+
+
+def test_without_ancestry_other_cwd_agent_or_adapter_files_are_skipped() -> None:
+    files = [
+        f("1", [], cwd="/elsewhere"),
+        f("2", [], agent="codex"),
+        f("3", [], hooks=False),
+    ]
+    assert pick_session([], "/x", files, agent="claude-code") is None
+
+
+def test_without_ancestry_a_dead_window_does_not_count() -> None:
+    live = f("1", hook_chain())
+    dead = f("2", [[999999, "x"]])
+    assert pick_session([], "/x", [live, dead])["session"] == "1"
+
+
+def test_with_ancestry_the_fallback_is_not_used() -> None:
+    # Two windows in one repo: a window whose own file is not written yet must
+    # not adopt the other window's session.
+    other = f("2", [[60, "z"], [10, "c"]])
+    assert pick_session(CHAIN, "/x", [other]) is None

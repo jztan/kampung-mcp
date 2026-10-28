@@ -60,8 +60,15 @@ def load_config() -> dict[str, str]:
     return {"server": str(data["server"]).rstrip("/"), "key": str(data["key"])}
 
 
-def _process(pid: int) -> tuple[int, str] | None:
-    """(parent pid, start time) for a live process, or None."""
+ProcessInfo = tuple[int, str, str]  # (parent pid, start time, exe name)
+
+# Skipped in a chain: on Windows, Claude Code runs hooks through Git Bash, so a
+# hook's parent is a short-lived bash.exe that the adapter's chain never has.
+SHELLS = frozenset({"bash.exe", "sh.exe", "cmd.exe", "powershell.exe", "pwsh.exe"})
+MAX_ANCESTORS = 64
+
+
+def _ps_lookup(pid: int) -> ProcessInfo | None:
     try:
         out = subprocess.run(
             ["ps", "-o", "ppid=,lstart=", "-p", str(pid)],
@@ -76,21 +83,111 @@ def _process(pid: int) -> tuple[int, str] | None:
         return None
     if len(out) < 2:
         return None
-    return int(out[0]), " ".join(out[1:])
+    return int(out[0]), " ".join(out[1:]), ""
+
+
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    class _ProcessEntry(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    _k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    _k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ProcessEntry)]
+    _k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ProcessEntry)]
+    _k32.OpenProcess.restype = wintypes.HANDLE
+    _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [
+        ctypes.POINTER(wintypes.FILETIME)
+    ] * 4
+    _k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _SNAPPROCESS = 0x2
+    _QUERY_LIMITED = 0x1000
+    _INVALID_HANDLE = wintypes.HANDLE(-1).value
+
+    def _win_start(pid: int) -> str | None:
+        handle = _k32.OpenProcess(_QUERY_LIMITED, False, pid)
+        if not handle:
+            return None
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not _k32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return None
+            created = times[0]
+            return str(created.dwHighDateTime << 32 | created.dwLowDateTime)
+        finally:
+            _k32.CloseHandle(handle)
+
+    def _win_lookup(pid: int) -> ProcessInfo | None:
+        snap = _k32.CreateToolhelp32Snapshot(_SNAPPROCESS, 0)
+        if not snap or snap == _INVALID_HANDLE:
+            return None
+        try:
+            entry = _ProcessEntry()
+            entry.dwSize = ctypes.sizeof(_ProcessEntry)
+            ok = _k32.Process32FirstW(snap, ctypes.byref(entry))
+            while ok:
+                if entry.th32ProcessID == pid:
+                    start = _win_start(pid)
+                    if start is None:
+                        return None
+                    return int(entry.th32ParentProcessID), start, entry.szExeFile
+                ok = _k32.Process32NextW(snap, ctypes.byref(entry))
+            return None
+        finally:
+            _k32.CloseHandle(snap)
+
+
+def _lookup(pid: int) -> ProcessInfo | None:
+    if sys.platform == "win32":
+        return _win_lookup(pid)
+    return _ps_lookup(pid)
+
+
+def _process(pid: int) -> tuple[int, str] | None:
+    """(parent pid, start time) for a live process, or None."""
+    info = _lookup(pid)
+    return None if info is None else (info[0], info[1])
+
+
+def _walk(pid: int, lookup: Callable[[int], ProcessInfo | None]) -> list[Ancestor]:
+    """(pid, start time) of every ancestor of `pid`, nearest first, without pid 1.
+
+    Shells are left out. Stops at a pid loop (Windows reuses pids) or after
+    MAX_ANCESTORS.
+    """
+    info = lookup(pid)
+    chain: list[Ancestor] = []
+    seen = {pid}
+    current = info[0] if info else 0
+    while current > 1 and current not in seen and len(seen) <= MAX_ANCESTORS:
+        seen.add(current)
+        parent = lookup(current)
+        if parent is None:
+            break
+        if parent[2].lower() not in SHELLS:
+            chain.append((current, parent[1]))
+        current = parent[0]
+    return chain
 
 
 def ancestors(pid: int | None = None) -> list[Ancestor]:
     """(pid, start time) of every ancestor of `pid`, nearest first, without pid 1."""
-    info = _process(os.getpid() if pid is None else pid)
-    chain: list[Ancestor] = []
-    current = info[0] if info else 0
-    while current > 1:
-        parent = _process(current)
-        if parent is None:
-            break
-        chain.append((current, parent[1]))
-        current = parent[0]
-    return chain
+    return _walk(os.getpid() if pid is None else pid, _lookup)
 
 
 def repo_name(cwd: str) -> str:

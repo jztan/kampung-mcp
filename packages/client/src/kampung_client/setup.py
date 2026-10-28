@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ from . import hook
 
 Runner = Callable[[list[str]], int]
 EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse")
+SAFE_PS_ARG = re.compile(r"(?!--$)[\w./:=-]+")  # needs no quoting in PowerShell
 HOOK_TIMEOUT = 5  # seconds; also lifts Claude Code's 1.5 s SessionEnd budget
 
 
@@ -26,7 +28,12 @@ class SetupError(Exception):
 
 
 def default_runner(cmd: list[str]) -> int:
-    return subprocess.run(cmd).returncode
+    # shutil.which follows PATHEXT, so it finds claude.cmd on Windows, which
+    # CreateProcess alone would not.
+    program = shutil.which(cmd[0])
+    if program is None:
+        raise FileNotFoundError(cmd[0])
+    return subprocess.run([program, *cmd[1:]]).returncode
 
 
 def _status(url: str, key: str | None = None) -> int:
@@ -127,7 +134,18 @@ def _register(remove: list[str], add: list[str], runner: Runner) -> str | None:
             return None
     except FileNotFoundError:
         pass
-    return shlex.join(add)
+    return manual_command(add, os.name == "nt")
+
+
+def manual_command(cmd: list[str], windows: bool) -> str:
+    """A command line the user can paste: PowerShell on Windows, else POSIX."""
+    if not windows:
+        return shlex.join(cmd)
+    # PowerShell can eat a bare --, so quote it too.
+    return " ".join(
+        arg if SAFE_PS_ARG.fullmatch(arg) else "'" + arg.replace("'", "''") + "'"
+        for arg in cmd
+    )
 
 
 def run_setup(

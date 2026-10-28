@@ -56,6 +56,18 @@ def _distance(chain: list[Ancestor], ancestors: object) -> int | None:
     return chain.index(link) if link in chain else None
 
 
+def _alive(f: dict[str, object]) -> bool:
+    """False only when the file's agent process is known to be gone."""
+    ancestors = f.get("ancestors")
+    if not isinstance(ancestors, list) or not ancestors:
+        return True  # written without ancestry: cannot tell
+    first = ancestors[0]
+    if not isinstance(first, list) or len(first) != 2:
+        return True
+    live = hook._process(int(first[0]))
+    return live is not None and live[1] == first[1]
+
+
 def pick_session(
     chain: list[Ancestor],
     cwd: str,
@@ -67,14 +79,21 @@ def pick_session(
     Ties prefer a matching cwd, then the newest file. Files written by an
     adapter (hooks false) are never adopted: their chain is the adapter's own.
     With `agent`, only files written for that agent are considered.
+
+    With no chain (process ancestry unavailable), the only live hook session
+    in `cwd` is adopted, if there is exactly one.
     """
+    files = [
+        f
+        for f in files
+        if f.get("hooks") is True and (agent is None or f.get("agent") == agent)
+    ]
+    if not chain:
+        here = [f for f in files if f.get("cwd") == cwd and _alive(f)]
+        return here[0] if len(here) == 1 else None
     best: tuple[int, int, float] | None = None
     choice = None
     for f in files:
-        if f.get("hooks") is not True:
-            continue
-        if agent is not None and f.get("agent") != agent:
-            continue
         d = _distance(chain, f.get("ancestors"))
         if d is None:
             continue

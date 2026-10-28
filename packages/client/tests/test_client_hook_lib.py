@@ -2,6 +2,7 @@ import json
 import re
 import os
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
@@ -129,3 +130,38 @@ def test_ancestor_start_times_ignore_locale(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.delenv("LC_ALL")
     assert hook.ancestors() == with_locale
     assert all(re.match(pattern, start) for _, start in with_locale)
+
+
+def _table(
+    rows: dict[int, hook.ProcessInfo],
+) -> Callable[[int], hook.ProcessInfo | None]:
+    return rows.get
+
+
+def test_walk_skips_shell_wrappers() -> None:
+    # Windows: Claude Code runs hooks through Git Bash, so a hook's parent is a
+    # short-lived bash.exe; the chain must start at claude (node) instead.
+    rows = {
+        300: (200, "t300", "python.exe"),  # the hook
+        200: (100, "t200", "bash.exe"),
+        100: (50, "t100", "node.exe"),  # claude
+        50: (10, "t50", "pwsh.exe"),
+        10: (4, "t10", "WindowsTerminal.exe"),
+        4: (0, "t4", "System"),
+    }
+    assert hook._walk(300, _table(rows)) == [(100, "t100"), (10, "t10"), (4, "t4")]
+
+
+def test_walk_stops_on_a_pid_loop() -> None:
+    # Windows reuses pids, so a parent pid can point back down the chain.
+    rows = {
+        30: (20, "t30", "python.exe"),
+        20: (10, "t20", "node.exe"),
+        10: (20, "t10", "explorer.exe"),
+    }
+    assert hook._walk(30, _table(rows)) == [(20, "t20"), (10, "t10")]
+
+
+def test_walk_stops_at_unknown_parent() -> None:
+    rows = {30: (20, "t30", "python.exe")}
+    assert hook._walk(30, _table(rows)) == []
