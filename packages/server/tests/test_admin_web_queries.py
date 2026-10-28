@@ -153,3 +153,80 @@ def test_machines_and_mailboxes(
     boxes = {b.address: b for b in queries.mailboxes(conn, clock.now())}
     assert boxes["laptop/api"].live == 1
     assert boxes["desktop/blog"].queued == 1 and boxes["desktop/blog"].live == 0
+
+
+def test_audit_notable_hides_routine_traffic(
+    conn: sqlite3.Connection,
+    admin: AdminService,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    a = make_session("laptop", "api")
+    b = make_session("desktop", "api")
+    mail.send(conn, a, "desktop/api", "hi", None, clock.now())
+    mail.inbox(conn, b, 20, clock.now())
+    admin.unpair("laptop", "desktop", "admin:web")
+    every = {r.action for r in queries.audit(conn, None, None).rows}
+    notable = {r.action for r in queries.audit(conn, None, None, notable=True).rows}
+    assert {"send", "inbox", "register"} <= every
+    assert notable == every - set(queries.ROUTINE)
+    assert "unpair" in notable
+
+
+def test_audit_fields_name_sessions_and_link_messages(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    b = make_session("desktop", "api")
+    sent = mail.send(conn, a, "desktop/api", "hi", None, clock.now())
+    mail.inbox(conn, b, 20, clock.now())
+    rows = {r.action: r for r in queries.audit(conn, None, None).rows}
+    send = {f.key: f for f in rows["send"].fields}
+    assert send["to"].text == "desktop/api" and send["to"].href is None
+    assert send["id"].href == f"/admin/messages/{sent.id}"
+    read = {f.key: f for f in rows["inbox"].fields}
+    assert read["session"].text == b.address
+    assert read["ids"].text == sent.id
+    assert read["ids"].href == f"/admin/messages/{sent.id}"
+
+
+def test_conversations_pair_both_directions(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    b = make_session("desktop", "blog")
+    mail.send(conn, a, "desktop/blog", "one", None, clock.now())
+    clock.advance(seconds=5)
+    mail.send(conn, b, "laptop/api", "two", None, clock.now())
+    clock.advance(seconds=5)
+    last = mail.send(conn, a, f"desktop/blog#{b.suffix}", "three", None, clock.now())
+    [c] = queries.conversations(conn, clock.now())
+    assert (c.a, c.b, c.messages) == ("desktop/blog", "laptop/api", 3)
+    detail = queries.message(conn, clock.now(), last.id)
+    assert detail is not None and c.last_at == detail.sent_at
+
+
+def test_thread_is_oldest_first_with_sides(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    b = make_session("desktop", "blog")
+    other = make_session("laptop", "web")
+    mail.send(conn, a, "desktop/blog", "one", None, clock.now())
+    clock.advance(seconds=5)
+    mail.send(conn, b, "laptop/api", "two", None, clock.now())
+    mail.send(conn, other, "desktop/blog", "elsewhere", None, clock.now())
+    page = queries.thread(conn, clock.now(), "desktop/blog", "laptop/api")
+    assert [m.body for m in page.rows] == ["one", "two"]
+    assert [m.side for m in page.rows] == ["b", "a"]
+    assert page.total == 2
+
+
+def test_thread_cuts_long_bodies(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    make_session("desktop", "blog")
+    mail.send(conn, a, "desktop/blog", "x" * 5000, None, clock.now())
+    [m] = queries.thread(conn, clock.now(), "desktop/blog", "laptop/api").rows
+    assert len(m.body) == queries.THREAD_PREVIEW and m.cut == 5000 - len(m.body)

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+{% block content %}
+<div class="panel">
+  <div class="panel-head"><h2>Conversations</h2><span class="sub">Mail between each pair of mailboxes, while it is kept (7 days).</span></div>
+  {% if rows %}
+  <div class="scroll"><table>
+    <thead><tr><th>Between</th><th class="right">Messages</th><th>Queued</th><th>Last message</th><th></th></tr></thead>
+    <tbody>
+    {% for c in rows %}
+      <tr>
+        <td class="mono">{{ c.a }} &harr; {{ c.b }}</td>
+        <td class="right num">{{ c.messages }}</td>
+        <td>{% if c.queued %}{{ pill("queued") }} <span class="num">{{ c.queued }}</span>{% else %}<span class="muted">none</span>{% endif %}</td>
+        <td class="num">{{ c.last_at | ago }}</td>
+        <td class="right"><a href="/admin/conversations?a={{ c.a }}&amp;b={{ c.b }}">Open</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty">No mail in the store yet.</div>{% endif %}
+</div>
+{% endblock %}

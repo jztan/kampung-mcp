@@ -180,6 +180,33 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
             m=m,
         )
 
+    async def conversations(request: Request, session: AdminSession) -> Response:
+        q = request.query_params
+        with connection(web) as conn:
+            boxes = {b.address for b in queries.mailboxes(conn, web.deps.clock())}
+            a, b = q.get("a"), q.get("b")
+            if a in boxes and b in boxes:
+                assert a is not None and b is not None
+                return web.render(
+                    request,
+                    "thread.html",
+                    session,
+                    title="Conversation",
+                    auto_refresh=True,
+                    page=queries.thread(conn, web.deps.clock(), a, b),
+                    a=a,
+                    b=b,
+                )
+            rows = queries.conversations(conn, web.deps.clock())
+        return web.render(
+            request,
+            "conversations.html",
+            session,
+            title="Conversations",
+            auto_refresh=True,
+            rows=rows,
+        )
+
     async def audit(request: Request, session: AdminSession) -> Response:
         with connection(web) as conn:
             actors, actions = queries.actors_and_actions(conn)
@@ -187,7 +214,9 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
             action = request.query_params.get("action")
             actor = actor if actor in actors else None
             action = action if action in actions else None
-            page = queries.audit(conn, actor, action)
+            # Picking an action shows it even when it is routine.
+            show_all = request.query_params.get("show") == "all" or action is not None
+            page = queries.audit(conn, actor, action, notable=not show_all)
         return web.render(
             request,
             "audit.html",
@@ -199,6 +228,7 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
             actions=actions,
             actor=actor,
             action=action,
+            show_all=show_all,
         )
 
     for path, handler in (
@@ -208,6 +238,7 @@ def register_pages(mcp: FastMCP, web: Web) -> None:
         ("/admin/sessions", sessions),
         ("/admin/messages", messages),
         ("/admin/messages/{id}", message),
+        ("/admin/conversations", conversations),
         ("/admin/audit", audit),
     ):
         mcp.custom_route(path, methods=["GET"])(web.page(handler))
