@@ -74,7 +74,12 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
 
     @mcp.tool
     def send(to: str, body: str, reply_to: str | None = None) -> Result:
-        """Send a short text message to machine/repo or machine/repo#xx."""
+        """Send a short text message to machine/repo or machine/repo#xx.
+
+        In the result, wake=false means the loop guard stored it without
+        waking the receiver. wake=true means it may wake the receiver, not
+        that it will: an idle session may not see it until its next turn.
+        """
 
         def work(
             conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime

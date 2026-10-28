@@ -215,6 +215,20 @@ def test_setup_channels_registers_push_adapter(home: Path, server: LiveServer) -
     )
 
 
+def test_setup_without_channels_says_idle_sessions_wait(
+    home: Path, server: LiveServer
+) -> None:
+    lines = run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    hint = [line for line in lines if "--channels" in line]
+    assert len(hint) == 1
+    assert "idle" in hint[0]
+
+
+def test_setup_codex_only_skips_channels_hint(home: Path, server: LiveServer) -> None:
+    lines = run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
+    assert not any("--channels" in line for line in lines)
+
+
 def test_cli_setup_channels_flag(
     home: Path,
     server: LiveServer,

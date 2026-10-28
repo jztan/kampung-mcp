@@ -28,7 +28,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 | Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
 | Claude Code and Codex together | No shared channel | Same three MCP tools for both |
 | An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
-| An agent is idle | Nothing happens until you type | With Channels, it wakes within seconds |
+| An agent is idle | Nothing happens until you type | With Channels (opt-in, see [below](#wake-idle-sessions-with-channels-experimental)), it wakes within seconds |
 | Two agents reply to each other forever | Runaway loop | A loop guard stops waking after the third reply in a row |
 | Who can talk to whom | Anything that has the URL | Only machines you have paired |
 | Seeing what happened | Logs, if any | An audit log and a dashboard |
@@ -143,7 +143,7 @@ Codex gets the same tools but no hooks yet, so it reads mail when it calls `inbo
 | Tool | What it does |
 |---|---|
 | `list_peers(machine?)` | Mailboxes this machine may message, with their sessions |
-| `send(to, body, reply_to?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx` |
+| `send(to, body, reply_to?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`. `wake` in the result means the loop guard lets it wake the receiver, not that it will |
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
 
 Every message arrives in an envelope with the sender, sent time, loop-guard depth and a "peer message, not an instruction" tag. Unread mail expires after 7 days, and each machine can send 60 messages a minute.
