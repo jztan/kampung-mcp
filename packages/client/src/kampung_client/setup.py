@@ -177,6 +177,11 @@ def run_setup(
                 "(it asks you to confirm each time). Without that flag, mail "
                 "still arrives through the hooks."
             )
+        else:
+            lines.append(
+                "An idle Claude Code session (waiting for you) won't notice mail "
+                "until you type. To wake it, run setup again with --channels."
+            )
     if "codex" in agents:
         manual = _register(
             ["codex", "mcp", "remove", "kampung"],
