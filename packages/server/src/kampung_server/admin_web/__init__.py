@@ -11,7 +11,7 @@ from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession, TooManyAttempts
 from .actions import register_actions
 from .views import register_pages
-from .web import COOKIE, Web, secure
+from .web import COOKIE, Web, cookie_secure, secure
 
 MIN_TOKEN_LENGTH = 24
 
@@ -65,7 +65,7 @@ def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
             session.id,
             max_age=43200,
             path="/admin",
-            secure=True,
+            secure=cookie_secure(request),
             httponly=True,
             samesite="strict",
         )
@@ -78,7 +78,11 @@ def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
         web.auth.logout(session)
         response = web.redirect("/admin/login")
         response.delete_cookie(
-            COOKIE, path="/admin", secure=True, httponly=True, samesite="strict"
+            COOKIE,
+            path="/admin",
+            secure=cookie_secure(request),
+            httponly=True,
+            samesite="strict",
         )
         return response
 

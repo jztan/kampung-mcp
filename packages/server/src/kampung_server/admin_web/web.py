@@ -12,6 +12,7 @@ from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession
 
 COOKIE = "kampung_admin"
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 SECTIONS = {
     "/admin/machines",
     "/admin/mailboxes",
@@ -32,6 +33,11 @@ SECURITY_HEADERS = {
 
 Handler = Callable[[Request], Awaitable[Response]]
 PageHandler = Callable[[Request, AdminSession], Awaitable[Response]]
+
+
+def cookie_secure(request: Request) -> bool:
+    """Secure everywhere but loopback, where Safari drops Secure cookies on http."""
+    return request.url.hostname not in LOOPBACK_HOSTS
 
 
 def secure(response: Response) -> Response:
