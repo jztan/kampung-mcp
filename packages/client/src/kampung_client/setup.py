@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -18,6 +19,8 @@ from . import hook
 
 Runner = Callable[[list[str]], int]
 EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse")
+OUR_HOOK = re.compile(r"kampung_hook\.py|kampung_client[\\/]+hook\.py")
+SAFE_PS_ARG = re.compile(r"(?!--$)[\w./:=-]+")  # needs no quoting in PowerShell
 HOOK_TIMEOUT = 5  # seconds; also lifts Claude Code's 1.5 s SessionEnd budget
 
 
@@ -26,7 +29,12 @@ class SetupError(Exception):
 
 
 def default_runner(cmd: list[str]) -> int:
-    return subprocess.run(cmd).returncode
+    # shutil.which follows PATHEXT, so it finds claude.cmd on Windows, which
+    # CreateProcess alone would not.
+    program = shutil.which(cmd[0])
+    if program is None:
+        raise FileNotFoundError(cmd[0])
+    return subprocess.run([program, *cmd[1:]]).returncode
 
 
 def _status(url: str, key: str | None = None) -> int:
@@ -57,10 +65,13 @@ def _write_config(server: str, key: str) -> None:
     os.chmod(path, 0o600)
 
 
-def _install_hook() -> Path:
-    target = hook.config_dir() / "kampung_hook.py"
-    shutil.copyfile(hook.__file__, target)
-    return target
+def hook_command(hook_path: str) -> str:
+    """Run the installed hook.py in place, so it always matches the adapter.
+
+    `|| true`: if the install moves, Python exits 2 for the missing file, and
+    Claude Code reads exit 2 from a hook as "block".
+    """
+    return f"{shlex.quote(sys.executable)} {shlex.quote(hook_path)} || true"
 
 
 def _claude_settings_path() -> Path:
@@ -87,13 +98,13 @@ def _load_claude_settings() -> dict[str, Any]:
     return data
 
 
-def _merge_claude_hooks(data: dict[str, Any], hook_path: Path) -> Path:
+def _merge_claude_hooks(data: dict[str, Any]) -> Path:
     settings = _claude_settings_path()
     if settings.exists():
         backup = settings.with_name("settings.json.kampung-backup")
         if not backup.exists():
             shutil.copyfile(settings, backup)
-    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(hook_path))}"
+    command = hook_command(hook.__file__)
     entry = {
         "hooks": [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT}]
     }
@@ -107,10 +118,11 @@ def _merge_claude_hooks(data: dict[str, Any], hook_path: Path) -> Path:
 
 
 def _is_ours(entry: object) -> bool:
+    """Our hook entry: the installed hook.py, or the copy older setups made."""
     if not isinstance(entry, dict):
         return False
     return any(
-        "kampung_hook.py" in str(h.get("command", ""))
+        OUR_HOOK.search(str(h.get("command", "")))
         for h in entry.get("hooks", [])
         if isinstance(h, dict)
     )
@@ -127,7 +139,18 @@ def _register(remove: list[str], add: list[str], runner: Runner) -> str | None:
             return None
     except FileNotFoundError:
         pass
-    return shlex.join(add)
+    return manual_command(add, os.name == "nt")
+
+
+def manual_command(cmd: list[str], windows: bool) -> str:
+    """A command line the user can paste: PowerShell on Windows, else POSIX."""
+    if not windows:
+        return shlex.join(cmd)
+    # PowerShell can eat a bare --, so quote it too.
+    return " ".join(
+        arg if SAFE_PS_ARG.fullmatch(arg) else "'" + arg.replace("'", "''") + "'"
+        for arg in cmd
+    )
 
 
 def run_setup(
@@ -151,12 +174,13 @@ def run_setup(
     claude_settings = _load_claude_settings() if "claude-code" in agents else None
 
     _write_config(server, key)
-    hook_path = _install_hook()
+    # Older setups copied the hook here; it now runs from the install.
+    (hook.config_dir() / "kampung_hook.py").unlink(missing_ok=True)
     lines = [f"Saved server and key to {hook.config_dir() / 'config.json'}."]
 
     if "claude-code" in agents:
         assert claude_settings is not None
-        settings = _merge_claude_hooks(claude_settings, hook_path)
+        settings = _merge_claude_hooks(claude_settings)
         lines.append(f"Claude Code hooks added to {settings}.")
         manual = _register(
             ["claude", "mcp", "remove", "--scope", "user", "kampung"],
