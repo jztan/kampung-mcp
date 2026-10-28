@@ -184,3 +184,18 @@ def test_with_ancestry_the_fallback_is_not_used() -> None:
     # not adopt the other window's session.
     other = f("2", [[60, "z"], [10, "c"]])
     assert pick_session(CHAIN, "/x", [other]) is None
+
+
+def test_hook_and_adapter_launchers_do_not_block_a_match() -> None:
+    # Each side's own launcher is dropped, so both chains start at claude.exe.
+    rows = {
+        1500: (1532, "t1500", "python.exe"),  # hook
+        1532: (9364, "t1532", "python.exe"),  # hook's launcher
+        2816: (1412, "t2816", "python.exe"),  # adapter
+        1412: (9364, "t1412", "python.exe"),  # adapter's launcher
+        9364: (8884, "t9364", "claude.exe"),
+        8884: (4, "t8884", "WindowsTerminal.exe"),
+    }
+    hook_file = f("1", [list(a) for a in hook._walk(1500, rows.get)])
+    adapter_chain = hook._walk(2816, rows.get)
+    assert pick_session(adapter_chain, "/x", [hook_file])["session"] == "1"

@@ -165,3 +165,24 @@ def test_walk_stops_on_a_pid_loop() -> None:
 def test_walk_stops_at_unknown_parent() -> None:
     rows = {30: (20, "t30", "python.exe")}
     assert hook._walk(30, _table(rows)) == []
+
+
+def test_walk_skips_the_venv_launcher_at_the_bottom() -> None:
+    # Windows: a venv's Scripts\python.exe is a launcher that starts the real
+    # interpreter as its child, so every chain begins with a launcher.
+    rows = {
+        2816: (1412, "t2816", "python.exe"),  # the adapter
+        1412: (9364, "t1412", "python.exe"),  # its launcher
+        9364: (8884, "t9364", "claude.exe"),
+        8884: (4, "t8884", "WindowsTerminal.exe"),
+    }
+    assert hook._walk(2816, _table(rows)) == [(9364, "t9364"), (8884, "t8884")]
+
+
+def test_walk_keeps_python_above_the_first_kept_ancestor() -> None:
+    rows = {
+        30: (20, "t30", "python.exe"),
+        20: (10, "t20", "claude.exe"),
+        10: (4, "t10", "pythonw.exe"),  # a Python program further up
+    }
+    assert hook._walk(30, _table(rows)) == [(20, "t20"), (10, "t10")]

@@ -65,6 +65,9 @@ ProcessInfo = tuple[int, str, str]  # (parent pid, start time, exe name)
 # Skipped in a chain: on Windows, Claude Code runs hooks through Git Bash, so a
 # hook's parent is a short-lived bash.exe that the adapter's chain never has.
 SHELLS = frozenset({"bash.exe", "sh.exe", "cmd.exe", "powershell.exe", "pwsh.exe"})
+# Skipped at the bottom of a chain only: a Windows venv's Scripts\python.exe is
+# a launcher that runs the real interpreter as its child.
+LAUNCHERS = frozenset({"python.exe", "pythonw.exe"})
 MAX_ANCESTORS = 64
 
 
@@ -167,8 +170,8 @@ def _process(pid: int) -> tuple[int, str] | None:
 def _walk(pid: int, lookup: Callable[[int], ProcessInfo | None]) -> list[Ancestor]:
     """(pid, start time) of every ancestor of `pid`, nearest first, without pid 1.
 
-    Shells are left out. Stops at a pid loop (Windows reuses pids) or after
-    MAX_ANCESTORS.
+    Shells are left out, and so are Python launchers below the first kept
+    ancestor. Stops at a pid loop (Windows reuses pids) or after MAX_ANCESTORS.
     """
     info = lookup(pid)
     chain: list[Ancestor] = []
@@ -179,7 +182,8 @@ def _walk(pid: int, lookup: Callable[[int], ProcessInfo | None]) -> list[Ancesto
         parent = lookup(current)
         if parent is None:
             break
-        if parent[2].lower() not in SHELLS:
+        name = parent[2].lower()
+        if name not in SHELLS and (chain or name not in LAUNCHERS):
             chain.append((current, parent[1]))
         current = parent[0]
     return chain
