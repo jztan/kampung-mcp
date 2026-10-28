@@ -150,7 +150,7 @@ Every message arrives in an envelope with the sender, sent time, loop-guard dept
 
 ## Admin dashboard
 
-Set `KAMPUNG_ADMIN_TOKEN` in `.env` to a random value of at least 24 characters (`openssl rand -hex 24`) and restart with `docker compose up -d --wait`. Then open `https://<your domain>/admin`, or `http://127.0.0.1:8803/admin` in Chrome or Firefox on the server itself, and sign in with the token. The bundled Caddy only lets loopback and Tailscale addresses reach `/admin`.
+Set `KAMPUNG_ADMIN_TOKEN` in `.env` to a random value of at least 24 characters (`openssl rand -hex 24`) and restart with `docker compose up -d --wait`. Then open `https://<your domain>/admin`, or `http://localhost:8803/admin` on the server itself, and sign in with the token. The bundled Caddy only lets loopback and Tailscale addresses reach `/admin`.
 
 The dashboard shows machines, mailboxes, sessions, messages (including bodies, since they all come from your own agents) and the audit log. From it you can create machine keys, pair and unpair, revoke a machine, end a session, reset a session's loop-guard depth and delete a queued message. Every action is audited as `admin:web`. Without the token, `/admin` does not exist.
 

@@ -51,7 +51,7 @@ def test_admin_redirects_to_login(web: TestClient) -> None:
 def test_login_page_explains_https(web: TestClient) -> None:
     r = web.get("/admin/login")
     assert r.status_code == 200
-    assert "HTTPS" in r.text and "loopback" in r.text
+    assert "HTTPS" in r.text and "http://localhost" in r.text
 
 
 def test_wrong_token_is_rejected(web: TestClient) -> None:
@@ -67,6 +67,34 @@ def test_login_sets_strict_cookie(web: TestClient) -> None:
     for part in ("httponly", "secure", "samesite=strict", "path=/admin"):
         assert part in cookie
     assert "max-age=43200" in cookie
+
+
+def http_client(admin_deps: ServerDeps, host: str) -> TestClient:
+    return TestClient(create_app(admin_deps), base_url=f"http://{host}")
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]"])
+def test_loopback_http_login_works(admin_deps: ServerDeps, host: str) -> None:
+    # Safari drops Secure cookies on http://localhost, and so does httpx.
+    with http_client(admin_deps, host) as c:
+        r = c.post("/admin/login", data={"token": TOKEN}, follow_redirects=False)
+        assert "secure" not in r.headers["set-cookie"].lower()
+        assert c.get("/admin", follow_redirects=False).status_code == 200
+
+
+def test_lan_http_cookie_stays_secure(admin_deps: ServerDeps) -> None:
+    with http_client(admin_deps, "192.168.1.5") as c:
+        r = c.post("/admin/login", data={"token": TOKEN}, follow_redirects=False)
+        assert "secure" in r.headers["set-cookie"].lower()
+
+
+def test_loopback_http_logout_clears_cookie(admin_deps: ServerDeps) -> None:
+    with http_client(admin_deps, "localhost") as c:
+        csrf = login(c)
+        r = c.post("/admin/logout", data={"csrf": csrf}, follow_redirects=False)
+        assert r.status_code == 303
+        assert "secure" not in r.headers["set-cookie"].lower()
+        assert "kampung_admin" not in c.cookies
 
 
 def test_session_expires_after_12_hours(web: TestClient, clock: FakeClock) -> None:
