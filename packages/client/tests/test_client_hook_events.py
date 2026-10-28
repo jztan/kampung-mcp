@@ -1,4 +1,5 @@
 import io
+import subprocess
 import json
 import os
 import threading
@@ -296,3 +297,106 @@ def test_post_tool_use_throttles_even_when_server_is_down(home: Path) -> None:
     r = run_hook(home, tool_used())
     assert r.returncode == 0 and r.stdout == ""
     assert time.monotonic() - t < 1.0
+
+
+# Codex ------------------------------------------------------------------
+
+
+def codex_start(
+    home: Path, repo: Path, sid: str = "cx-1", *extra: str
+) -> "subprocess.CompletedProcess[str]":
+    return run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": sid,
+            "cwd": str(repo),
+            "source": "startup",
+        },
+        "--agent",
+        "codex",
+        *extra,
+    )
+
+
+def codex(home: Path, ev: dict[str, object]) -> "subprocess.CompletedProcess[str]":
+    return run_hook(home, ev, "--agent", "codex")
+
+
+def test_codex_session_start_registers_codex_without_ancestry(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    r = codex_start(home, repo)
+    assert r.returncode == 0
+    f = hook.read_session_file("cx-1")
+    assert f is not None
+    assert f["agent"] == "codex" and f["hooks"] is True and f["ancestors"] == []
+    assert db_query(server, "SELECT agent, hooks FROM sessions") == [("codex", 1)]
+    out = json.loads(r.stdout)["hookSpecificOutput"]
+    assert out["hookEventName"] == "SessionStart"
+    assert out["additionalContext"] == hook.CODEX_START_CONTEXT
+
+
+def test_stray_shell_args_are_ignored(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    r = codex_start(home, repo, "cx-1", "||", "true")
+    assert r.returncode == 0
+    f = hook.read_session_file("cx-1")
+    assert f is not None and f["agent"] == "codex"
+
+
+def test_wake_prompt_does_not_reset_depth(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    # A turn started by `codex queue` is not the user typing.
+    codex_start(home, repo)
+    sid = int(str(hook.read_session_file("cx-1")["session"]))  # type: ignore[index]
+    db_query(server, "UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", sid)
+    prompt = f"{hook.WAKE_PREFIX} {REASON}"
+    r = codex(home, event("UserPromptSubmit", "cx-1", prompt=prompt))
+    assert r.returncode == 0 and r.stdout == ""
+    assert db_query(
+        server, "SELECT max_depth_seen FROM sessions WHERE id = ?", sid
+    ) == [(4,)]
+    codex(home, event("UserPromptSubmit", "cx-1", prompt="typed"))
+    assert db_query(
+        server, "SELECT max_depth_seen FROM sessions WHERE id = ?", sid
+    ) == [(-1,)]
+
+
+def test_codex_stop_blocks_once(home: Path, server: LiveServer, repo: Path) -> None:
+    codex_start(home, repo)
+    peer_send(server, "laptop/api", "hello")
+    r = codex(home, event("Stop", "cx-1", stop_hook_active=False))
+    assert json.loads(r.stdout) == {"decision": "block", "reason": REASON}
+    again = codex(home, event("Stop", "cx-1", stop_hook_active=True))
+    assert again.returncode == 0 and again.stdout == ""
+
+
+def test_codex_post_tool_use_nudges_and_skips_kampung_tools(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    codex_start(home, repo)
+    peer_send(server, "laptop/api", "while you work")
+    used = event("PostToolUse", "cx-1", tool_name="mcp__kampung__inbox")
+    assert codex(home, used).stdout == ""
+    state = hook.cache_dir() / "nudge" / "cx-1.json"
+    state.write_text(json.dumps({"checked": 0, "notified": 0}))
+    bash = event("PostToolUse", "cx-1", tool_name="Bash", tool_input={})
+    assert json.loads(codex(home, bash).stdout) == NUDGE
+
+
+def test_codex_session_end_is_cut_off_before_codex_cancels_it(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Codex cancels SessionEnd hooks at 3 s; anything unbounded (DNS, ps) must
+    # still finish first, and the session file must still go.
+    write_config(home, "http://127.0.0.1:9", "kmp_x")
+    hook.write_session_file("cx-1", {"session": "1", "ancestors": []})
+    monkeypatch.setattr(hook, "api", lambda *a, **k: time.sleep(30))
+    t = time.monotonic()
+    ev = json.dumps(event("SessionEnd", "cx-1", reason="other"))
+    assert hook.main(["--agent", "codex"], io.StringIO(ev)) == 0
+    assert time.monotonic() - t < 2.9
+    assert hook.read_session_file("cx-1") is None

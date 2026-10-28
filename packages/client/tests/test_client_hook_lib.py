@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import os
 from pathlib import Path
 from typing import Callable
@@ -186,3 +187,19 @@ def test_walk_keeps_python_above_the_first_kept_ancestor() -> None:
         10: (4, "t10", "pythonw.exe"),  # a Python program further up
     }
     assert hook._walk(30, _table(rows)) == [(20, "t20"), (10, "t10")]
+
+
+def test_sweep_keeps_codex_files_and_ages_them_out(home: Path) -> None:
+    now = time.time()
+    hook.write_session_file(
+        "cx-new", {"agent": "codex", "ancestors": [], "written_at": now}
+    )
+    hook.write_session_file(
+        "cx-old", {"agent": "codex", "ancestors": [], "written_at": now - 8 * 86400}
+    )
+    hook.write_session_file(
+        "cc-dead", {"agent": "claude-code", "ancestors": [[999999, "x"]]}
+    )
+    assert hook.sweep_stale_files() == 2
+    assert hook.read_session_file("cx-new") is not None
+    assert hook.read_session_file("cx-old") is None

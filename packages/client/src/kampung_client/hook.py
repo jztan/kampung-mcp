@@ -7,6 +7,7 @@ the agent: every failure is logged and swallowed.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -28,6 +29,14 @@ HTTP_TIMEOUT = 2.0
 HOOK_DEADLINE = 4.0
 NUDGE_INTERVAL = 30.0  # seconds between mid-turn peeks per session
 CHANNEL_PREFIX = "<channel"  # how a Channels push arrives as a UserPromptSubmit
+WAKE_PREFIX = "[kampung]"  # how a `codex queue` wake arrives as a UserPromptSubmit
+AGENTS = ("claude-code", "codex")
+CODEX_END_DEADLINE = 2.5  # Codex cancels SessionEnd hooks at 3 s
+SESSION_FILE_MAX_AGE = 7 * 86400  # Codex files have no ancestry to sweep by
+CODEX_START_CONTEXT = (
+    "Kampung is connected. Call the kampung inbox tool once now to check for "
+    "peer messages."
+)
 STOP_REASON = (
     "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
 )
@@ -257,9 +266,15 @@ def list_session_files() -> list[dict[str, object]]:
 def sweep_stale_files() -> int:
     """Delete session files whose nearest recorded ancestor is no longer alive."""
     removed = 0
+    now = time.time()
     for path in sessions_dir().glob("*.json"):
         try:
             data = json.loads(path.read_text())
+            if data.get("agent") == "codex":
+                if now - float(data.get("written_at", now)) > SESSION_FILE_MAX_AGE:
+                    path.unlink(missing_ok=True)
+                    removed += 1
+                continue
             pid, start = data["ancestors"][0]
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             continue
@@ -313,8 +328,13 @@ def register(
     hooks: bool,
     agent_session_id: str | None = None,
     timeout: float = 2.0,
+    ancestry: bool = True,
 ) -> dict[str, object]:
-    """Register (or revive) a session and return its session-file contents."""
+    """Register (or revive) a session and return its session-file contents.
+
+    Without `ancestry` the file records no ancestors: Codex files are adopted
+    by session id, and every Codex process shares one long-lived daemon.
+    """
     body: dict[str, object] = {
         "agent": agent,
         "cwd": cwd,
@@ -335,7 +355,7 @@ def register(
         "hooks": hooks,
         "agent": agent,
         "agent_session_id": agent_session_id,
-        "ancestors": [list(a) for a in ancestors()],
+        "ancestors": [list(a) for a in ancestors()] if ancestry else [],
     }
 
 
@@ -357,9 +377,17 @@ class _Clock:
         return min(HTTP_TIMEOUT, left)
 
 
+def _agent(event: Event) -> str:
+    """The agent this hook runs for: `main` stores its --agent argument here."""
+    return str(event.get("_kampung_agent", "claude-code"))
+
+
 def _register_and_save(event: Event, clock: _Clock) -> dict[str, object]:
     sid = str(event["session_id"])
-    data = register("claude-code", str(event["cwd"]), True, sid, clock.timeout())
+    agent = _agent(event)
+    data = register(
+        agent, str(event["cwd"]), True, sid, clock.timeout(), agent != "codex"
+    )
     write_session_file(sid, data)
     return data
 
@@ -395,16 +423,27 @@ def _call(
     raise HookError(f"{action}: gave up")
 
 
-def on_session_start(event: Event, clock: _Clock) -> None:
+def on_session_start(event: Event, clock: _Clock) -> dict[str, object] | None:
     sweep_stale_files()
     _register_and_save(event, clock)
+    if _agent(event) != "codex":
+        return None
+    # The Codex adapter learns its session only from a tool call; this one
+    # binds it early, so idle wake works, and reads anything already waiting.
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": CODEX_START_CONTEXT,
+        }
+    }
 
 
 def on_user_prompt(event: Event, clock: _Clock) -> None:
     # A turn started by a Channels push also fires UserPromptSubmit, with the
     # notification as the prompt. That is not the user typing, so it must not
     # reset the loop guard.
-    if str(event.get("prompt", "")).lstrip().startswith(CHANNEL_PREFIX):
+    # A `codex queue` wake is the same case for Codex.
+    if str(event.get("prompt", "")).lstrip().startswith((CHANNEL_PREFIX, WAKE_PREFIX)):
         return
     # Registers when the session file is missing (SessionStart failed earlier):
     # a deliberate departure from fail-open, so the window recovers.
@@ -473,12 +512,12 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
 
 def on_session_end(event: Event, clock: _Clock) -> None:
     sid = str(event["session_id"])
-    try:
-        data = _session(event)
-        api("POST", f"/v1/sessions/{data['session']}/end", None, clock.timeout())
-    finally:
-        delete_session_file(sid)
-        _nudge_path(event).unlink(missing_ok=True)
+    _nudge_path(event).unlink(missing_ok=True)
+    data = _session(event)
+    # Local cleanup first: if the HTTP call outlives the deadline, the file
+    # must not be left behind for an ended session.
+    delete_session_file(sid)
+    api("POST", f"/v1/sessions/{data['session']}/end", None, clock.timeout())
 
 
 HANDLERS: dict[str, Callable[[Event, _Clock], dict[str, object] | None]] = {
@@ -504,9 +543,14 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
     """Run one hook event. Always exits 0; prints at most one JSON object.
 
     The handler runs in a daemon thread so that anything the HTTP timeouts do
-    not bound (DNS lookups, ps, git) is still cut off at HOOK_DEADLINE.
+    not bound (DNS lookups, ps, git) is still cut off at the deadline.
+    Unknown arguments are ignored, so a stray `|| true` cannot break a hook.
     """
-    clock = _Clock(HOOK_DEADLINE)
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--agent", default="claude-code")
+    args, _ = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
+    agent = args.agent if args.agent in AGENTS else "claude-code"
+    deadline = HOOK_DEADLINE
     name = "unknown"
     result: list[dict[str, object] | None] = []
     errors: list[BaseException] = []
@@ -518,6 +562,10 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
         handler = HANDLERS.get(name)
         if handler is None:
             return 0
+        event["_kampung_agent"] = agent
+        if agent == "codex" and name == "SessionEnd":
+            deadline = CODEX_END_DEADLINE
+        clock = _Clock(deadline)
         load_config()  # report a broken config before anything else
 
         def run() -> None:
@@ -528,7 +576,7 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
 
         worker = threading.Thread(target=run, daemon=True)
         worker.start()
-        worker.join(HOOK_DEADLINE)
+        worker.join(deadline)
         if worker.is_alive():
             raise HookError("hook deadline passed")
         if errors:

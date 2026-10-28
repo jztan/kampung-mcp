@@ -65,9 +65,11 @@ def git_repo(parent: Path, name: str) -> Path:
     return repo
 
 
-def run_hook(home: Path, event: dict[str, object]) -> subprocess.CompletedProcess[str]:
+def run_hook(
+    home: Path, event: dict[str, object], *args: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, hook.__file__],
+        [sys.executable, hook.__file__, *args],
         input=json.dumps(event),
         text=True,
         capture_output=True,
