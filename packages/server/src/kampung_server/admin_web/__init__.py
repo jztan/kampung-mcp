@@ -35,10 +35,15 @@ def register(mcp: FastMCP, deps: ServerDeps) -> None:
 
 def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
     css = (files(__package__) / "static" / "admin.css").read_text()
+    js = (files(__package__) / "static" / "admin.js").read_text()
 
     @mcp.custom_route("/admin/static/admin.css", methods=["GET"])
     async def stylesheet(request: Request) -> Response:
         return secure(Response(css, media_type="text/css"))
+
+    @mcp.custom_route("/admin/static/admin.js", methods=["GET"])
+    async def script(request: Request) -> Response:
+        return secure(Response(js, media_type="text/javascript"))
 
     @mcp.custom_route("/admin/login", methods=["GET", "POST"])
     async def login(request: Request) -> Response:
