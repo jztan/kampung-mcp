@@ -18,6 +18,7 @@ SECTIONS = {
     "/admin/mailboxes",
     "/admin/sessions",
     "/admin/messages",
+    "/admin/conversations",
     "/admin/audit",
 }
 SECURITY_HEADERS = {

@@ -15,6 +15,7 @@ PAGES = [
     "/admin/mailboxes",
     "/admin/sessions",
     "/admin/messages",
+    "/admin/conversations",
     "/admin/audit",
 ]
 
@@ -174,3 +175,42 @@ def test_pages_have_no_inline_scripts(web: TestClient, seeded: Seeded) -> None:
     for path in PAGES:
         page = web.get(path).text
         assert page.count("<script") == page.count("<script src="), path
+
+
+def test_audit_shows_notable_events_by_default(
+    web: TestClient, seeded: Seeded, admin: AdminService
+) -> None:
+    admin.unpair("laptop", "desktop", "admin:web")
+    login(web)
+    notable = web.get("/admin/audit").text
+    assert "<td>unpair</td>" in notable and "<td>send</td>" not in notable
+    every = web.get("/admin/audit?show=all").text
+    assert "<td>send</td>" in every
+    picked = web.get("/admin/audit?action=send").text
+    assert "<td>send</td>" in picked and "<td>unpair</td>" not in picked
+
+
+def test_audit_detail_links_messages(web: TestClient, seeded: Seeded) -> None:
+    login(web)
+    page = web.get("/admin/audit?show=all").text
+    assert f'href="/admin/messages/{seeded.message_id}"' in page
+    assert '{"bytes"' not in page
+
+
+def test_conversations_list_and_thread(
+    web: TestClient,
+    seeded: Seeded,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    reply = make_session("desktop", "api")
+    mail.send(conn, reply, "laptop/api", "<b>done</b>", None, clock.now())
+    login(web)
+    listing = web.get("/admin/conversations").text
+    assert 'href="/admin/conversations?a=desktop/api&amp;b=laptop/api"' in listing
+    thread = web.get("/admin/conversations?a=desktop/api&b=laptop/api").text
+    assert "please check the build" in thread
+    assert "&lt;b&gt;done&lt;/b&gt;" in thread and "<b>done</b>" not in thread
+    unknown = web.get("/admin/conversations?a=nope/x&b=laptop/api").text
+    assert "please check the build" not in unknown

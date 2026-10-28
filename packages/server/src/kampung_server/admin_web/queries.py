@@ -1,5 +1,6 @@
 """Read-only views of the store for the dashboard. Writes go through AdminService."""
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -9,6 +10,7 @@ from ..clock import ts
 from ..limits import LIVE_WINDOW
 
 LIMIT = 100
+THREAD_PREVIEW = 1000  # characters of each body a thread shows; Open has the rest
 T = TypeVar("T")
 
 
@@ -18,12 +20,25 @@ class Page(Generic[T]):
     total: int
 
 
+# Everyday traffic: hidden from the audit log unless asked for. The
+# Conversations page tells the same story in readable form.
+ROUTINE = ("send", "inbox", "register", "revive")
+
+
+@dataclass
+class DetailField:
+    key: str
+    text: str
+    href: str | None = None
+
+
 @dataclass
 class AuditRow:
     at: str
     actor: str
     action: str
     detail: str
+    fields: list[DetailField]
 
 
 @dataclass
@@ -324,19 +339,146 @@ def audit(
     actor: str | None,
     action: str | None,
     limit: int = LIMIT,
+    notable: bool = False,
 ) -> Page[AuditRow]:
+    """Newest first. `notable` leaves out the ROUTINE actions."""
     p: dict[str, object] = {"actor": actor, "action": action}
     where = (
         "(:actor IS NULL OR actor = :actor) AND (:action IS NULL OR action = :action)"
     )
+    if notable:
+        where += " AND action NOT IN (" + ", ".join(f"'{a}'" for a in ROUTINE) + ")"
     rows = conn.execute(
         f"SELECT at, actor, action, detail FROM audit WHERE {where} "
         f"ORDER BY id DESC LIMIT {int(limit)}",
         p,
     ).fetchall()
+    details = [_detail(r["detail"]) for r in rows]
+    names = _session_addresses(conn, details)
     return Page(
-        [AuditRow(r["at"], r["actor"], r["action"], r["detail"]) for r in rows],
+        [
+            AuditRow(r["at"], r["actor"], r["action"], r["detail"], _fields(d, names))
+            for r, d in zip(rows, details)
+        ],
         _count(conn, f"SELECT COUNT(*) FROM audit WHERE {where}", p),
+    )
+
+
+def _detail(raw: str) -> dict[str, object]:
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {"detail": raw}
+    return data if isinstance(data, dict) else {"detail": raw}
+
+
+def _session_addresses(
+    conn: sqlite3.Connection, details: list[dict[str, object]]
+) -> dict[int, str]:
+    ids = sorted({s for d in details if isinstance(s := d.get("session"), int)})
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT s.id, {_SESSION_ADDRESS} AS address FROM sessions s "
+        "JOIN mailboxes mb ON mb.id = s.mailbox_id "
+        f"JOIN machines m ON m.id = mb.machine_id WHERE s.id IN ({marks})",
+        ids,
+    ).fetchall()
+    return {r["id"]: r["address"] for r in rows}
+
+
+def _fields(detail: dict[str, object], sessions: dict[int, str]) -> list[DetailField]:
+    """An audit detail as labelled values: sessions by address, messages linked."""
+    out: list[DetailField] = []
+    for key, value in detail.items():
+        values = value if isinstance(value, list) else [value]
+        if key == "session" and isinstance(value, int):
+            out.append(DetailField(key, sessions.get(value, f"session {value}")))
+        elif key in ("id", "ids"):
+            out += [DetailField(key, str(v), f"/admin/messages/{v}") for v in values]
+        else:
+            out.append(DetailField(key, ", ".join(str(v) for v in values)))
+    return out
+
+
+@dataclass
+class ConversationRow:
+    a: str
+    b: str
+    messages: int
+    queued: int
+    last_at: str
+
+
+@dataclass
+class ThreadMessage:
+    id: str
+    sent_at: str
+    sender: str
+    to: str
+    depth: int
+    state: str
+    body: str  # the first THREAD_PREVIEW characters
+    cut: int  # characters left out of `body`
+    side: str  # "a" or "b": which mailbox of the pair sent it
+
+
+_FROM_BOX = "fm.name || '/' || fmb.repo"
+_TO_BOX = "tm.name || '/' || tmb.repo"
+
+
+def conversations(conn: sqlite3.Connection, now: datetime) -> list[ConversationRow]:
+    """Mailbox pairs that have exchanged mail still in the store, newest first.
+
+    Each pair is named in sorted order, whichever side wrote first.
+    """
+    rows = conn.execute(
+        "SELECT MIN(fa, ta) AS a, MAX(fa, ta) AS b, COUNT(*) AS n, "
+        "SUM(queued) AS queued, MAX(sent_at) AS last_at FROM ("
+        f"SELECT {_FROM_BOX} AS fa, {_TO_BOX} AS ta, msg.sent_at, "
+        f"CASE WHEN {_QUEUED} THEN 1 ELSE 0 END AS queued {_MSG_FROM}) "
+        f"GROUP BY a, b ORDER BY last_at DESC LIMIT {LIMIT}",
+        {"now": ts(now)},
+    ).fetchall()
+    return [
+        ConversationRow(r["a"], r["b"], r["n"], r["queued"], r["last_at"]) for r in rows
+    ]
+
+
+def thread(
+    conn: sqlite3.Connection, now: datetime, a: str, b: str
+) -> Page[ThreadMessage]:
+    """The newest messages between two mailboxes, in either direction, shown
+    oldest first."""
+    p: dict[str, object] = {"now": ts(now), "a": a, "b": b}
+    where = (
+        f"(({_FROM_BOX} = :a AND {_TO_BOX} = :b) "
+        f"OR ({_FROM_BOX} = :b AND {_TO_BOX} = :a))"
+    )
+    rows = conn.execute(
+        f"SELECT msg.id, msg.sent_at, msg.depth, msg.body, {_FROM_BOX} AS from_box, "
+        f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, {_MSG_STATE} AS state "
+        f"{_MSG_FROM} WHERE {where} "
+        f"ORDER BY msg.sent_at DESC, msg.id DESC LIMIT {LIMIT}",
+        p,
+    ).fetchall()
+    return Page(
+        [
+            ThreadMessage(
+                r["id"],
+                r["sent_at"],
+                r["sender"],
+                r["recipient"],
+                r["depth"],
+                r["state"],
+                r["body"][:THREAD_PREVIEW],
+                max(0, len(r["body"]) - THREAD_PREVIEW),
+                "a" if r["from_box"] == a else "b",
+            )
+            for r in reversed(rows)
+        ],
+        _count(conn, f"SELECT COUNT(*) {_MSG_FROM} WHERE {where}", p),
     )
 
 
