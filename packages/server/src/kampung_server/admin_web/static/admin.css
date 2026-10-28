@@ -37,6 +37,8 @@
   --nav-bg: #0b1210; --nav-fg: #9fb2a8; --nav-active: #ffffff; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+/* Reserve the scrollbar's width so moving between short and long pages never shifts the layout. */
+html { scrollbar-gutter: stable; }
 body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font); margin: 0; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .num { font-variant-numeric: tabular-nums; }
@@ -131,11 +133,11 @@ input:focus, select:focus { border-color: var(--accent); outline: none; box-shad
 
 
 @media (max-width: 860px) {
-  .app { grid-template-columns: minmax(0, 1fr); }
+  /* Without row sizes the nav row takes half of min-height's spare height. */
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .nav { padding-block: 10px; gap: 10px; }
-  /* A scroll container in the .nav flex column may shrink below its content and,
-     with classic scrollbars, grows a vertical scrollbar over the labels. */
-  .nav ul { flex-direction: row; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; scrollbar-width: thin; padding-bottom: 4px; padding-inline: max(10px, env(safe-area-inset-left, 0px)) max(10px, env(safe-area-inset-right, 0px)); }
+  /* Wrap the tabs rather than scroll them: no scrollbar under the header. */
+  .nav ul { flex-direction: row; flex-wrap: wrap; padding-inline: max(10px, env(safe-area-inset-left, 0px)) max(10px, env(safe-area-inset-right, 0px)); }
   .nav a { white-space: nowrap; }
   .nav-foot { padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); display: flex; gap: 8px; align-items: center; }
   .brand { padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); }
