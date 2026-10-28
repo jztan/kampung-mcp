@@ -142,14 +142,124 @@ def test_setup_registers_mcp_with_claude(home: Path, server: LiveServer) -> None
     ]
 
 
-def test_setup_codex_registers_without_hooks(home: Path, server: LiveServer) -> None:
+def codex_hooks(home: Path) -> dict:  # type: ignore[type-arg]
+    return json.loads((home / ".codex" / "hooks.json").read_text())
+
+
+@pytest.fixture
+def codex_at(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Pretend `codex` is installed here, whatever this machine has."""
+    monkeypatch.setattr(setup.shutil, "which", lambda name: "/opt/x/codex")
+    return "/opt/x/codex"
+
+
+def test_setup_codex_registers_adapter(
+    home: Path, server: LiveServer, codex_at: str
+) -> None:
     rec = Recorder()
     run_setup(server.url, server.keys["laptop"], ["codex"], rec)
     assert not (home / ".claude" / "settings.json").exists()
     assert rec.calls == [
         ["codex", "mcp", "remove", "kampung"],
-        ["codex", "mcp", "add", "kampung", "--", *adapter_cmd("codex")],
+        [
+            "codex",
+            "mcp",
+            "add",
+            "kampung",
+            "--",
+            *adapter_cmd("codex"),
+            "--codex-bin",
+            codex_at,
+        ],
     ]
+
+
+FOREIGN = {"type": "command", "command": "afplay /System/Library/Sounds/Glass.aiff"}
+
+
+def test_setup_codex_merges_hooks_and_keeps_foreign(
+    home: Path, server: LiveServer, codex_at: str
+) -> None:
+    path = home / ".codex" / "hooks.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [FOREIGN]}]}}))
+    for _ in range(2):
+        run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
+    hooks = codex_hooks(home)["hooks"]
+    assert set(hooks) == set(setup.EVENTS)
+    assert hooks["Stop"][0] == {"hooks": [FOREIGN]} and len(hooks["Stop"]) == 2
+    for event in setup.EVENTS:
+        (ours,) = [e for e in hooks[event] if e != {"hooks": [FOREIGN]}]
+        handler = ours["hooks"][0]
+        assert handler["type"] == "command"
+        assert handler["timeout"] == (3 if event == "SessionEnd" else 5)
+        assert shlex.split(handler["command"])[:4] == [
+            sys.executable,
+            hook.__file__,
+            "--agent",
+            "codex",
+        ]
+    backup = home / ".codex" / "hooks.json.kampung-backup"
+    assert json.loads(backup.read_text()) == {"hooks": {"Stop": [{"hooks": [FOREIGN]}]}}
+
+
+@pytest.mark.parametrize("content", ["{not json", "[1]", '{"hooks": {"Stop": 1}}'])
+def test_setup_codex_refuses_malformed_hooks_before_changing_anything(
+    home: Path, server: LiveServer, codex_at: str, content: str
+) -> None:
+    path = home / ".codex" / "hooks.json"
+    path.parent.mkdir()
+    path.write_text(content)
+    rec = Recorder()
+    with pytest.raises(SetupError, match="hooks.json"):
+        run_setup(server.url, server.keys["desktop"], ["codex"], rec)
+    assert path.read_text() == content
+    cfg = json.loads((home / ".config" / "kampung" / "config.json").read_text())
+    assert cfg["key"] == server.keys["laptop"]
+    assert rec.calls == []
+
+
+def test_setup_codex_without_codex_on_path_has_no_waker(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup.shutil, "which", lambda name: None)
+    rec = Recorder()
+    lines = run_setup(server.url, server.keys["laptop"], ["codex"], rec)
+    assert "--codex-bin" not in rec.calls[-1]
+    assert any("codex was not found" in line for line in lines)
+
+
+def test_setup_codex_says_approve_hooks_and_caveat(
+    home: Path, server: LiveServer, codex_at: str
+) -> None:
+    lines = run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
+    assert any("/hooks" in line for line in lines)
+    assert any("run unattended" in line for line in lines)
+
+
+def test_hook_command_codex_exits_0_when_the_hook_file_is_gone(
+    tmp_path: Path,
+) -> None:
+    cmd = setup.codex_hook_command(str(tmp_path / "gone" / "hook.py"))
+    assert subprocess.run(cmd, shell=True, capture_output=True).returncode == 0
+
+
+def test_setup_codex_on_windows_stays_polling(
+    home: Path, server: LiveServer, codex_at: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: True)
+    rec = Recorder()
+    lines = run_setup(server.url, server.keys["laptop"], ["codex"], rec)
+    assert not (home / ".codex" / "hooks.json").exists()
+    assert rec.calls[-1] == [
+        "codex",
+        "mcp",
+        "add",
+        "kampung",
+        "--",
+        *adapter_cmd("codex"),
+    ]
+    assert any("polling" in line and "Windows" in line for line in lines)
 
 
 def test_setup_missing_cli_prints_manual_command(
