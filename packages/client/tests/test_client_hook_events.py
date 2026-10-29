@@ -15,6 +15,7 @@ from client_testlib import (
     git_repo,
     peer_send,
     run_hook,
+    scripted_server,
     write_config,
 )
 from kampung_client import hook
@@ -174,6 +175,36 @@ def test_slow_server_respects_overall_deadline(home: Path, repo: Path) -> None:
     httpd.shutdown()
     assert r.returncode == 0 and r.stdout == ""
     assert elapsed < 5.0, elapsed
+
+
+def test_stop_re_registers_only_once_for_a_session_that_stays_ended(
+    home: Path, repo: Path
+) -> None:
+    httpd, hits = scripted_server(409)
+    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
+    r = run_hook(home, event("Stop", cwd=str(repo)))
+    httpd.shutdown()
+    assert r.returncode == 0 and r.stdout == ""
+    assert hits == [
+        "GET /v1/sessions/1/peek",
+        "POST /v1/sessions",
+        "GET /v1/sessions/2/peek",
+    ]
+    assert "HTTP 409" in (home / ".cache" / "kampung" / "hooks.log").read_text()
+
+
+def test_stop_with_a_revoked_key_fails_open_without_registering(
+    home: Path, repo: Path
+) -> None:
+    httpd, hits = scripted_server(401)
+    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
+    r = run_hook(home, event("Stop", cwd=str(repo)))
+    httpd.shutdown()
+    assert r.returncode == 0 and r.stdout == ""
+    assert hits == ["GET /v1/sessions/1/peek"]
+    assert "HTTP 401" in (home / ".cache" / "kampung" / "hooks.log").read_text()
 
 
 def test_missing_config_fails_open(home: Path) -> None:

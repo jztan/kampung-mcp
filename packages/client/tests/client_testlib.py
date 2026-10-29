@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import uvicorn
@@ -56,6 +57,36 @@ def write_config(home: Path, server: str, key: str) -> None:
     d = home / ".config" / "kampung"
     d.mkdir(parents=True, exist_ok=True)
     (d / "config.json").write_text(json.dumps({"server": server, "key": key}))
+
+
+def scripted_server(peek_status: int) -> tuple[ThreadingHTTPServer, list[str]]:
+    """Answers every peek with `peek_status` and every register with a session;
+    records each request as "METHOD path"."""
+    hits: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def _reply(self, status: int, body: dict[str, object]) -> None:
+            hits.append(f"{self.command} {self.path}")
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self) -> None:
+            self._reply(peek_status, {"error": "scripted", "hint": ""})
+
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self._reply(200, {"session": "2", "suffix": "cd", "mailbox": "laptop/api"})
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, hits
 
 
 def git_repo(parent: Path, name: str) -> Path:
@@ -202,5 +233,12 @@ class RawMCP:
         return reply[0] if reply else {}
 
     def close(self) -> None:
-        self.proc.kill()
-        self.proc.wait()
+        """End stdin like a real client, so the adapter exits on its own."""
+        assert self.proc.stdin is not None
+        self.proc.stdin.close()
+        try:
+            self.proc.wait(5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
+            raise AssertionError("adapter did not exit after stdin closed") from None

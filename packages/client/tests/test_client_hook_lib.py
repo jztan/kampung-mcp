@@ -10,7 +10,7 @@ from typing import Callable
 
 import pytest
 
-from client_testlib import LiveServer, git_repo, write_config
+from client_testlib import LiveServer, git_repo, scripted_server, write_config
 from kampung_client import hook
 
 
@@ -96,6 +96,16 @@ def test_api_network_error_raises_hookerror(home: Path) -> None:
     write_config(home, "http://127.0.0.1:9", "kmp_x")
     with pytest.raises(hook.HookError):
         hook.api("GET", "/health")
+
+
+def test_api_server_error_raises_hookerror(home: Path) -> None:
+    httpd, _ = scripted_server(503)
+    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
+    try:
+        with pytest.raises(hook.HookError, match="HTTP 503"):
+            hook.api("GET", "/v1/sessions/1/peek")
+    finally:
+        httpd.shutdown()
 
 
 def test_load_config_missing_raises(home: Path) -> None:
