@@ -114,6 +114,24 @@ def test_session_ended_is_revived_by_hook(
     assert hook.read_session_file("cc-1")["session"] == str(sid)  # type: ignore[index]
 
 
+def test_deleted_session_is_registered_again_by_hook(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    # The server's cleanup deletes sessions long after they end; the next
+    # hook call gets 404 and must register a fresh session, not give up.
+    start(home, repo)
+    sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
+    db_query(server, "DELETE FROM sessions WHERE id = ?", sid)
+    run_hook(home, event("UserPromptSubmit", cwd=str(repo), prompt="hi"))
+    assert hook.read_session_file("cc-1") is not None
+    live = db_query(
+        server,
+        "SELECT count(*) FROM sessions WHERE agent_session_id = 'cc-1' "
+        "AND ended_at IS NULL",
+    )
+    assert live == [(1,)]
+
+
 def test_session_end_ends_and_deletes_file(
     home: Path, server: LiveServer, repo: Path
 ) -> None:

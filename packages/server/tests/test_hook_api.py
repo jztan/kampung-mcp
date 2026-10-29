@@ -244,3 +244,12 @@ def test_repeated_bad_keys_from_one_ip_get_429(client: TestClient) -> None:
     ]
     assert codes[:-1] == [401] * AUTH_FAILURE_LIMIT and codes[-1] == 429
     assert client.get("/health").status_code == 200
+
+
+def test_a_valid_key_gets_through_a_throttled_address(
+    client: TestClient, machines: Machines
+) -> None:
+    for i in range(AUTH_FAILURE_LIMIT):
+        client.post("/mcp", json={}, headers=bearer(f"kmp_bad{i}"))
+    assert client.post("/mcp", json={}, headers=bearer("kmp_more")).status_code == 429
+    _register(client, machines["laptop"][1])

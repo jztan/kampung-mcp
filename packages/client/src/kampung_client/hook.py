@@ -497,7 +497,11 @@ def _session(event: Event) -> dict[str, object]:
 def _call(
     event: Event, clock: _Clock, method: str, action: str, revive: bool
 ) -> dict[str, object]:
-    """Call /v1/sessions/{id}/{action}; on 409 re-register (revive) and retry once."""
+    """Call /v1/sessions/{id}/{action}; on 409 or 404 re-register and retry once.
+
+    409: the session ended, and re-registering revives it. 404: the server
+    deleted it long after it ended (or the database was restored), and
+    re-registering gives the window a fresh one."""
     data = (
         _session(event)
         if not revive
@@ -511,7 +515,7 @@ def _call(
         status, body = api(method, path, None, clock.timeout())
         if status == 200:
             return body
-        if status == 409 and attempt == 0:
+        if status in (404, 409) and attempt == 0:
             data = _register_and_save(event, clock)
             continue
         raise HookError(f"{action}: HTTP {status} {body.get('error')}")

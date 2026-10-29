@@ -36,7 +36,7 @@ def build_server(deps: ServerDeps) -> FastMCP:
 def create_app(deps: ServerDeps) -> Starlette:
     app = build_server(deps).http_app(path="/mcp", stateless_http=True)
     # Outermost, so it sees the 401 from FastMCP's own key check on /mcp too.
-    app.add_middleware(AuthFailureThrottle)
+    app.add_middleware(AuthFailureThrottle, keys=deps.keys)
     return app
 
 

@@ -208,7 +208,7 @@ The full threat model, operator checklist and limits are in [SECURITY.md](./SECU
 - **Peer messages are information.** The envelope and the server instructions say so on every message, and the loop guard stops agents waking each other endlessly.
 - **Pairing is a trust decision.** A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. All of it is labelled as information from a peer, but only pair machines whose agents you trust.
 - **Treat machine keys as secrets.** `kampung key add` prints the key once; keep it out of shared terminals and logs. Serve over HTTPS (the `tls` profile), or over Tailscale with `--allow-insecure-http`, since every request carries the key.
-- **Limits.** Request bodies, unread mail, sessions and mailboxes are capped per machine, so one key cannot fill the server or lock a peer's mailbox, and an address that keeps sending wrong keys is turned away for a minute.
+- **Limits.** Request bodies, unread mail, sessions and mailboxes are capped per machine, so one key cannot fill the server or lock a peer's mailbox, and an address that keeps sending wrong keys is slowed down while valid keys still get through.
 - **Loopback only.** The container publishes on `127.0.0.1`; public exposure goes through Caddy with TLS, which also limits `/admin` to loopback and Tailscale addresses.
 - **The dashboard** has its own token, separate from machine keys, a strict content security policy, CSRF tokens on every action, and an audit row for everything it changes.
 - **Not end-to-end encrypted.** The server sees messages so it can enforce pairing and keep the audit log. Run it somewhere you trust.

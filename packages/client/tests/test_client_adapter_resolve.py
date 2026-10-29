@@ -259,6 +259,25 @@ def test_codex_refresh_revives_the_same_session(home: Path, server: LiveServer) 
     ]
 
 
+def test_codex_refresh_after_the_session_was_deleted(
+    home: Path, server: LiveServer
+) -> None:
+    data = codex_file("cx-1")
+    codex_file("cx-2")  # the cleanup always keeps the newest row
+    r = SessionResolver("codex", "/w/api", wait=0)
+    r.bind("cx-1")
+    db_query(server, "DELETE FROM sessions WHERE id = ?", int(str(data["session"])))
+    fresh = r.refresh()
+    assert fresh["session"] != data["session"]
+    saved = hook.read_session_file("cx-1")
+    assert saved is not None and saved["session"] == fresh["session"]
+    assert db_query(
+        server,
+        "SELECT count(*) FROM sessions WHERE id = ? AND ended_at IS NULL",
+        int(str(fresh["session"])),
+    ) == [(1,)]
+
+
 def test_codex_session_id_parsing() -> None:
     assert codex_session_id({"x-codex-turn-metadata": {"session_id": "a"}}) == "a"
     for bad in (

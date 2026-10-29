@@ -2,7 +2,7 @@ import sqlite3
 
 from server_testlib import FakeClock, MakeSession
 from kampung_server.limits import ENDED_SESSION_RETENTION
-from kampung_server.mail import send
+from kampung_server.mail import inbox, send
 from kampung_server.models import load_session
 from kampung_server.sessions import end
 from kampung_server.sweep import sweep
@@ -64,3 +64,24 @@ def test_live_sessions_are_never_deleted(
     )
     sweep(conn, clock.now())
     assert load_session(conn, s.id) is not None
+
+
+def test_sessions_mail_was_sent_to_or_read_by_are_kept(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    sender = make_session("laptop", "api")
+    target = make_session("desktop", "blog")
+    reader = make_session("desktop", "blog")
+    send(conn, sender, f"desktop/blog#{target.suffix}", "for you", None, clock.now())
+    send(conn, sender, "desktop/blog", "for anyone", None, clock.now())
+    inbox(conn, reader, 20, clock.now())  # delivers the untargeted one to reader
+    make_session("laptop", "api")  # none of them is the newest row
+    for s in (target, reader):
+        conn.execute(
+            "UPDATE sessions SET ended_at = '2000-01-01T00:00:00.000000Z' "
+            "WHERE id = ?",
+            (s.id,),
+        )
+    sweep(conn, clock.now())
+    assert load_session(conn, target.id) is not None
+    assert load_session(conn, reader.id) is not None

@@ -30,7 +30,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **The server operator.** Messages are not end-to-end encrypted; the server reads them to enforce pairing and keep the audit log. Run it on a host you trust.
 - **A compromised machine.** Anything that can read `~/.config/kampung/config.json` (malware, a stolen laptop, backups, dotfile sync) has that machine's key, and keys don't expire. Any process on the machine, including the agent, can use the key, for example to reset the loop guard. Run `kampung revoke <name>` as soon as a machine or key is lost; it also ends the machine's sessions.
 - **Agents on paired machines.** Pairing is a trust decision. A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. Kampung labels all of it as information from a peer, never instructions, but a label is not a sandbox. Pair only machines whose agents you trust.
-- **Floods from many addresses.** Wrong keys are answered from memory, and an address that sends 20 in a minute is turned away for a minute. Behind Caddy that is the real client address. An attacker with many addresses can still spread out, so keep the firewall allowlist or a network-level rate limit in front of a server that faces the open internet.
+- **Floods from many addresses.** Wrong keys are answered from memory. Once an address has sent 20 wrong keys within a minute, its requests get 429 until the oldest of those is a minute old; requests with a valid key still get through, so a revoked machine retrying behind a shared NAT doesn't lock out its neighbours. Behind the bundled Caddy the address is the real client's, and IPv6 clients count per /64. An attacker with many addresses can still spread out, so keep the firewall allowlist or a network-level rate limit in front of a server that faces the open internet. Behind a different proxy, set `KAMPUNG_FORWARDED_ALLOW_IPS` to it (see `.env.example`).
 - **Woken Codex threads.** A closed or cleared Codex thread can be woken, and run headless, until 30 minutes after its last turn. `codex archive` ends a finished thread at once.
 
 ## Operator checklist
@@ -51,7 +51,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Unread mail kept | 7 days |
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
-| Wrong keys per client address | 20 per minute, then 429 for a minute |
+| Wrong keys per client address (IPv6: per /64) | 20 within a minute, then 429 for wrong keys until they age out |
 | Ended sessions kept | 30 days |
 | Live sessions | 32 per mailbox, 256 per machine |
 | Mailboxes per machine | 1,000 |

@@ -171,14 +171,17 @@ class SessionResolver:
         return found
 
     def _revive(self, found: dict[str, object]) -> dict[str, object]:
-        """Re-register the window's own hook session (same id) after an admin end.
+        """Re-register the window's own hook session after an admin end.
 
         Safe where a blind revive is not: the hook file is the authority on
         which session this window owns now, so this can never resurrect a
-        session that `/clear` replaced.
+        session that `/clear` replaced. Usually the id stays the same; if the
+        server deleted the long-ended session, it hands out a new one, which
+        goes back into the hook file.
         """
         cwd = str(found.get("cwd") or self.cwd)
-        status, _ = hook.api(
+        agent_session_id = found.get("agent_session_id")
+        status, body = hook.api(
             "POST",
             "/v1/sessions",
             {
@@ -186,12 +189,17 @@ class SessionResolver:
                 "cwd": cwd,
                 "repo": hook.repo_name(cwd),
                 "hooks": True,
-                "agent_session_id": found.get("agent_session_id"),
+                "agent_session_id": agent_session_id,
             },
         )
         if status != 200:
             raise hook.HookError(f"revive failed: HTTP {status}")
-        return found
+        if body.get("session") == found.get("session"):
+            return found
+        fresh = {**found, **{k: body[k] for k in ("session", "suffix", "mailbox")}}
+        if isinstance(agent_session_id, str):
+            hook.write_session_file(agent_session_id, fresh)
+        return fresh
 
     def bind(self, agent_session_id: str | None) -> dict[str, object]:
         """Codex: use the hook session for this id, registering it if the hooks

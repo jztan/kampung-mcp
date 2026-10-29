@@ -1,18 +1,22 @@
 """Per-IP limit on wrong machine keys for /mcp and /v1.
 
-Wrong keys already cost no database work (see keyindex), but a client that
-keeps guessing still gets 429 after AUTH_FAILURE_LIMIT failures in
-AUTH_FAILURE_WINDOW, before its request reaches the app. The client IP is
-the one uvicorn reports, which behind Caddy is the X-Forwarded-For address
-(see KAMPUNG_FORWARDED_ALLOW_IPS).
+Wrong keys already cost no database work (see keyindex), but an address
+that keeps sending them gets 429 once AUTH_FAILURE_LIMIT of its failures fall
+within the last AUTH_FAILURE_WINDOW, until the oldest ages out. A request
+whose key is known always gets through, so a revoked machine retrying behind
+a shared NAT cannot lock out the machines next to it. The address is the one
+uvicorn reports (behind Caddy, the X-Forwarded-For address; see
+KAMPUNG_FORWARDED_ALLOW_IPS); IPv6 clients are grouped by /64, since one
+host can hold a whole /64.
 """
 
+import ipaddress
 import json
 import threading
 import time
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, MutableMapping
-from typing import Any
+from typing import Any, Protocol
 
 from .limits import AUTH_FAILURE_LIMIT, AUTH_FAILURE_WINDOW
 
@@ -32,16 +36,42 @@ _BODY = json.dumps(
 ).encode()
 
 
+class KnownKeys(Protocol):
+    def is_known(self, key: str) -> bool: ...
+
+
+def _client_key(scope: Scope) -> str:
+    client = scope.get("client")
+    host = str(client[0]) if client else "unknown"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if address.version == 6:
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return host
+
+
+def _bearer(scope: Scope) -> str:
+    for name, value in scope.get("headers", []):
+        if name == b"authorization":
+            scheme, _, key = value.decode("latin-1").partition(" ")
+            return key.strip() if scheme.lower() == "bearer" else ""
+    return ""
+
+
 class AuthFailureThrottle:
     def __init__(
         self,
         app: ASGIApp,
+        keys: KnownKeys,
         limit: int = AUTH_FAILURE_LIMIT,
         window: float = AUTH_FAILURE_WINDOW.total_seconds(),
         max_ips: int = MAX_IPS,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.app = app
+        self._keys = keys
         self._limit = limit
         self._window = window
         self._max_ips = max_ips
@@ -54,9 +84,8 @@ class AuthFailureThrottle:
         if scope["type"] != "http" or not str(scope["path"]).startswith(GUARDED):
             await self.app(scope, receive, send)
             return
-        client = scope.get("client")
-        ip = client[0] if client else "unknown"
-        if self._blocked(ip):
+        ip = _client_key(scope)
+        if self._blocked(ip) and not self._keys.is_known(_bearer(scope)):
             await send(
                 {
                     "type": "http.response.start",

@@ -25,10 +25,13 @@ services:
       KAMPUNG_HTTP_PORT: "8000"
       KAMPUNG_DB_PATH: /data/kampung.db
       # Take the client IP from X-Forwarded-For, for the wrong-key throttle
-      # and the dashboard's login limit. Safe to trust any peer: the port is
-      # published on loopback only, and Caddy replaces any X-Forwarded-For a
-      # client sends. Without Caddy, only local processes can reach it.
-      KAMPUNG_FORWARDED_ALLOW_IPS: "*"
+      # and the dashboard's login limit. "*" is safe with this file as is:
+      # the port is published on loopback only, and the bundled Caddy
+      # replaces any X-Forwarded-For a client sends. A proxy that appends to
+      # the header instead (nginx, a load balancer, tailscale serve) or a
+      # publish beyond loopback lets clients pick their own address; set
+      # this in .env to that proxy's address then.
+      KAMPUNG_FORWARDED_ALLOW_IPS: ${KAMPUNG_FORWARDED_ALLOW_IPS:-*}
     # Published to loopback ONLY. TLS and public exposure belong to Caddy
     # (the `tls` profile below, or Caddy on the host).
     ports:
