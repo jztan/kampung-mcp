@@ -261,3 +261,34 @@ def test_waker_waits_for_a_busy_turn_to_end(
         ]
     finally:
         mcp.close()
+
+
+def test_waker_wakes_for_mail_that_arrives_late_in_a_wake_turn(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    # The wake turn reads the first message; another lands before its Stop.
+    # The count from the first wake must not hide the second one.
+    repo = git_repo(tmp_path, "api")
+    data = codex_start(home, repo)
+    codex, log = fake_codex(tmp_path)
+    mcp = RawMCP(home, repo, "--codex-bin", str(codex), agent="codex")
+    to = f"laptop/api#{data['suffix']}"
+
+    def hook_event(name: str, **kw: object) -> None:
+        ev = {"hook_event_name": name, "session_id": "cx-1", **kw}
+        run_hook(home, ev, "--agent", "codex")
+
+    try:
+        mcp.initialize()
+        call_inbox(mcp, "cx-1")
+        peer_send(server, to, "first")
+        assert len(wait_for_calls(log, 1, 8)) == 1
+        hook_event("UserPromptSubmit", prompt=WAKE)
+        call_inbox(mcp, "cx-1", "c2")
+        time.sleep(3)
+        peer_send(server, to, "second")
+        time.sleep(3)
+        hook_event("Stop", stop_hook_active=True)
+        assert len(wait_for_calls(log, 2, 8)) == 2
+    finally:
+        mcp.close()

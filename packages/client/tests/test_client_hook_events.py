@@ -434,3 +434,18 @@ def test_claude_code_turns_are_not_marked(
     start(home, repo)
     run_hook(home, event("UserPromptSubmit", "cc-1", prompt="typed"))
     assert not hook.turn_active("cc-1")
+
+
+def test_codex_stop_cut_off_at_the_deadline_ends_the_turn(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A Stop that times out prints no block, so the turn is over; a mark left
+    # behind would hold back idle wakes until it goes stale.
+    write_config(home, "http://127.0.0.1:9", "kmp_x")
+    hook.write_session_file("cx-1", {"session": "1", "ancestors": []})
+    hook.mark_turn("cx-1")
+    monkeypatch.setattr(hook, "api", lambda *a, **k: time.sleep(30))
+    monkeypatch.setattr(hook, "HOOK_DEADLINE", 0.5)
+    ev = json.dumps(event("Stop", "cx-1", stop_hook_active=False))
+    assert hook.main(["--agent", "codex"], io.StringIO(ev)) == 0
+    assert not hook.turn_active("cx-1")

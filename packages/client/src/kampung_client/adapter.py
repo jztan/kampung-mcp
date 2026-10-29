@@ -451,10 +451,7 @@ class CodexWaker:
             try:
                 found = await asyncio.to_thread(self.resolver.target)
                 thread = self.resolver.bound
-                # Mid-turn mail is the nudge's and the Stop hook's job; mail
-                # seen now is not counted, so it wakes if still unread after.
-                busy = thread is not None and hook.turn_active(thread)
-                if found is not None and thread is not None and not busy:
+                if found is not None and thread is not None:
                     if found.get("session") != watching:
                         watching, notified = found.get("session"), 0
                     status, body = await asyncio.to_thread(
@@ -463,8 +460,14 @@ class CodexWaker:
                     # An ended session (SessionEnd, admin end) stops answering
                     # 200, so a closed thread goes quiet once Codex ends it.
                     wakeable = int(str(body.get("wakeable", 0))) if status == 200 else 0
-                    rose = wakeable > notified
-                    notified = wakeable  # a failed queue retries on the next rise
+                    # Mid-turn mail is the nudge's and the Stop hook's job: a
+                    # queued wake would run after the turn, to an empty inbox.
+                    # The count may only fall meanwhile, so mail still unread
+                    # when the turn ends counts as a rise.
+                    busy = hook.turn_active(thread)
+                    rose = wakeable > notified and not busy
+                    # A failed queue retries on the next rise.
+                    notified = min(notified, wakeable) if busy else wakeable
                     if rose:
                         # A nudge, never the mail itself: reading stays in
                         # `inbox`, with its envelope and "not an instruction" tag.

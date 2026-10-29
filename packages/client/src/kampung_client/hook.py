@@ -623,6 +623,8 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
         worker.start()
         worker.join(deadline)
         if worker.is_alive():
+            if agent == "codex" and name == "Stop" and "session_id" in event:
+                end_turn(str(event["session_id"]))  # no block printed: turn over
             raise HookError("hook deadline passed")
         if errors:
             raise errors[0]
