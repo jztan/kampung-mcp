@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
 import uvicorn
 
 from kampung_client import hook
@@ -20,6 +21,17 @@ from kampung_server.app import create_app
 from kampung_server.clock import utcnow
 from kampung_server.deps import ServerDeps
 from kampung_server.ratelimit import RateLimiter
+
+
+def home_env(home: Path) -> dict[str, str]:
+    """The variables that pick the home folder: HOME on Unix, USERPROFILE on
+    Windows, where Path.home() ignores HOME."""
+    return {"HOME": str(home), "USERPROFILE": str(home)}
+
+
+def set_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+    for name, value in home_env(home).items():
+        monkeypatch.setenv(name, value)
 
 
 @dataclass
@@ -104,7 +116,7 @@ def run_hook(
         input=json.dumps(event),
         text=True,
         capture_output=True,
-        env={**os.environ, "HOME": str(home)},
+        env={**os.environ, **home_env(home)},
         timeout=20,
     )
 
@@ -166,7 +178,7 @@ class RawMCP:
         agent: str = "claude-code",
         path: str | None = None,
     ) -> None:
-        env = {**os.environ, "HOME": str(home)}
+        env = {**os.environ, **home_env(home)}
         if path is not None:
             env["PATH"] = path
         self.proc = subprocess.Popen(

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from client_testlib import LiveServer
+from client_testlib import LiveServer, set_home
 from kampung_client import cli, hook
 from kampung_client import setup
 from kampung_client.setup import SetupError, manual_command, run_setup
@@ -90,7 +90,7 @@ def test_setup_quotes_paths_with_spaces(
 ) -> None:
     spaced = tmp_path / "my home"
     spaced.mkdir()
-    monkeypatch.setenv("HOME", str(spaced))
+    set_home(monkeypatch, spaced)
     installed = str(spaced / "site-packages" / "kampung_client" / "hook.py")
     monkeypatch.setattr(hook, "__file__", installed)
     run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
