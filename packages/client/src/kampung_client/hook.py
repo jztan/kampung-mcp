@@ -8,6 +8,7 @@ the agent: every failure is logged and swallowed.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -16,6 +17,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +51,46 @@ class HookError(Exception):
     """Anything that should make a hook give up quietly."""
 
 
+class InsecureServerError(HookError):
+    """The configured server would get the machine key over plain http."""
+
+
+# Plain http is only for hosts whose traffic never crosses an untrusted
+# network: loopback, and Tailscale (WireGuard-encrypted end to end).
+_PLAIN_HTTP_NETS = tuple(
+    ipaddress.ip_network(n)
+    for n in ("127.0.0.0/8", "::1/128", "100.64.0.0/10", "fd7a:115c:a1e0::/48")
+)
+
+
+def _plain_http_ok(host: str) -> bool:
+    """Checked as written, never resolved: a name's DNS answer can change."""
+    if host == "localhost" or host.rstrip(".").endswith(".ts.net"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(address in net for net in _PLAIN_HTTP_NETS)
+
+
+def server_url_problem(url: str, allow_insecure_http: bool = False) -> str | None:
+    """Why the machine key must not be sent to `url`, or None if it may."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname  # lower-cased, IPv6 brackets removed
+    except ValueError:  # a malformed IPv6 literal
+        return f"{url!r} is not a valid server URL."
+    if parts.scheme not in ("https", "http") or not host:
+        return f"{url!r} is not an https:// or http:// server URL."
+    if parts.scheme == "http" and not allow_insecure_http and not _plain_http_ok(host):
+        return (
+            f"Refusing to send the key over plain http to {host}; use https:// "
+            "(see the tls profile) or a Tailscale address."
+        )
+    return None
+
+
 def config_dir() -> Path:
     return Path.home() / ".config" / "kampung"
 
@@ -61,7 +103,7 @@ def sessions_dir() -> Path:
     return cache_dir() / "sessions"
 
 
-def load_config() -> dict[str, str]:
+def _read_config() -> dict[str, object]:
     path = config_dir() / "config.json"
     try:
         data = json.loads(path.read_text())
@@ -69,7 +111,34 @@ def load_config() -> dict[str, str]:
         raise HookError(f"cannot read {path}: {e}") from e
     if not isinstance(data, dict) or not data.get("server") or not data.get("key"):
         raise HookError(f"{path} needs both server and key")
-    return {"server": str(data["server"]).rstrip("/"), "key": str(data["key"])}
+    return data
+
+
+def load_config() -> dict[str, str]:
+    """Server and key, refusing a server the key must not be sent to (this
+    also covers a config.json edited by hand or written by an older version)."""
+    data = _read_config()
+    server = str(data["server"]).rstrip("/")
+    problem = server_url_problem(server, data.get("allow_insecure_http") is True)
+    if problem is not None:
+        raise InsecureServerError(problem)
+    return {"server": server, "key": str(data["key"])}
+
+
+def insecure_http_warning() -> str | None:
+    """A warning when config.json relies on allow_insecure_http, else None."""
+    try:
+        data = _read_config()
+    except HookError:
+        return None
+    server = str(data["server"]).rstrip("/")
+    relied_on = server_url_problem(server) and not server_url_problem(server, True)
+    if data.get("allow_insecure_http") is not True or not relied_on:
+        return None
+    return (
+        f"Warning: allow_insecure_http is set, so the machine key goes to "
+        f"{server} over plain http, where anyone on the network path can copy it."
+    )
 
 
 ProcessInfo = tuple[int, str, str]  # (parent pid, start time, exe name)
@@ -295,6 +364,22 @@ def sweep_stale_files() -> int:
     return removed
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Hand a redirect back as an HTTPError: urllib would re-send the
+    Authorization header wherever it points, plain http included."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def open_url(request: urllib.request.Request, timeout: float) -> Any:
+    """urlopen, without following redirects."""
+    return _OPENER.open(request, timeout=timeout)
+
+
 def api(
     method: str,
     path: str,
@@ -314,7 +399,7 @@ def api(
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_url(request, timeout) as response:
             return response.status, _json(response.read())
     except urllib.error.HTTPError as e:
         if e.code >= 500:

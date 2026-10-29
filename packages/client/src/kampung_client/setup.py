@@ -39,11 +39,10 @@ def default_runner(cmd: list[str]) -> int:
 
 
 def _status(url: str, key: str | None = None) -> int:
+    """HTTP status of a GET; a redirect comes back as its own status."""
     headers = {"Authorization": f"Bearer {key}"} if key else {}
     try:
-        with urllib.request.urlopen(
-            urllib.request.Request(url, headers=headers), timeout=5
-        ) as r:
+        with hook.open_url(urllib.request.Request(url, headers=headers), 5) as r:
             return int(r.status)
     except urllib.error.HTTPError as e:
         return e.code
@@ -55,14 +54,17 @@ def _adapter_cmd(agent: str) -> list[str]:
     return [sys.executable, "-m", "kampung_client", "adapter", "--agent", agent]
 
 
-def _write_config(server: str, key: str) -> None:
+def _write_config(server: str, key: str, allow_insecure_http: bool) -> None:
     d = hook.config_dir()
     d.mkdir(parents=True, exist_ok=True)
     os.chmod(d, 0o700)
     path = d / "config.json"
+    data: dict[str, object] = {"server": server, "key": key}
+    if allow_insecure_http:
+        data["allow_insecure_http"] = True
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        json.dump({"server": server, "key": key}, f)
+        json.dump(data, f)
     os.chmod(path, 0o600)
 
 
@@ -205,8 +207,13 @@ def run_setup(
     agents: list[str],
     runner: Runner,
     channels: bool = False,
+    allow_insecure_http: bool = False,
 ) -> list[str]:
     server = server.rstrip("/")
+    # Before any request: a refused server is sent nothing at all.
+    problem = hook.server_url_problem(server, allow_insecure_http)
+    if problem is not None:
+        raise SetupError(problem)
     if _status(f"{server}/health") != 200:
         raise SetupError(
             f"{server}/health did not answer 200; is this a Kampung server?"
@@ -224,10 +231,17 @@ def run_setup(
         else None
     )
 
-    _write_config(server, key)
+    _write_config(server, key, allow_insecure_http)
     # Older setups copied the hook here; it now runs from the install.
     (hook.config_dir() / "kampung_hook.py").unlink(missing_ok=True)
     lines = [f"Saved server and key to {hook.config_dir() / 'config.json'}."]
+    if allow_insecure_http:
+        lines.insert(
+            0,
+            "Warning: --allow-insecure-http is on. Over plain http, anyone on "
+            "the network path can copy this machine's key and act as it until "
+            "you revoke it.",
+        )
 
     if "claude-code" in agents:
         assert claude_settings is not None

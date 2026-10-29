@@ -36,13 +36,30 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Claude Code: wake idle sessions with Channels push (experimental)",
     )
+    setup.add_argument(
+        "--allow-insecure-http",
+        action="store_true",
+        help="send the key over plain http to any host (trusted networks only)",
+    )
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "adapter":
+        from . import hook
         from .adapter import build_adapter
+
+        try:
+            hook.load_config()
+        except hook.InsecureServerError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        except hook.HookError:
+            pass  # no config yet: each tool call answers with an inline error
+        warning = hook.insecure_http_warning()
+        if warning is not None:
+            print(warning, file=sys.stderr)
 
         build_adapter(
             args.agent, channels=args.channels, codex_bin=args.codex_bin
@@ -53,7 +70,12 @@ def main(argv: list[str] | None = None) -> int:
         agents = ["claude-code", "codex"] if args.agent == "both" else [args.agent]
         try:
             lines = setup.run_setup(
-                args.server, args.key, agents, setup.default_runner, args.channels
+                args.server,
+                args.key,
+                agents,
+                setup.default_runner,
+                args.channels,
+                args.allow_insecure_http,
             )
         except setup.SetupError as e:
             print(f"error: {e}", file=sys.stderr)
