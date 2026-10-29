@@ -8,7 +8,14 @@ from .addressing import validate_name
 from .clock import parse_ts, ts
 from .errors import KampungError
 from .ids import new_suffix
-from .limits import LIVE_WINDOW
+from .limits import (
+    LIVE_WINDOW,
+    MAX_AGENT_SESSION_ID_CHARS,
+    MAX_CWD_CHARS,
+    MAX_LIVE_SESSIONS_PER_MACHINE,
+    MAX_LIVE_SESSIONS_PER_MAILBOX,
+    MAX_MAILBOXES_PER_MACHINE,
+)
 from .models import SESSION_SELECT, Machine, Session, load_session, session_from_row
 
 AGENTS = ("claude-code", "codex", "other")
@@ -31,6 +38,20 @@ def register(
             "invalid_agent", f"agent must be one of {', '.join(AGENTS)}."
         )
     validate_name("repo", repo)
+    # cwd is shown to peers' agents, so it stays short and on one line.
+    if not _printable(cwd, MAX_CWD_CHARS):
+        raise KampungError(
+            "invalid_cwd",
+            f"cwd must be 1 to {MAX_CWD_CHARS} printable characters.",
+        )
+    if agent_session_id is not None and not _printable(
+        agent_session_id, MAX_AGENT_SESSION_ID_CHARS
+    ):
+        raise KampungError(
+            "invalid_agent_session",
+            f"agent_session_id must be 1 to {MAX_AGENT_SESSION_ID_CHARS} "
+            "printable characters.",
+        )
     actor = f"machine:{machine.name}"
     if agent_session_id is not None:
         other = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
@@ -76,6 +97,10 @@ def register(
     return session
 
 
+def _printable(value: str, limit: int) -> bool:
+    return 0 < len(value) <= limit and value.isprintable()
+
+
 def _one(
     conn: sqlite3.Connection, where: str, params: tuple[object, ...]
 ) -> Session | None:
@@ -93,15 +118,44 @@ def _create(
     hooks: bool,
     agent_session_id: str | None,
 ) -> int:
-    conn.execute(
-        "INSERT OR IGNORE INTO mailboxes (machine_id, repo, created_at) "
-        "VALUES (?, ?, ?)",
-        (machine.id, repo, ts(now)),
-    )
-    mailbox_id = conn.execute(
+    row = conn.execute(
         "SELECT id FROM mailboxes WHERE machine_id = ? AND repo = ?",
         (machine.id, repo),
-    ).fetchone()[0]
+    ).fetchone()
+    if row is not None:
+        mailbox_id = row[0]
+    else:
+        mailboxes = conn.execute(
+            "SELECT count(*) FROM mailboxes WHERE machine_id = ?", (machine.id,)
+        ).fetchone()[0]
+        if mailboxes >= MAX_MAILBOXES_PER_MACHINE:
+            raise KampungError(
+                "too_many_mailboxes",
+                f"A machine may have at most {MAX_MAILBOXES_PER_MACHINE} mailboxes.",
+            )
+        cur = conn.execute(
+            "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (?, ?, ?)",
+            (machine.id, repo, ts(now)),
+        )
+        mailbox_id = cur.lastrowid
+    live_here, live_total = conn.execute(
+        "SELECT coalesce(sum(s.mailbox_id = ?), 0), count(*) FROM sessions s "
+        "JOIN mailboxes mb ON mb.id = s.mailbox_id "
+        "WHERE mb.machine_id = ? AND s.ended_at IS NULL",
+        (mailbox_id, machine.id),
+    ).fetchone()
+    if live_here >= MAX_LIVE_SESSIONS_PER_MAILBOX:
+        raise KampungError(
+            "too_many_sessions",
+            f"{machine.name}/{repo} already has {live_here} live sessions; "
+            "end some first.",
+        )
+    if live_total >= MAX_LIVE_SESSIONS_PER_MACHINE:
+        raise KampungError(
+            "too_many_sessions",
+            f"{machine.name} already has {live_total} live sessions; "
+            "end some first.",
+        )
     taken = {
         r[0]
         for r in conn.execute(

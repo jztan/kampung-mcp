@@ -10,6 +10,7 @@ from server_testlib import FakeClock
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
 from kampung_server.deps import ServerDeps
+from kampung_server.limits import MAX_REQUEST_BYTES
 from kampung_server.models import Machine, load_session
 from kampung_server.ratelimit import RateLimiter
 
@@ -124,6 +125,47 @@ def test_bad_json_400(client: TestClient, machines: Machines) -> None:
     assert r.status_code == 400 and r.json()["error"] == "invalid_name"
 
 
+def test_register_checks_key_before_body(client: TestClient) -> None:
+    r = client.post("/v1/sessions", content=b"{not json")
+    assert r.status_code == 401 and r.json()["error"] == "unauthorized"
+
+
+def test_register_never_reads_body_without_key(client: TestClient) -> None:
+    read = []
+
+    def chunks() -> Iterator[bytes]:
+        read.append(1)
+        yield b"{}"
+
+    r = client.post("/v1/sessions", content=chunks())
+    assert r.status_code == 401 and read == []
+
+
+def test_register_body_over_limit_413(client: TestClient, machines: Machines) -> None:
+    key = machines["laptop"][1]
+    big = b" " * (MAX_REQUEST_BYTES + 1)
+    r = client.post("/v1/sessions", headers=bearer(key), content=big)
+    assert r.status_code == 413 and r.json()["error"] == "request_too_large"
+
+
+def test_register_streamed_body_over_limit_413(
+    client: TestClient, machines: Machines
+) -> None:
+    def chunks() -> Iterator[bytes]:
+        for _ in range(MAX_REQUEST_BYTES // 1024 + 2):
+            yield b" " * 1024
+
+    key = machines["laptop"][1]
+    r = client.post("/v1/sessions", headers=bearer(key), content=chunks())
+    assert r.status_code == 413 and r.json()["error"] == "request_too_large"
+
+
+def test_register_deep_json_400(client: TestClient, machines: Machines) -> None:
+    key = machines["laptop"][1]
+    r = client.post("/v1/sessions", headers=bearer(key), content=b"[" * 50_000)
+    assert r.status_code == 400 and r.json()["error"] == "bad_request"
+
+
 def test_register_other_machines_agent_session_403(
     client: TestClient, machines: Machines
 ) -> None:
@@ -134,3 +176,23 @@ def test_register_other_machines_agent_session_403(
         json={**BODY, "agent_session_id": "cc-9"},
     )
     assert r.status_code == 403
+
+
+def test_wrong_keys_skip_database(
+    client: TestClient, deps: ServerDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.post("/v1/sessions", json=BODY, headers=bearer("kmp_warm"))
+    opened = []
+    real = ServerDeps.connect
+
+    def counting(self: ServerDeps) -> sqlite3.Connection:
+        opened.append(1)
+        return real(self)
+
+    monkeypatch.setattr(ServerDeps, "connect", counting)
+    for i in range(20):
+        r = client.post("/v1/sessions", json=BODY, headers=bearer(f"kmp_bad{i}"))
+        assert r.status_code == 401
+        r = client.post("/mcp", json={}, headers=bearer(f"kmp_bad{i}"))
+        assert r.status_code == 401
+    assert opened == []

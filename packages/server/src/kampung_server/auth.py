@@ -1,17 +1,15 @@
 """Machine-key authentication for /mcp (FastMCP verifier) and /v1 (by hand).
 
 FastMCP's `auth=` does not cover custom routes, so every /v1 handler calls
-`machine_from_request` itself.
+`machine_from_request` itself. Both answer a key missing from the in-memory
+index without touching the database.
 """
-
-import sqlite3
 
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 
 from .deps import ServerDeps
-from .identity import authenticate
 from .models import Machine
 
 
@@ -21,7 +19,7 @@ class MachineKeyVerifier(TokenVerifier):
         self._deps = deps
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        machine = await run_in_threadpool(self._lookup, token)
+        machine = await _lookup(self._deps, token)
         if machine is None:
             return None
         return AccessToken(
@@ -31,16 +29,15 @@ class MachineKeyVerifier(TokenVerifier):
             claims={"machine_id": machine.id},
         )
 
-    def _lookup(self, token: str) -> Machine | None:
-        conn = self._deps.connect()
-        try:
-            return authenticate(conn, token)
-        finally:
-            conn.close()
 
-
-def machine_from_request(request: Request, conn: sqlite3.Connection) -> Machine | None:
+async def machine_from_request(request: Request, deps: ServerDeps) -> Machine | None:
     scheme, _, key = request.headers.get("authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not key:
         return None
-    return authenticate(conn, key.strip())
+    return await _lookup(deps, key.strip())
+
+
+async def _lookup(deps: ServerDeps, key: str) -> Machine | None:
+    if deps.keys.is_unknown(key):
+        return None
+    return await run_in_threadpool(deps.keys.lookup, key)

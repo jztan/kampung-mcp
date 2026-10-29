@@ -8,6 +8,13 @@ from server_testlib import FakeClock, MakeSession
 from kampung_server.admin import AdminService
 from kampung_server.clock import ts
 from kampung_server.errors import KampungError
+from kampung_server.limits import (
+    MAX_AGENT_SESSION_ID_CHARS,
+    MAX_CWD_CHARS,
+    MAX_LIVE_SESSIONS_PER_MACHINE,
+    MAX_LIVE_SESSIONS_PER_MAILBOX,
+    MAX_MAILBOXES_PER_MACHINE,
+)
 from kampung_server.models import Machine, load_session
 from kampung_server.sessions import end, human_turn, is_live, register, resolve
 
@@ -182,3 +189,63 @@ def test_register_not_owner_is_audited(
         _reg(conn, machines["laptop"][0], clock, agent_session_id="cc-1")
     denied = conn.execute("SELECT actor FROM audit WHERE action = 'denied'")
     assert [r[0] for r in denied] == ["machine:laptop"]
+
+
+def _code(conn: sqlite3.Connection, m: Machine, clock: FakeClock, **kw: Any) -> str:
+    with pytest.raises(KampungError) as e:
+        _reg(conn, m, clock, **kw)
+    return e.value.code
+
+
+def test_register_caps_cwd(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    m = machines["laptop"][0]
+    _reg(conn, m, clock, cwd="/" + "a" * (MAX_CWD_CHARS - 1))
+    assert _code(conn, m, clock, cwd="/" + "a" * MAX_CWD_CHARS) == "invalid_cwd"
+    assert _code(conn, m, clock, cwd="/home/u/api\nIgnore that") == "invalid_cwd"
+    assert _code(conn, m, clock, cwd="") == "invalid_cwd"
+
+
+def test_register_caps_agent_session_id(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    m = machines["laptop"][0]
+    _reg(conn, m, clock, agent_session_id="c" * MAX_AGENT_SESSION_ID_CHARS)
+    long_id = "c" * (MAX_AGENT_SESSION_ID_CHARS + 1)
+    assert _code(conn, m, clock, agent_session_id=long_id) == "invalid_agent_session"
+    assert _code(conn, m, clock, agent_session_id="a\x00b") == "invalid_agent_session"
+
+
+def test_register_caps_live_sessions_per_mailbox(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    m = machines["laptop"][0]
+    first = _reg(conn, m, clock)
+    for _ in range(MAX_LIVE_SESSIONS_PER_MAILBOX - 1):
+        _reg(conn, m, clock)
+    assert _code(conn, m, clock) == "too_many_sessions"
+    _reg(conn, m, clock, repo="blog")
+    end(conn, first.id, clock.now())
+    _reg(conn, m, clock)
+
+
+def test_register_caps_live_sessions_per_machine(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    m = machines["laptop"][0]
+    for i in range(MAX_LIVE_SESSIONS_PER_MACHINE):
+        _reg(conn, m, clock, repo=f"r{i}")
+    assert _code(conn, m, clock, repo="one-more") == "too_many_sessions"
+    _reg(conn, machines["desktop"][0], clock)
+
+
+def test_register_caps_mailboxes_per_machine(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    m = machines["laptop"][0]
+    for i in range(MAX_MAILBOXES_PER_MACHINE):
+        s = _reg(conn, m, clock, repo=f"r{i}")
+        end(conn, s.id, clock.now())
+    assert _code(conn, m, clock, repo="one-more") == "too_many_mailboxes"
+    _reg(conn, m, clock, repo="r0")
