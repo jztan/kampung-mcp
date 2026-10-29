@@ -25,14 +25,20 @@ ACCEPTED = [
     "http://127.0.0.1:8803",
     "http://127.9.9.9",
     "http://[::1]:8803",
-    "http://100.101.102.103:8803",
-    "http://100.64.0.1",
-    "http://100.127.255.254",
-    "http://[fd7a:115c:a1e0::1]:8803",
-    "http://box.tail1234.ts.net",
-    "HTTP://Box.Tail1234.TS.NET:8803",
+]
+# Tailscale addresses, refused by default: 100.64.0.0/10 is also the
+# carrier-grade NAT range, and a *.ts.net name falls back to public DNS when
+# Tailscale is off. --allow-insecure-http opts in.
+TAILSCALE = [
+    ("http://100.101.102.103:8803", "100.101.102.103"),
+    ("http://100.64.0.1", "100.64.0.1"),
+    ("http://100.127.255.254", "100.127.255.254"),
+    ("http://[fd7a:115c:a1e0::1]:8803", "fd7a:115c:a1e0::1"),
+    ("http://box.tail1234.ts.net", "box.tail1234.ts.net"),
+    ("HTTP://Box.Tail1234.TS.NET:8803", "box.tail1234.ts.net"),
 ]
 REJECTED = [
+    *TAILSCALE,
     ("http://192.168.1.10:8803", "192.168.1.10"),
     ("http://kampung.example.com", "kampung.example.com"),
     ("http://100.128.0.1", "100.128.0.1"),
@@ -68,7 +74,12 @@ def test_plain_http_to_other_hosts_is_refused(url: str, host: str) -> None:
     problem = hook.server_url_problem(url)
     assert problem is not None
     assert problem.startswith(REFUSAL.format(host=host))
-    assert "https://" in problem and "Tailscale" in problem
+    assert "https://" in problem and "--allow-insecure-http" in problem
+
+
+@pytest.mark.parametrize("url,host", TAILSCALE)
+def test_tailscale_needs_the_opt_in(url: str, host: str) -> None:
+    assert hook.server_url_problem(url, allow_insecure_http=True) is None
 
 
 @pytest.mark.parametrize(

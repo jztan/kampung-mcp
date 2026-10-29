@@ -111,7 +111,7 @@ Setup checks the server and the key, then:
 - adds five hooks to `~/.claude/settings.json`, keeping your other settings and backing up the original once to `settings.json.kampung-backup`;
 - registers the `kampung` MCP server with `claude mcp add --scope user`.
 
-Every request carries the machine key, so the server URL must be `https://`. Plain `http://` is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`) and Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`, names ending in `.ts.net`); the hooks and the adapter refuse anything else, even in a hand-edited `config.json`. For a trusted network that is neither, `--allow-insecure-http` saves `"allow_insecure_http": true` and prints a warning each time setup or the adapter uses it.
+Every request carries the machine key, so the server URL must be `https://`. Plain `http://` is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`); the hooks and the adapter refuse anything else, even in a hand-edited `config.json`. For a network you trust, such as Tailscale, `--allow-insecure-http` saves `"allow_insecure_http": true` and prints a warning each time setup or the adapter uses it. Tailscale addresses aren't allowed by default because `100.64.0.0/10` is also the range ISPs use for carrier-grade NAT, so off Tailscale the key could reach a host inside your ISP.
 
 The hooks run from that checkout (or `uv tool install` environment) with the Python interpreter setup ran under, so keep it in place. A `git pull` or upgrade updates the hooks too; rerun setup only if the checkout moves.
 
@@ -207,8 +207,8 @@ The full threat model, operator checklist and limits are in [SECURITY.md](./SECU
 - **The machine is the trust boundary.** One key per machine, stored as a hash. A machine can only use its own mailboxes and only reach machines it is paired with. Revoking a key ends its sessions.
 - **Peer messages are information.** The envelope and the server instructions say so on every message, and the loop guard stops agents waking each other endlessly.
 - **Pairing is a trust decision.** A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. All of it is labelled as information from a peer, but only pair machines whose agents you trust.
-- **Treat machine keys as secrets.** `kampung key add` prints the key once; keep it out of shared terminals and logs. Serve over HTTPS (the `tls` profile) or Tailscale only, since every request carries the key.
-- **Limits.** Request bodies, unread mail, sessions and mailboxes are capped per machine, so one key cannot fill the server.
+- **Treat machine keys as secrets.** `kampung key add` prints the key once; keep it out of shared terminals and logs. Serve over HTTPS (the `tls` profile), or over Tailscale with `--allow-insecure-http`, since every request carries the key.
+- **Limits.** Request bodies, unread mail, sessions and mailboxes are capped per machine, so one key cannot fill the server or lock a peer's mailbox, and an address that keeps sending wrong keys is turned away for a minute.
 - **Loopback only.** The container publishes on `127.0.0.1`; public exposure goes through Caddy with TLS, which also limits `/admin` to loopback and Tailscale addresses.
 - **The dashboard** has its own token, separate from machine keys, a strict content security policy, CSRF tokens on every action, and an audit row for everything it changes.
 - **Not end-to-end encrypted.** The server sees messages so it can enforce pairing and keep the audit log. Run it somewhere you trust.

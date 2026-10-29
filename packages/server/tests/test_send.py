@@ -7,7 +7,8 @@ from server_testlib import FakeClock, MakeSession
 from kampung_server.admin import AdminService
 from kampung_server.clock import ts
 from kampung_server.errors import KampungError
-from kampung_server.limits import MAX_WAITING_PER_MAILBOX
+from kampung_server import mail
+from kampung_server.limits import MAX_WAITING_PER_MAILBOX, MAX_WAITING_PER_SENDER
 from kampung_server.mail import SendResult, effective_depth, inbox, send
 from kampung_server.models import Session, load_session
 from kampung_server.sweep import sweep
@@ -224,8 +225,13 @@ def test_sweep_expires_original_before_its_reply(
 
 
 def test_mailbox_full_counts_only_waiting_mail(
-    conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
+    conn: sqlite3.Connection,
+    pair: tuple[Session, Session],
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # One sender stands in for many here, so lift its own share.
+    monkeypatch.setattr(mail, "MAX_WAITING_PER_SENDER", MAX_WAITING_PER_MAILBOX)
     for _ in range(MAX_WAITING_PER_MAILBOX):
         send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
     assert _code(conn, pair[0], "desktop/blog", "hi", clock.now()) == "mailbox_full"
@@ -252,3 +258,22 @@ def test_reply_to_only_mail_the_sender_has_seen(
     with pytest.raises(KampungError) as e:
         send(conn, tablet, "laptop/api", "x", original, clock.now())
     assert e.value.code == "unknown_message"
+
+
+def test_one_sender_cannot_fill_a_mailbox_for_everyone(
+    conn: sqlite3.Connection,
+    pair: tuple[Session, Session],
+    admin: AdminService,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    admin.add_machine("tablet", "admin:cli")
+    admin.pair("tablet", "desktop", "admin:cli")
+    tablet = make_session("tablet", "web")
+    flooder, reader = pair
+    for _ in range(MAX_WAITING_PER_SENDER):
+        send(conn, flooder, "desktop/blog", "spam", None, clock.now())
+    assert _code(conn, flooder, "desktop/blog", "more", clock.now()) == "mailbox_full"
+    assert send(conn, tablet, "desktop/blog", "still gets through", None, clock.now())
+    inbox(conn, reader, 1, clock.now())
+    assert send(conn, flooder, "desktop/blog", "room again", None, clock.now())

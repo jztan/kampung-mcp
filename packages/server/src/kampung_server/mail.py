@@ -14,6 +14,7 @@ from .limits import (
     INBOX_MAX,
     MAX_BODY_BYTES,
     MAX_WAITING_PER_MAILBOX,
+    MAX_WAITING_PER_SENDER,
     MESSAGE_TTL,
     NOHOOK_DEPTH_RESET,
     WAKE_DEPTH_LIMIT,
@@ -95,11 +96,22 @@ def send(
     ).fetchone()
     if mailbox is None:
         raise KampungError("unknown_mailbox", "Call list_peers to see mailboxes.")
-    waiting = conn.execute(
-        "SELECT count(*) FROM messages WHERE to_mailbox_id = ? "
-        "AND delivered_at IS NULL AND expires_at > ?",
-        (mailbox["id"], ts(now)),
-    ).fetchone()[0]
+    # Each sending machine gets its own share of a mailbox, so one runaway
+    # sender cannot lock every other machine out of it.
+    waiting, from_me = conn.execute(
+        "SELECT count(*), coalesce(sum(fmb.machine_id = ?), 0) FROM messages msg "
+        "JOIN sessions fs ON fs.id = msg.from_session_id "
+        "JOIN mailboxes fmb ON fmb.id = fs.mailbox_id "
+        "WHERE msg.to_mailbox_id = ? AND msg.delivered_at IS NULL "
+        "AND msg.expires_at > ?",
+        (sender.machine_id, mailbox["id"], ts(now)),
+    ).fetchone()
+    if from_me >= MAX_WAITING_PER_SENDER:
+        raise KampungError(
+            "mailbox_full",
+            f"{address.machine}/{address.repo} has {from_me} unread messages "
+            "from this machine; try again after it reads them.",
+        )
     if waiting >= MAX_WAITING_PER_MAILBOX:
         raise KampungError(
             "mailbox_full",

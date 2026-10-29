@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import db
 from .clock import ts
-from .limits import TARGET_FALLBACK
+from .limits import ENDED_SESSION_RETENTION, TARGET_FALLBACK
 
 
 def sweep(conn: sqlite3.Connection, now: datetime) -> None:
@@ -28,6 +28,18 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
     conn.execute(
         "UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL AND last_seen < ?",
         (ts(now), ts(now - TARGET_FALLBACK)),
+    )
+    # Drop sessions that ended long ago, freeing their suffixes. Mail still
+    # pointing at one keeps it. The newest row always stays: SQLite hands out
+    # max(id) + 1, so keeping it means an old session file can never meet a
+    # new session under its id.
+    conn.execute(
+        "DELETE FROM sessions WHERE ended_at IS NOT NULL AND ended_at < ? "
+        "AND id < (SELECT max(id) FROM sessions) "
+        "AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.from_session_id = "
+        "sessions.id OR m.to_session_id = sessions.id "
+        "OR m.delivered_to = sessions.id)",
+        (ts(now - ENDED_SESSION_RETENTION),),
     )
 
 

@@ -78,6 +78,28 @@ def test_container_is_hardened(tmp_path: Path) -> None:
         assert s.exec("kampung", "key", "add", "probe").returncode == 0
 
 
+def test_throttle_keys_on_the_forwarded_client_ip(tmp_path: Path) -> None:
+    with stack(tmp_path) as s:
+        url = s.url + "/v1/sessions"
+        spread = [
+            httpx.post(
+                url,
+                json={},
+                headers={
+                    "Authorization": f"Bearer kmp_bad{i}",
+                    "X-Forwarded-For": f"203.0.113.{i}",
+                },
+            ).status_code
+            for i in range(21)
+        ]
+        assert set(spread) == {401}  # 21 clients, one wrong key each
+        same = [
+            httpx.post(url, json={}, headers={"Authorization": f"Bearer kmp_x{i}"})
+            for i in range(21)
+        ]
+        assert same[-1].status_code == 429
+
+
 async def test_first_run_flow(tmp_path: Path) -> None:
     with stack(tmp_path) as s:
         key = parse_key(s.exec("kampung", "key", "add", "laptop").stdout)
