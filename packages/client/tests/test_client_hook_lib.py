@@ -230,3 +230,15 @@ def test_sweep_keeps_codex_files_and_ages_them_out(home: Path) -> None:
     assert hook.sweep_stale_files() == 2
     assert hook.read_session_file("cx-new") is not None
     assert hook.read_session_file("cx-old") is None
+
+
+def test_stale_turn_mark_counts_as_idle(home: Path) -> None:
+    # An interrupted turn may never fire Stop; its mark must not stop wakes
+    # for good.
+    hook.mark_turn("cx-1")
+    assert hook.turn_active("cx-1")
+    old = time.time() - hook.TURN_STALE - 1
+    os.utime(hook.cache_dir() / "turn" / "cx-1", (old, old))
+    assert not hook.turn_active("cx-1")
+    hook.end_turn("cx-1")
+    hook.end_turn("cx-1")  # already gone: no error

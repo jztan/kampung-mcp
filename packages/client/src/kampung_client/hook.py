@@ -28,6 +28,9 @@ _NAME_BAD = re.compile(r"[^A-Za-z0-9._-]")
 HTTP_TIMEOUT = 2.0
 HOOK_DEADLINE = 4.0
 NUDGE_INTERVAL = 30.0  # seconds between mid-turn peeks per session
+# A Codex turn mark with no hook activity for this long counts as idle: an
+# interrupted turn may never fire Stop.
+TURN_STALE = 600.0
 CHANNEL_PREFIX = "<channel"  # how a Channels push arrives as a UserPromptSubmit
 WAKE_PREFIX = "[kampung]"  # how a `codex queue` wake arrives as a UserPromptSubmit
 AGENTS = ("claude-code", "codex")
@@ -445,7 +448,34 @@ def on_session_start(event: Event, clock: _Clock) -> dict[str, object] | None:
     }
 
 
+def _turn_path(sid: str) -> Path:
+    return cache_dir() / "turn" / _NAME_BAD.sub("_", sid)
+
+
+def mark_turn(sid: str) -> None:
+    """Mark a Codex session as mid-turn, for the waker (see turn_active)."""
+    path = _turn_path(sid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def end_turn(sid: str) -> None:
+    _turn_path(sid).unlink(missing_ok=True)
+
+
+def turn_active(sid: str) -> bool:
+    """True while a Codex turn runs. The waker skips `codex queue` then:
+    Codex would run the queued prompt after the turn, when the nudge or the
+    Stop hook has already had the mail read."""
+    try:
+        return time.time() - _turn_path(sid).stat().st_mtime < TURN_STALE
+    except OSError:
+        return False
+
+
 def on_user_prompt(event: Event, clock: _Clock) -> None:
+    if _agent(event) == "codex":
+        mark_turn(str(event["session_id"]))
     # A turn started by a Channels push also fires UserPromptSubmit, with the
     # notification as the prompt. That is not the user typing, so it must not
     # reset the loop guard.
@@ -481,6 +511,8 @@ def _save_nudge_state(path: Path, state: dict[str, float]) -> None:
 def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     """Mid-turn nudge: tell a busy agent about new wakeable mail, at most once
     per new message and at most one server check every NUDGE_INTERVAL."""
+    if _agent(event) == "codex":
+        mark_turn(str(event["session_id"]))  # keeps a long turn from going stale
     path = _nudge_path(event)
     state = _nudge_state(path)
     if str(event.get("tool_name", "")).startswith("mcp__kampung__"):
@@ -508,18 +540,24 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
 
 
 def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
-    if event.get("stop_hook_active"):
-        return None
-    body = _call(event, clock, "GET", "peek", revive=False)
-    wakeable = int(str(body.get("wakeable", 0)))
-    if wakeable > 0:
-        return {"decision": "block", "reason": STOP_REASON.format(n=wakeable)}
-    return None
+    result: dict[str, object] | None = None
+    try:
+        if not event.get("stop_hook_active"):
+            body = _call(event, clock, "GET", "peek", revive=False)
+            wakeable = int(str(body.get("wakeable", 0)))
+            if wakeable > 0:
+                result = {"decision": "block", "reason": STOP_REASON.format(n=wakeable)}
+    finally:
+        # A block keeps the turn going; anything else ends it.
+        if result is None and _agent(event) == "codex":
+            end_turn(str(event["session_id"]))
+    return result
 
 
 def on_session_end(event: Event, clock: _Clock) -> None:
     sid = str(event["session_id"])
     _nudge_path(event).unlink(missing_ok=True)
+    end_turn(sid)
     data = _session(event)
     # Local cleanup first: if the HTTP call outlives the deadline, the file
     # must not be left behind for an ended session.

@@ -400,3 +400,37 @@ def test_codex_session_end_is_cut_off_before_codex_cancels_it(
     assert hook.main(["--agent", "codex"], io.StringIO(ev)) == 0
     assert time.monotonic() - t < 2.9
     assert hook.read_session_file("cx-1") is None
+
+
+def test_codex_turn_is_busy_from_prompt_to_stop(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    # The waker must not queue a wake into a running turn: Codex would run it
+    # after the turn, when the mail has already been read.
+    codex_start(home, repo)
+    assert not hook.turn_active("cx-1")
+    codex(home, event("UserPromptSubmit", "cx-1", prompt="typed"))
+    assert hook.turn_active("cx-1")
+    codex(home, event("Stop", "cx-1", stop_hook_active=False))
+    assert not hook.turn_active("cx-1")
+
+
+def test_codex_turn_stays_busy_while_stop_blocks(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    codex_start(home, repo)
+    codex(home, event("UserPromptSubmit", "cx-1", prompt=f"{hook.WAKE_PREFIX} x"))
+    assert hook.turn_active("cx-1")  # a wake turn is a turn too
+    peer_send(server, "laptop/api", "hello")
+    codex(home, event("Stop", "cx-1", stop_hook_active=False))
+    assert hook.turn_active("cx-1")  # blocked: the turn goes on
+    codex(home, event("Stop", "cx-1", stop_hook_active=True))
+    assert not hook.turn_active("cx-1")
+
+
+def test_claude_code_turns_are_not_marked(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    run_hook(home, event("UserPromptSubmit", "cc-1", prompt="typed"))
+    assert not hook.turn_active("cc-1")

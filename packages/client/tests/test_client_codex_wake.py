@@ -232,3 +232,32 @@ async def test_waker_backs_off_while_server_is_down(
     with pytest.raises(asyncio.CancelledError):
         await CodexWaker(resolver, "/bin/false").poll()
     assert delays == [4.0, 8.0, 16.0, 30.0]
+
+
+def test_waker_waits_for_a_busy_turn_to_end(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    # A queued prompt runs only after the current turn, when the nudge or the
+    # Stop hook has already had the mail read: an empty wake.
+    repo = git_repo(tmp_path, "api")
+    data = codex_start(home, repo)
+    codex, log = fake_codex(tmp_path)
+    mcp = RawMCP(home, repo, "--codex-bin", str(codex), agent="codex")
+
+    def hook_event(name: str, **kw: object) -> None:
+        ev = {"hook_event_name": name, "session_id": "cx-1", **kw}
+        run_hook(home, ev, "--agent", "codex")
+
+    try:
+        mcp.initialize()
+        call_inbox(mcp, "cx-1")
+        hook_event("UserPromptSubmit", prompt="typed")
+        peer_send(server, f"laptop/api#{data['suffix']}", "mid-turn")
+        time.sleep(5)
+        assert calls(log) == []
+        hook_event("Stop", stop_hook_active=True)  # turn ends, mail still unread
+        assert wait_for_calls(log, 1, 8) == [
+            ["queue", "--thread", "cx-1", "--message", WAKE]
+        ]
+    finally:
+        mcp.close()

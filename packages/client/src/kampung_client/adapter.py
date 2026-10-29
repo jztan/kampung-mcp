@@ -451,7 +451,10 @@ class CodexWaker:
             try:
                 found = await asyncio.to_thread(self.resolver.target)
                 thread = self.resolver.bound
-                if found is not None and thread is not None:
+                # Mid-turn mail is the nudge's and the Stop hook's job; mail
+                # seen now is not counted, so it wakes if still unread after.
+                busy = thread is not None and hook.turn_active(thread)
+                if found is not None and thread is not None and not busy:
                     if found.get("session") != watching:
                         watching, notified = found.get("session"), 0
                     status, body = await asyncio.to_thread(
