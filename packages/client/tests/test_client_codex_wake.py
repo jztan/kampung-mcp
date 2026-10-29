@@ -23,6 +23,8 @@ def fake_codex(
 ) -> tuple[Path, Path]:
     """A `codex` stand-in that logs its arguments, one JSON line per call.
     With `hang_first`, the first call sleeps that long, then writes `finished`."""
+    if sys.platform == "win32":
+        pytest.skip("waking Codex with codex queue is not supported on Windows yet")
     bindir = tmp_path / "bin"
     bindir.mkdir()
     log = tmp_path / "codex-calls.jsonl"

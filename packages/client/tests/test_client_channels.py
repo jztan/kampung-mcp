@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import os
+import sys
 
 from client_testlib import (
     LiveServer,
@@ -15,7 +16,12 @@ from kampung_client import hook
 
 
 def hook_chain_for_child() -> list[list[object]]:
-    """What a hook run by this test process records: this process first."""
+    """What a hook run by this test process records: this process first.
+
+    On Windows this process is a python.exe, which the chain skips as a
+    launcher, so the hook's chain starts where this process's own does."""
+    if sys.platform == "win32":
+        return [list(a) for a in hook.ancestors()]
     me = hook._process(os.getpid())
     assert me is not None
     return [[os.getpid(), me[1]]] + [list(a) for a in hook.ancestors()]
