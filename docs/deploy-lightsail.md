@@ -2,7 +2,7 @@
 
 A runbook for one Kampung server on an Amazon Lightsail instance, reached over public HTTPS from a short list of networks. It uses AWS, the repo, and Let's Encrypt for the free HTTPS certificate: no other hosted service.
 
-Plan for about an hour and about $5.40 a month: the $5 Lightsail plan plus a few cents of snapshots. You need:
+Plan for about an hour and about $5.40 a month: the $5 Lightsail plan plus about 30 to 40 cents of snapshots. You need:
 
 - an AWS account;
 - a domain you control, whose DNS records you can edit. You'll use one name under it for the server, for example `kampung.example.com`; the HTTPS certificate is issued for that name (step 9);
@@ -56,7 +56,7 @@ In the [Lightsail console](https://lightsail.aws.amazon.com/), choose **Create i
 
 - **Region:** the one closest to where you work. Kampung's hooks give up after 2 seconds, so latency matters more than price.
 - **Platform and blueprint:** Linux/Unix, **OS Only**, **Ubuntu 24.04 LTS**.
-- **SSH key pair:** create one or upload your own public key. Give it a name of its own, such as `kampung-key`: Lightsail names must be unique across *all* resource types in a Region, so a key pair called `kampung` blocks an instance called `kampung`.
+- **SSH key pair:** create one or upload your own public key. Give it a name of its own, such as `kampung-key`: in a test run, a key pair called `kampung` made Lightsail reject an instance called `kampung` ("Some names are already in use").
 - **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Ubuntu reports about 410 MB of it as usable and uses about 200 MB itself, which leaves room for Kampung (about 100 MB) and Caddy (about 50 MB), with idle pages moving to swap. Building the image needs more: in a test run it pushed about 210 MB into the swap file from step 6, so don't skip that step. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
 - **Name:** for example `kampung`.
 
@@ -72,9 +72,9 @@ On the instance's **Networking** tab, set the **IPv4 firewall** to exactly these
 
 | Application | Port | Source |
 |---|---|---|
-| HTTPS | 443 | **Restrict to IP address**: each of your networks, one rule per address |
+| HTTPS | 443 | **Restrict to IP address**: the address of each of your networks (one rule can list several) |
 | HTTP | 80 | All IP addresses |
-| SSH | 22 | **Restrict to IP address**: your home address, and tick **Allow Lightsail browser SSH/RDP** |
+| SSH | 22 | **Restrict to IP address**: your own network's IP address, and tick **Allow Lightsail browser SSH/RDP** |
 
 Why port 80 stays open: Let's Encrypt checks domain ownership over plain HTTP from addresses that aren't published, so Caddy can't get a certificate if port 80 is restricted. Port 80 only answers those checks and redirects everything else to HTTPS. Kampung's client refuses plain `http://`, so it never sends a key there.
 
@@ -84,7 +84,7 @@ Why port 80 stays open: Let's Encrypt checks domain ownership over plain HTTP fr
 
 **Snapshots → Automatic snapshots → Enable.** Lightsail keeps the latest seven daily snapshots and deletes them when you delete the instance; copy one to a manual snapshot to keep it longer.
 
-Snapshots hold everything on the disk, including unread messages (up to 7 days) and the audit log. Lightsail documents encryption at rest for **attached disks and disk snapshots**. If you want that promise for the database itself, attach a small disk (**Storage → Create disk**), mount it, and set Docker's `data-root` to it before step 6.
+Snapshots hold everything on the disk, including unread messages (up to 7 days) and the audit log. Lightsail [documents encryption at rest](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-block-storage.html) for **attached disks and disk snapshots**. If you want that promise for the database itself, attach a small disk (**Storage → Create disk**) now, and see the note in step 6.
 
 ## 5. Point your domain at it
 
@@ -108,7 +108,11 @@ dig +short kampung.example.com    # the static IP
 
 ## 6. Add swap and install Docker
 
-Connect with SSH (`ssh -i <key> ubuntu@<static IP>`) or the browser SSH in the console. First give the 0.5 GB plan a 2 GB swap file, so building the image can't run out of memory:
+Connect with SSH (`ssh -i <key> ubuntu@<static IP>`) or the browser SSH in the console.
+
+If you attached a disk in step 4, format and mount it first (add it to `/etc/fstab` with `nofail`), and write `{"data-root": "<mount point>/docker"}` to `/etc/docker/daemon.json` *before* installing Docker, so Docker keeps its volumes, including the database, on that disk from the start.
+
+Give the 0.5 GB plan a 2 GB swap file, so building the image can't run out of memory:
 
 ```bash
 sudo fallocate -l 2G /swapfile
@@ -123,13 +127,25 @@ Then Docker:
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker ubuntu
-exit    # log back in so the group applies
+exit    # then reconnect, so the docker group applies
+```
+
+After reconnecting:
+
+```bash
 docker compose version
 ```
 
 ## 7. Get the code
 
-The repository is private, so give the instance a read-only deploy key:
+If the repository is public, clone it over HTTPS and skip to step 8:
+
+```bash
+git clone https://github.com/jztan/kampung-mcp.git
+cd kampung-mcp
+```
+
+While it is private, give the instance a read-only deploy key instead:
 
 ```bash
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/kampung_deploy
@@ -167,16 +183,16 @@ Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
 
 ```bash
 docker compose --profile tls up -d --build --wait    # about 80 s on the Nano plan
-docker compose logs caddy | grep -i certificate    # "certificate obtained successfully"
+docker compose logs -f caddy    # wait for "certificate obtained successfully", then Ctrl-C
 ```
 
 From one of your allowed networks:
 
 ```bash
-curl https://kampung.example.com/health    # {"version":"0.1.0"}
+curl -m 5 https://kampung.example.com/health    # {"version":"0.1.0"}
 ```
 
-From anywhere else, the same command should time out: the firewall drops it. The instance itself is a handy "anywhere else": run the `curl` there, and it should time out after a few seconds, because the request arrives from the instance's own address, which isn't on the list.
+From anywhere else, the same command should time out: the firewall drops it. The instance itself is a handy "anywhere else": run the same `curl -m 5` there, and it should time out after 5 seconds (without `-m`, curl waits about two minutes), because the request arrives from the instance's own address, which isn't on the list.
 
 ### The HTTPS certificate
 
@@ -214,20 +230,20 @@ docker compose exec kampung kampung pair mac windows
 
 With more than two machines, pair every two that should talk (three machines need three `pair` commands). Each key is printed once. Copy it straight into the machine it belongs to; don't paste it into chat, tickets or notes.
 
-On each machine, from a checkout of the client:
+On each machine, install [uv](https://docs.astral.sh/uv/getting-started/installation/), get the repo (same as step 7: HTTPS once it's public; while it's private, the machine needs its own GitHub access), then:
 
 ```bash
 uv sync
 uv run kampung-mcp setup --server https://kampung.example.com
 ```
 
-Setup asks for the key without showing it. Restart Claude Code and ask it to `list_peers`.
+Setup asks for the key without showing it. Restart Claude Code and ask it to `list_peers`. For Codex, add `--agent codex` (or `--agent both`) and approve the hooks once in Codex with `/hooks`; the README's Codex section has the details.
 
 **If setup or the first tool call fails with a certificate error**, the network in between is inspecting TLS with its own certificate authority. Set `SSL_CERT_FILE` to a bundle that includes it; the hooks and the adapter both honour it. Set it where Claude Code starts from, so its child processes inherit it: your shell profile on macOS, or `setx SSL_CERT_FILE C:\path\to\bundle.pem` on Windows (then open a new terminal).
 
 ## 11. Use the dashboard (optional)
 
-Set `KAMPUNG_ADMIN_TOKEN` in `.env` (`openssl rand -hex 24`), then `docker compose --profile tls up -d --wait`. Caddy only serves `/admin` to loopback, so reach it through an SSH tunnel instead of opening it to the internet:
+Set `KAMPUNG_ADMIN_TOKEN` in `.env` (`openssl rand -hex 24`), then `docker compose --profile tls up -d --wait`. Caddy only serves `/admin` to loopback and the Tailscale address range, so on Lightsail reach it through an SSH tunnel instead of opening it to the internet:
 
 ```bash
 ssh -i <key> -L 8803:127.0.0.1:8803 ubuntu@<static IP>
@@ -237,7 +253,9 @@ Then open `http://localhost:8803/admin` on your own machine and sign in with the
 
 ## 12. Get told when it breaks
 
-**Metrics → Status check failures → Add alarm**, with an email notification contact. Kampung's hooks fail open, so a dead server shows up as mail that never arrives, not as an error. The alarm is how you find out.
+**Metrics → Status check failures → Add alarm**, with an email notification contact. Kampung's hooks fail open, so a dead server shows up as mail that never arrives, not as an error.
+
+This alarm only covers the instance itself: it fires when the machine or its network is down. It won't notice a stopped container, an expired certificate or a stale firewall rule. For those, check `curl -m 5 https://kampung.example.com/health` now and then from an allowed network, or schedule it there and alert on failure.
 
 - Lightsail sends a verification email first. Its link opens a page with a **Confirm Subscription** button; the email isn't verified until you press it.
 - The metric is checked in 5-minute periods. Alarming on 2 of 2 periods means a reboot doesn't email you, and a real outage does after about 10 minutes.
@@ -247,11 +265,11 @@ Then open `http://localhost:8803/admin` on your own machine and sign in with the
 
 | Task | How |
 |---|---|
-| Upgrade | `git pull && docker compose --profile tls up -d --build --wait` |
-| Need more memory | Create a new instance from a snapshot on the 1 GB plan ($7/month), move the static IP to it, check `/health` |
+| Upgrade | `cd ~/kampung-mcp && git pull && docker compose --profile tls up -d --build --wait` |
+| Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | A machine or key is lost | `docker compose exec kampung kampung revoke <name>` (ends its sessions too) |
-| Restore | Create a new instance from a snapshot, move the static IP to it, check `/health` |
+| Restore | Copy an automatic snapshot to a manual one first (deleting an instance deletes its automatic snapshots). Create a new instance from it, then **redo steps 3, 4 and 12**: firewall rules, automatic snapshots and the alarm don't carry over, and a new instance starts with SSH open to everyone. Move the static IP to it, check `/health`, then delete the old instance |
 | Logs | `docker compose logs --tail 100 kampung` (capped at 3 x 10 MB per service) |
 | Tear down | Delete the instance (its automatic snapshots go with it), then the static IP, which is billed while unattached |
 
