@@ -1,11 +1,11 @@
 # Deploy on Amazon Lightsail
 
-A runbook for one Kampung server on an Amazon Lightsail instance, reached over public HTTPS from a short list of networks. It uses only AWS and the repo: no other hosted service.
+A runbook for one Kampung server on an Amazon Lightsail instance, reached over public HTTPS from a short list of networks. It uses AWS, the repo, and Let's Encrypt for the free HTTPS certificate: no other hosted service.
 
 Plan for about an hour and about $5.40 a month: the $5 Lightsail plan plus a few cents of snapshots. You need:
 
 - an AWS account;
-- a domain you control, for the HTTPS certificate (for example `kampung.example.com`);
+- a domain you control, whose DNS records you can edit. You'll use one name under it for the server, for example `kampung.example.com`; the HTTPS certificate is issued for that name (step 9);
 - the public IPv4 address of every network your machines connect from. On each network, `curl https://checkip.amazonaws.com` prints it.
 
 ## What you build
@@ -88,7 +88,23 @@ Snapshots hold everything on the disk, including unread messages (up to 7 days) 
 
 ## 5. Point your domain at it
 
-At your DNS provider, add an `A` record: `kampung.example.com` → the static IP. Lightsail's own DNS zones work too (**Domains & DNS**). Wait until `dig +short kampung.example.com` returns the static IP.
+Pick the name your machines will use, usually a subdomain such as `kampung.example.com`. It goes into three places: the DNS record below, `KAMPUNG_DOMAIN` in step 8 (which tells Caddy what to get a certificate for), and every machine's `setup --server` in step 10. Changing it later means a new certificate and running setup again on every machine.
+
+Create an `A` record for that name pointing at the static IP:
+
+- **Route 53:** **Hosted zones →** your domain **→ Create record**. Record name `kampung`, type `A`, value the static IP, TTL `300`.
+- **Lightsail DNS zones:** **Domains & DNS →** your zone **→ Add record**, type `A`.
+- **Any other DNS provider:** an `A` record for the name, with the static IP as its value.
+
+A short TTL (300 seconds) means a restored server (step 13) is reachable again within minutes of moving the record. Leave out an `AAAA` (IPv6) record: the firewall allows nothing over IPv6.
+
+If your domain has `CAA` records, they must allow Let's Encrypt (`0 issue "letsencrypt.org"`), or the certificate in step 9 is refused. Most domains have none, which allows any certificate authority.
+
+Wait until the name resolves before step 9, so the first certificate request doesn't fail:
+
+```bash
+dig +short kampung.example.com    # the static IP
+```
 
 ## 6. Add swap and install Docker
 
@@ -161,6 +177,30 @@ curl https://kampung.example.com/health    # {"version":"0.1.0"}
 ```
 
 From anywhere else, the same command should time out: the firewall drops it. The instance itself is a handy "anywhere else": run the `curl` there, and it should time out after a few seconds, because the request arrives from the instance's own address, which isn't on the list.
+
+### The HTTPS certificate
+
+There's nothing to buy or upload. On its first start, Caddy asks Let's Encrypt for a free certificate for `KAMPUNG_DOMAIN`:
+
+1. Let's Encrypt fetches a one-time token from `http://kampung.example.com/.well-known/acme-challenge/...`, from several servers whose addresses aren't published. That's why port 80 stays open to everyone in step 3.
+2. The certificate is issued and saved in the `caddy-data` volume, so restarts and upgrades reuse it.
+3. Caddy renews it on its own, about 30 days before it expires (certificates last 90 days). Renewals repeat the port 80 check, so never close port 80.
+
+Check which certificate is being served, and until when:
+
+```bash
+echo | openssl s_client -connect kampung.example.com:443 -servername kampung.example.com 2>/dev/null \
+  | openssl x509 -noout -issuer -enddate    # issuer ... Let's Encrypt, notAfter=...
+```
+
+If `docker compose logs caddy` shows `could not get certificate` instead, the cause is almost always one of these:
+
+| Cause | Fix |
+|---|---|
+| The name doesn't resolve to the static IP yet | Wait for `dig` (step 5), then `docker compose --profile tls restart caddy` |
+| Port 80 is closed or restricted | Open it to all IP addresses (step 3) |
+| A `CAA` record doesn't allow Let's Encrypt | Add `0 issue "letsencrypt.org"` (step 5) |
+| Too many attempts | Let's Encrypt limits repeated certificates for the same name to a few per week. Fix the cause, then wait; don't delete `caddy-data` to retry, which uses up the limit faster |
 
 ## 10. Add machines and pair them
 
