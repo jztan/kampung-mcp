@@ -111,6 +111,8 @@ Setup checks the server and the key, then:
 - adds five hooks to `~/.claude/settings.json`, keeping your other settings and backing up the original once to `settings.json.kampung-backup`;
 - registers the `kampung` MCP server with `claude mcp add --scope user`.
 
+Every request carries the machine key, so the server URL must be `https://`. Plain `http://` is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`) and Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`, names ending in `.ts.net`); the hooks and the adapter refuse anything else, even in a hand-edited `config.json`. For a trusted network that is neither, `--allow-insecure-http` saves `"allow_insecure_http": true` and prints a warning each time setup or the adapter uses it.
+
 The hooks run from that checkout (or `uv tool install` environment) with the Python interpreter setup ran under, so keep it in place. A `git pull` or upgrade updates the hooks too; rerun setup only if the checkout moves.
 
 ### Wake idle sessions with Channels (experimental)

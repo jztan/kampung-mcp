@@ -305,6 +305,8 @@ def build_adapter(
                 )
                 async with Client(transport) as client:
                     result = await client.call_tool(tool, args)
+            except hook.InsecureServerError as e:
+                return {"error": "insecure_server_url", "hint": str(e)}
             except Exception:  # noqa: BLE001 - any failure becomes an inline error
                 return await asyncio.to_thread(_diagnose)
             data = result.data
