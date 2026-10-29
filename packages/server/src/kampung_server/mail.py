@@ -119,11 +119,20 @@ def send(
                 "That session has ended; send to the mailbox without #suffix.",
             )
         to_session_id = row["id"]
-    if reply_to is not None:
-        if not conn.execute(
-            "SELECT 1 FROM messages WHERE id = ?", (reply_to,)
-        ).fetchone():
-            raise KampungError("unknown_message", "reply_to names no known message.")
+    # Only mail this machine sent or received, so reply_to cannot be used to
+    # test whether other machines' message ids exist.
+    if (
+        reply_to is not None
+        and not conn.execute(
+            "SELECT 1 FROM messages msg "
+            "JOIN mailboxes tmb ON tmb.id = msg.to_mailbox_id "
+            "JOIN sessions fs ON fs.id = msg.from_session_id "
+            "JOIN mailboxes fmb ON fmb.id = fs.mailbox_id "
+            "WHERE msg.id = ? AND ? IN (tmb.machine_id, fmb.machine_id)",
+            (reply_to, sender.machine_id),
+        ).fetchone()
+    ):
+        raise KampungError("unknown_message", "reply_to names no known message.")
 
     depth = effective_depth(sender, now) + 1
     wake = depth <= WAKE_DEPTH_LIMIT

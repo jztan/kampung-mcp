@@ -196,3 +196,39 @@ def test_wrong_keys_skip_database(
         r = client.post("/mcp", json={}, headers=bearer(f"kmp_bad{i}"))
         assert r.status_code == 401
     assert opened == []
+
+
+def test_end_is_audited(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    sid = _register(client, machines["laptop"][1])
+    r = client.post(f"/v1/sessions/{sid}/end", headers=bearer(machines["desktop"][1]))
+    assert r.status_code == 403
+    r = client.post(f"/v1/sessions/{sid}/end", headers=bearer(machines["laptop"][1]))
+    assert r.status_code == 200
+    rows = conn.execute(
+        "SELECT actor, action FROM audit WHERE action IN ('denied', 'end_session') "
+        "ORDER BY id"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [
+        ("machine:desktop", "denied"),
+        ("machine:laptop", "end_session"),
+    ]
+
+
+def test_register_is_rate_limited(
+    db_path: Path, clock: FakeClock, machines: Machines
+) -> None:
+    deps = ServerDeps(
+        db_path=db_path,
+        clock=clock.now,
+        limiter=RateLimiter(),
+        register_limiter=RateLimiter(limit=2),
+    )
+    key = machines["laptop"][1]
+    with TestClient(create_app(deps)) as c:
+        for _ in range(2):
+            _register(c, key)
+        r = c.post("/v1/sessions", headers=bearer(key), json=BODY)
+        assert r.status_code == 429 and r.json()["error"] == "rate_limited"
+        _register(c, machines["desktop"][1])

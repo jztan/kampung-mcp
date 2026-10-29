@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import mail, sessions
+from . import audit, mail, sessions
 from .auth import machine_from_request
 from .deps import ServerDeps
 from .errors import KampungError
@@ -24,6 +24,7 @@ _STATUS = {
     "unknown_session": 404,
     "session_ended": 409,
     "request_too_large": 413,
+    "rate_limited": 429,
 }
 
 Handler = Callable[[sqlite3.Connection, Machine, dict[str, Any]], dict[str, Any]]
@@ -104,10 +105,12 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
         def handler(
             conn: sqlite3.Connection, machine: Machine, b: dict[str, Any]
         ) -> dict[str, Any]:
+            now = deps.clock()
+            deps.register_limiter.check(machine.id, now)
             s = sessions.register(
                 conn,
                 machine,
-                deps.clock(),
+                now,
                 agent=_field(b, "agent", str, True),
                 cwd=_field(b, "cwd", str, True),
                 repo=_field(b, "repo", str, True),
@@ -146,14 +149,18 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
         def handler(
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
+            now = deps.clock()
+            actor = f"machine:{machine.name}"
             s = load_session(conn, _session_id(request))
             if s is None:
                 raise KampungError("unknown_session", "No such session.")
             if s.machine_id != machine.id:
+                audit.record(conn, now, actor, "denied", {"session": s.id})
                 raise KampungError(
                     "not_owner", "That session belongs to another machine."
                 )
-            sessions.end(conn, s.id, deps.clock())
+            sessions.end(conn, s.id, now)
+            audit.record(conn, now, actor, "end_session", {"session": s.id})
             return {}
 
         return await _run(deps, request, handler)

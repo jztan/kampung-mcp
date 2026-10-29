@@ -53,15 +53,44 @@ def register(
             "printable characters.",
         )
     actor = f"machine:{machine.name}"
-    if agent_session_id is not None:
-        other = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
-        if other and other.machine_id != machine.id:
-            audit.record(conn, now, actor, "denied", {"session": other.id})
-            raise KampungError("not_owner", "That session belongs to another machine.")
+    try:
+        session_id = _register(
+            conn, machine, now, actor, agent, cwd, repo, hooks, agent_session_id, suffix
+        )
+    except _Denied as e:
+        # Recorded after the rollback, so the audit row is kept.
+        audit.record(conn, now, actor, "denied", {"session": e.session_id})
+        raise KampungError("not_owner", "That session belongs to another machine.")
+    session = load_session(conn, session_id)
+    assert session is not None
+    return session
+
+
+class _Denied(Exception):
+    def __init__(self, session_id: int) -> None:
+        self.session_id = session_id
+
+
+def _register(
+    conn: sqlite3.Connection,
+    machine: Machine,
+    now: datetime,
+    actor: str,
+    agent: str,
+    cwd: str,
+    repo: str,
+    hooks: bool,
+    agent_session_id: str | None,
+    suffix: str | None,
+) -> int:
     with db.transaction(conn):
         existing = None
         if agent_session_id is not None:
+            # Checked inside the transaction, so no other machine can claim
+            # this agent session between the check and the revive.
             existing = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
+            if existing is not None and existing.machine_id != machine.id:
+                raise _Denied(existing.id)
         if existing is None and suffix is not None:
             existing = _one(
                 conn,
@@ -92,9 +121,7 @@ def register(
                 "register",
                 {"session": session_id, "mailbox": f"{machine.name}/{repo}"},
             )
-    session = load_session(conn, session_id)
-    assert session is not None
-    return session
+    return session_id
 
 
 def _printable(value: str, limit: int) -> bool:
