@@ -1,10 +1,14 @@
 import re
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from server_testlib import FakeClock, MakeSession
+from kampung_server import db
 from kampung_server.admin import AdminService
 from kampung_server.clock import ts
 from kampung_server.errors import KampungError
@@ -249,3 +253,29 @@ def test_register_caps_mailboxes_per_machine(
         end(conn, s.id, clock.now())
     assert _code(conn, m, clock, repo="one-more") == "too_many_mailboxes"
     _reg(conn, m, clock, repo="r0")
+
+
+def test_register_owner_check_inside_transaction(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    machines: Machines,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real = db.transaction
+
+    @contextmanager
+    def racing(c: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+        # Another machine claims the same agent session id just before ours.
+        monkeypatch.setattr(db, "transaction", real)
+        other = db.connect(db_path)
+        _reg(other, machines["desktop"][0], clock, agent_session_id="cc-race")
+        other.close()
+        with real(c):
+            yield c
+
+    monkeypatch.setattr(db, "transaction", racing)
+    m = machines["laptop"][0]
+    assert _code(conn, m, clock, agent_session_id="cc-race") == "not_owner"
+    denied = conn.execute("SELECT actor FROM audit WHERE action = 'denied'")
+    assert [r[0] for r in denied] == ["machine:laptop"]

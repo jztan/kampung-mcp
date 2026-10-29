@@ -233,3 +233,22 @@ def test_mailbox_full_counts_only_waiting_mail(
     send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
     clock.advance(days=8)
     send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
+
+
+def test_reply_to_only_mail_the_sender_has_seen(
+    conn: sqlite3.Connection,
+    pair: tuple[Session, Session],
+    admin: AdminService,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    admin.add_machine("tablet", "admin:cli")
+    admin.pair("tablet", "laptop", "admin:cli")
+    tablet = make_session("tablet", "web")
+    laptop, desktop = pair
+    original = send(conn, desktop, "laptop/api", "hi", None, clock.now()).id
+    assert send(conn, laptop, "desktop/blog", "re", original, clock.now())
+    assert send(conn, desktop, "laptop/api", "and", original, clock.now())
+    with pytest.raises(KampungError) as e:
+        send(conn, tablet, "laptop/api", "x", original, clock.now())
+    assert e.value.code == "unknown_message"

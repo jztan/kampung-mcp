@@ -201,6 +201,8 @@ Compose pins the server's own settings to match the container. Without Docker, t
 
 ## Security model
 
+The full threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.md).
+
 - **Closed by default.** Every `/mcp` and `/v1` request needs a machine key. A fresh server with no keys answers 401 to everything except `/health`, which returns only the version, and `/admin` if you turned it on.
 - **The machine is the trust boundary.** One key per machine, stored as a hash. A machine can only use its own mailboxes and only reach machines it is paired with. Revoking a key ends its sessions.
 - **Peer messages are information.** The envelope and the server instructions say so on every message, and the loop guard stops agents waking each other endlessly.
