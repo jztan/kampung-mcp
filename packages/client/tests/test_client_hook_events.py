@@ -13,6 +13,7 @@ from client_testlib import (
     LiveServer,
     db_query,
     git_repo,
+    nearest_kept,
     peer_send,
     run_hook,
     scripted_server,
@@ -51,7 +52,8 @@ def test_session_start_registers_and_writes_file(
     start(home, repo)
     f = hook.read_session_file("cc-1")
     assert f is not None and f["mailbox"] == "laptop/api" and f["hooks"] is True
-    assert f["ancestors"][0][0] == os.getpid()  # type: ignore[index]
+    first = f["ancestors"][0][0]  # type: ignore[index]
+    assert first == nearest_kept(os.getpid())
 
 
 def test_stop_blocks_when_wakeable(home: Path, server: LiveServer, repo: Path) -> None:

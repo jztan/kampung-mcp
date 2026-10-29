@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastmcp import Client
 
-from client_testlib import LiveServer, hook_chain, run_hook, write_config
+from client_testlib import LiveServer, home_env, hook_chain, run_hook, write_config
 from kampung_client import cli, hook, setup
 from kampung_client.adapter import build_adapter
 from kampung_client.setup import SetupError, run_setup
@@ -152,7 +152,7 @@ def test_adapter_refuses_to_start_with_plain_http_config(home: Path) -> None:
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
-        env={**os.environ, "HOME": str(home)},
+        env={**os.environ, **home_env(home)},
         timeout=30,
     )
     assert r.returncode == 1
@@ -177,7 +177,7 @@ def test_adapter_warns_when_insecure_http_is_allowed(home: Path) -> None:
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
-        env={**os.environ, "HOME": str(home)},
+        env={**os.environ, **home_env(home)},
         timeout=30,
     )
     assert r.returncode == 0

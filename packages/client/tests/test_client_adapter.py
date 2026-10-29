@@ -10,6 +10,7 @@ from client_testlib import (
     hook_chain,
     peer_send,
     run_hook,
+    set_home,
     write_config,
 )
 from kampung_client import hook
@@ -33,15 +34,15 @@ async def test_send_and_inbox_through_two_adapters(
     desktop_home = tmp_path / "desktop-home"
     desktop_home.mkdir()
     write_config(desktop_home, server.url, server.keys["desktop"])
-    monkeypatch.setenv("HOME", str(desktop_home))
+    set_home(monkeypatch, desktop_home)
     blog_repo = git_repo(tmp_path, "blog")
     blog = hooked_session(blog_repo, "cc-desktop")
 
-    monkeypatch.setenv("HOME", str(home))
+    set_home(monkeypatch, home)
     async with Client(build_adapter("claude-code", str(api_repo))) as c:
         sent = await c.call_tool("send", {"to": "desktop/blog", "body": "hi blog"})
         assert sent.data["depth"] == 0
-    monkeypatch.setenv("HOME", str(desktop_home))
+    set_home(monkeypatch, desktop_home)
     async with Client(build_adapter("claude-code", str(blog_repo))) as c:
         got = await c.call_tool("inbox", {})
         assert got.data["messages"][0]["body"] == "hi blog"

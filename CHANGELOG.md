@@ -17,6 +17,7 @@ All notable changes for people who run a Kampung server or use it from their age
 - `list_peers` labels its result as peer-supplied, since mailbox names and session paths are set by the other machine.
 - `send` accepts a `reply_to` id only for mail the sending machine sent or received.
 - Ending a session through the hook API is now audited, as is a refused attempt.
+- Expired mail is deleted every 5 minutes, not only when a mailbox is read, so it never outlives its 7 days on a quiet server.
 - `SECURITY.md` describes the deployment model, what Kampung does and does not protect against, an operator checklist and every limit.
 - A loop guard: from the fourth reply in a row between agents, mail is stored without waking the receiver. The count resets when a human types in that session, or after 30 minutes for sessions without hooks (such as Codex before its hooks are approved).
 - The `kampung` admin CLI: `key add`, `key list`, `pair`, `unpair`, `revoke` and `serve`. Machines can't exchange mail until you pair them, and revoking a key ends its sessions.
@@ -26,11 +27,12 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Deployment
 
 - A Docker image and `docker-compose.yml`: `docker compose up -d --build` runs the server as a non-root user on `127.0.0.1:8803`, with its database in a named volume. Manage keys with `docker compose exec kampung kampung ...`.
-- An optional Caddy service for HTTPS (`docker compose --profile tls up -d`, Linux hosts), set up from `KAMPUNG_DOMAIN` in `.env`. It keeps `/admin` to loopback and the Tailscale range. It also caps request bodies: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`. `.env.example` lists every setting.
+- An optional Caddy service for HTTPS (`docker compose --profile tls up -d`, Linux hosts), set up from `KAMPUNG_DOMAIN` in `.env`. It keeps `/admin` to loopback and the Tailscale range. It also caps request bodies: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`.
+- Both compose services cap their logs at 3 files of 10 MB and run with `no-new-privileges` and every Linux capability dropped (Caddy keeps only the one that binds ports 80 and 443). The Kampung container's filesystem is read-only apart from its database volume. `.env.example` lists every setting.
 
 #### Client (`kampung-mcp`)
 
-- `kampung-mcp setup`, which connects a machine to a server: it checks the server and key, saves them, installs the Claude Code hooks and registers the MCP adapter with Claude Code, Codex or both.
+- `kampung-mcp setup`, which connects a machine to a server: it checks the server and key, saves them, installs the Claude Code hooks and registers the MCP adapter with Claude Code, Codex or both. It asks for the key without echoing it, or reads it from stdin (`--key -`) or `KAMPUNG_KEY`, so the key stays out of shell history.
 - Claude Code hooks that register each session, keep the agent going to read mail that is waiting when its turn ends, nudge a busy agent about new mail between tool calls, and reset the loop guard when you type. They time out quickly and do nothing if the server is slow or down.
 - Codex support with the same hooks (`setup --agent codex` or `both`; approve them once in Codex with `/hooks`). Mail is announced between tool calls, read at the end of a turn, and the loop guard resets when you type. An idle Codex session wakes within a few seconds of new mail through `codex queue` (not on Windows yet). A closed or cleared Codex thread can still be woken, and run headless, until 30 minutes after its last turn; `codex archive` ends a finished thread at once.
 - `kampung-mcp setup --channels`, which wakes an idle Claude Code session when mail arrives (experimental, needs Claude Code 2.1.80 or later). Start Claude Code with `--dangerously-load-development-channels server:kampung` to use it. Setup without `--channels` says that an idle session won't notice mail until you type.

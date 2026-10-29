@@ -1,5 +1,7 @@
 """Assemble the FastMCP server: auth, MCP tools, hook API and health."""
 
+import threading
+
 import uvicorn
 from fastmcp import FastMCP
 from starlette.applications import Starlette
@@ -10,6 +12,8 @@ from . import __version__, admin_web
 from .auth import MachineKeyVerifier
 from .deps import ServerDeps
 from .hook_api import register_hook_routes
+from .limits import SWEEP_EVERY
+from .sweep import start_sweeper
 from .tools import SERVER_INSTRUCTIONS, register_tools
 
 
@@ -33,4 +37,7 @@ def create_app(deps: ServerDeps) -> Starlette:
 
 
 def serve(deps: ServerDeps, host: str, port: int) -> None:
+    start_sweeper(
+        deps.db_path, deps.clock, SWEEP_EVERY.total_seconds(), threading.Event()
+    )
     uvicorn.run(create_app(deps), host=host, port=port)

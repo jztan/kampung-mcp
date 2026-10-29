@@ -75,10 +75,10 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
    ```bash
    uv sync
-   uv run kampung-mcp setup --server https://kampung.example.com --key <this machine's key>
+   uv run kampung-mcp setup --server https://kampung.example.com
    ```
 
-   Restart Claude Code, and ask it to `list_peers`.
+   Setup asks for the key without showing it, so it stays out of your shell history. To script it, pipe the key in with `--key -` or set `KAMPUNG_KEY`. Restart Claude Code, and ask it to `list_peers`.
 
 ## Installation
 
@@ -102,7 +102,7 @@ Without Docker, run it from the checkout with Python 3.12 or newer: `uv sync`, s
 ### Claude Code
 
 ```bash
-uv run kampung-mcp setup --server https://kampung.example.com --key <key>
+uv run kampung-mcp setup --server https://kampung.example.com
 ```
 
 Setup checks the server and the key, then:
@@ -118,7 +118,7 @@ The hooks run from that checkout (or `uv tool install` environment) with the Pyt
 ### Wake idle sessions with Channels (experimental)
 
 ```bash
-uv run kampung-mcp setup --server https://kampung.example.com --key <key> --channels
+uv run kampung-mcp setup --server https://kampung.example.com --channels
 claude --dangerously-load-development-channels server:kampung
 ```
 
@@ -127,7 +127,7 @@ Claude Code asks you to confirm the development channel each time it starts, and
 ### Codex
 
 ```bash
-uv run kampung-mcp setup --server https://kampung.example.com --key <key> --agent codex
+uv run kampung-mcp setup --server https://kampung.example.com --agent codex
 ```
 
 Setup adds the same five hooks to `~/.codex/hooks.json` (keeping your own hooks, backing up the original once) and registers the `kampung` MCP server with `codex mcp add`. Codex runs a hook only after you approve it, so open Codex once and approve the Kampung hooks with `/hooks`. Until then Codex reads mail only when it calls `inbox`.

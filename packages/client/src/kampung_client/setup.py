@@ -187,7 +187,7 @@ def _register(remove: list[str], add: list[str], runner: Runner) -> str | None:
             return None
     except FileNotFoundError:
         pass
-    return manual_command(add, os.name == "nt")
+    return manual_command(add, _windows())
 
 
 def manual_command(cmd: list[str], windows: bool) -> str:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from client_testlib import LiveServer
+from client_testlib import LiveServer, set_home
 from kampung_client import cli, hook
 from kampung_client import setup
 from kampung_client.setup import SetupError, manual_command, run_setup
@@ -43,7 +43,8 @@ def test_setup_writes_private_config_and_hook(home: Path, server: LiveServer) ->
         "server": server.url,
         "key": server.keys["laptop"],
     }
-    assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
+    if sys.platform != "win32":  # chmod only sets the read-only bit there
+        assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
     # The hook runs from the install, so it always matches the adapter's version.
     assert not (home / ".config" / "kampung" / "kampung_hook.py").exists()
     cmd = settings(home)["hooks"]["Stop"][0]["hooks"][0]["command"]
@@ -90,7 +91,7 @@ def test_setup_quotes_paths_with_spaces(
 ) -> None:
     spaced = tmp_path / "my home"
     spaced.mkdir()
-    monkeypatch.setenv("HOME", str(spaced))
+    set_home(monkeypatch, spaced)
     installed = str(spaced / "site-packages" / "kampung_client" / "hook.py")
     monkeypatch.setattr(hook, "__file__", installed)
     run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
@@ -148,8 +149,10 @@ def codex_hooks(home: Path) -> dict:  # type: ignore[type-arg]
 
 @pytest.fixture
 def codex_at(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Pretend `codex` is installed here, whatever this machine has."""
+    """Pretend `codex` is installed here, on macOS or Linux (setup skips Codex
+    hooks and waking on Windows), whatever this machine is."""
     monkeypatch.setattr(setup.shutil, "which", lambda name: "/opt/x/codex")
+    monkeypatch.setattr(setup, "_windows", lambda: False)
     return "/opt/x/codex"
 
 
@@ -223,6 +226,7 @@ def test_setup_codex_without_codex_on_path_has_no_waker(
     home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(setup.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup, "_windows", lambda: False)
     rec = Recorder()
     lines = run_setup(server.url, server.keys["laptop"], ["codex"], rec)
     assert "--codex-bin" not in rec.calls[-1]
@@ -263,15 +267,19 @@ def test_setup_codex_on_windows_stays_polling(
 
 
 def test_setup_missing_cli_prints_manual_command(
-    home: Path, server: LiveServer
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
     lines = run_setup(
         server.url, server.keys["laptop"], ["claude-code"], Recorder(missing=True)
     )
     assert any("claude mcp add --scope user kampung --" in line for line in lines)
 
 
-def test_setup_failed_cli_prints_manual_command(home: Path, server: LiveServer) -> None:
+def test_setup_failed_cli_prints_manual_command(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
     lines = run_setup(server.url, server.keys["laptop"], ["codex"], Recorder(fail=True))
     assert any("codex mcp add kampung --" in line for line in lines)
 

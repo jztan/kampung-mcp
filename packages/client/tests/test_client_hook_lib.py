@@ -10,7 +10,13 @@ from typing import Callable
 
 import pytest
 
-from client_testlib import LiveServer, git_repo, scripted_server, write_config
+from client_testlib import (
+    LiveServer,
+    git_repo,
+    nearest_kept,
+    scripted_server,
+    write_config,
+)
 from kampung_client import hook
 
 
@@ -22,7 +28,7 @@ def test_paths_follow_home(home: Path) -> None:
 
 def test_ancestors_starts_at_parent_and_excludes_pid_1() -> None:
     chain = hook.ancestors()
-    assert chain[0][0] == os.getppid()
+    assert chain[0][0] == nearest_kept(os.getppid())
     assert all(pid != 1 for pid, _ in chain)
     assert all(
         isinstance(start, str) and start == start.strip() and start
@@ -123,7 +129,7 @@ def test_register_returns_session_file_dict(server: LiveServer, tmp_path: Path) 
     data = hook.register("claude-code", str(repo), True, "cc-1")
     assert data["mailbox"] == "laptop/api" and data["hooks"] is True
     assert data["cwd"] == str(repo) and isinstance(data["session"], str)
-    assert data["ancestors"][0][0] == os.getppid()
+    assert data["ancestors"][0][0] == nearest_kept(os.getppid())
     assert isinstance(data["written_at"], float)
 
 
@@ -133,6 +139,9 @@ def test_register_with_awkward_dir_name(server: LiveServer, tmp_path: Path) -> N
     assert hook.register("codex", str(d), False)["mailbox"] == "laptop/My-Repo-"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="ps only; Windows uses GetProcessTimes"
+)
 def test_ancestor_start_times_ignore_locale(monkeypatch: pytest.MonkeyPatch) -> None:
     # Hooks and the adapter can run with different locales; start times must
     # still compare equal, so `ps` always runs in the C locale.

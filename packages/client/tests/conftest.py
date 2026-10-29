@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from client_testlib import LiveServer, start_server, write_config
+from client_testlib import LiveServer, set_home, start_server, write_config
 
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     h = tmp_path / "home"
     h.mkdir()
-    monkeypatch.setenv("HOME", str(h))
+    set_home(monkeypatch, h)
     return h
 
 

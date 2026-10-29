@@ -5,7 +5,14 @@ from pathlib import Path
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-from client_testlib import LiveServer, db_query, git_repo, peer_send, run_hook
+from client_testlib import (
+    LiveServer,
+    db_query,
+    git_repo,
+    home_env,
+    peer_send,
+    run_hook,
+)
 from kampung_client import hook
 
 REASON = "1 Kampung message(s) waiting. Call the kampung inbox tool to read them."
@@ -42,7 +49,7 @@ async def test_hook_and_adapter_exchange(
     transport = StdioTransport(
         sys.executable,
         ["-m", "kampung_client", "adapter", "--agent", "claude-code"],
-        env={"HOME": str(home)},
+        env=home_env(home),
         cwd=str(repo),
     )
     async with Client(transport) as c:

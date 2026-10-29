@@ -36,7 +36,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 ## Operator checklist
 
 - Deploy with `docker compose --profile tls up -d`, or keep the server on Tailscale only.
-- Treat the output of `kampung key add` as a secret: it is shown once, so keep it out of shared terminals, screen shares and CI logs.
+- Treat the output of `kampung key add` as a secret: it is shown once, so keep it out of shared terminals, screen shares and CI logs. On each machine, let `kampung-mcp setup` ask for it instead of passing `--key` on the command line.
 - Generate the admin token with `openssl rand -hex 24`, or leave it unset if you don't use the dashboard.
 - If you turn on Caddy debug or access logging, leave the `Authorization` header out of the logs.
 - The database volume holds message bodies (for up to 7 days) and the audit log. Protect backups of it like the messages themselves.
