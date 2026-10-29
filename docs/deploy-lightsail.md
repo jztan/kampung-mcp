@@ -2,7 +2,7 @@
 
 A runbook for one Kampung server on an Amazon Lightsail instance, reached over public HTTPS from a short list of networks. It uses only AWS and the repo: no other hosted service.
 
-Plan for about an hour. You need:
+Plan for about an hour and about $5.40 a month: the $5 Lightsail plan plus a few cents of snapshots. You need:
 
 - an AWS account;
 - a domain you control, for the HTTPS certificate (for example `kampung.example.com`);
@@ -57,7 +57,7 @@ In the [Lightsail console](https://lightsail.aws.amazon.com/), choose **Create i
 - **Region:** the one closest to where you work. Kampung's hooks give up after 2 seconds, so latency matters more than price.
 - **Platform and blueprint:** Linux/Unix, **OS Only**, **Ubuntu 24.04 LTS**.
 - **SSH key pair:** create one or upload your own public key.
-- **Plan:** 1 GB of memory or more. Kampung itself is small; the memory is for building the image on the instance.
+- **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Running, the Kampung container uses about 100 MB and Caddy about 50 MB, so the whole server fits in roughly 400 MB. Building the image needs more, which the swap file in step 6 covers. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
 - **Name:** for example `kampung`.
 
 Ubuntu installs security updates on its own (`unattended-upgrades` is on by default).
@@ -90,9 +90,19 @@ Snapshots hold everything on the disk, including unread messages (up to 7 days) 
 
 At your DNS provider, add an `A` record: `kampung.example.com` → the static IP. Lightsail's own DNS zones work too (**Domains & DNS**). Wait until `dig +short kampung.example.com` returns the static IP.
 
-## 6. Install Docker
+## 6. Add swap and install Docker
 
-Connect with SSH (`ssh -i <key> ubuntu@<static IP>`) or the browser SSH in the console, then:
+Connect with SSH (`ssh -i <key> ubuntu@<static IP>`) or the browser SSH in the console. First give the 0.5 GB plan a 2 GB swap file, so building the image can't run out of memory:
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h    # Swap: 2.0Gi
+```
+
+Then Docker:
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
@@ -188,6 +198,7 @@ Then open `http://localhost:8803/admin` on your own machine and sign in with the
 | Task | How |
 |---|---|
 | Upgrade | `git pull && docker compose --profile tls up -d --build --wait` |
+| Need more memory | Create a new instance from a snapshot on the 1 GB plan ($7/month), move the static IP to it, check `/health` |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | A machine or key is lost | `docker compose exec kampung kampung revoke <name>` (ends its sessions too) |
 | Restore | Create a new instance from a snapshot, move the static IP to it, check `/health` |
