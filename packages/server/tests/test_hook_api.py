@@ -10,7 +10,7 @@ from server_testlib import FakeClock
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
 from kampung_server.deps import ServerDeps
-from kampung_server.limits import MAX_REQUEST_BYTES
+from kampung_server.limits import AUTH_FAILURE_LIMIT, MAX_REQUEST_BYTES
 from kampung_server.models import Machine, load_session
 from kampung_server.ratelimit import RateLimiter
 
@@ -190,7 +190,8 @@ def test_wrong_keys_skip_database(
         return real(self)
 
     monkeypatch.setattr(ServerDeps, "connect", counting)
-    for i in range(20):
+    # With the warm-up, 19 wrong keys in all: under the per-IP limit of 20.
+    for i in range(9):
         r = client.post("/v1/sessions", json=BODY, headers=bearer(f"kmp_bad{i}"))
         assert r.status_code == 401
         r = client.post("/mcp", json={}, headers=bearer(f"kmp_bad{i}"))
@@ -232,3 +233,23 @@ def test_register_is_rate_limited(
         r = c.post("/v1/sessions", headers=bearer(key), json=BODY)
         assert r.status_code == 429 and r.json()["error"] == "rate_limited"
         _register(c, machines["desktop"][1])
+
+
+def test_repeated_bad_keys_from_one_ip_get_429(client: TestClient) -> None:
+    codes = [
+        client.post(
+            "/v1/sessions", json=BODY, headers=bearer(f"kmp_bad{i}")
+        ).status_code
+        for i in range(AUTH_FAILURE_LIMIT + 1)
+    ]
+    assert codes[:-1] == [401] * AUTH_FAILURE_LIMIT and codes[-1] == 429
+    assert client.get("/health").status_code == 200
+
+
+def test_a_valid_key_gets_through_a_throttled_address(
+    client: TestClient, machines: Machines
+) -> None:
+    for i in range(AUTH_FAILURE_LIMIT):
+        client.post("/mcp", json={}, headers=bearer(f"kmp_bad{i}"))
+    assert client.post("/mcp", json={}, headers=bearer("kmp_more")).status_code == 429
+    _register(client, machines["laptop"][1])

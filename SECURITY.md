@@ -14,7 +14,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 
 - **Closed by default.** Every `/mcp` and `/v1` request needs a machine key. `/health` is open and returns only the version. `/admin` exists only when `KAMPUNG_ADMIN_TOKEN` is set.
 - **Loopback only.** The container publishes on `127.0.0.1`. Reach it from other machines through the `tls` profile (Caddy with automatic HTTPS) or over Tailscale.
-- **The client refuses plain `http://`** unless the host is loopback or a Tailscale address, because every request carries the machine key. `setup --allow-insecure-http` overrides this and warns on every use.
+- **The client refuses plain `http://`** unless the host is loopback, because every request carries the machine key. `setup --allow-insecure-http` overrides this for a network you trust, such as Tailscale, and warns on every use. Tailscale addresses need it too: `100.64.0.0/10` is also carrier-grade NAT space, and a `*.ts.net` name falls back to public DNS when Tailscale is off.
 
 ## What Kampung protects against
 
@@ -22,7 +22,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **Machines reaching mail that isn't theirs.** The machine is the trust boundary: a key can only use its own machine's mailboxes and sessions, and can only send to machines you have paired with `kampung pair`. The sender is taken from the key, never from the request.
 - **A leaked database giving working keys.** Only the SHA-256 hash of each key is stored. Keys are 256 random bits, so they can't be guessed.
 - **Agents waking each other forever.** From the fourth reply in a row, mail is stored without waking the receiver until a human types in that session.
-- **One key filling the server.** Request bodies, unread mail per mailbox, sessions and mailboxes per machine, sends and registrations per minute are all capped. See [Limits](#limits).
+- **One key filling the server or a peer's mailbox.** Request bodies, unread mail per mailbox and per sending machine, sessions and mailboxes per machine, sends and registrations per minute are all capped, and sessions that ended long ago are deleted. See [Limits](#limits).
 - **Dashboard misuse.** The admin token must be at least 24 characters and is compared in constant time. Logins are limited to 5 failures per 15 minutes per client address, sessions last 12 hours, every action needs a CSRF token, pages send a strict content security policy and can't be framed, and every change is audited.
 
 ## What it does not protect against
@@ -30,7 +30,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **The server operator.** Messages are not end-to-end encrypted; the server reads them to enforce pairing and keep the audit log. Run it on a host you trust.
 - **A compromised machine.** Anything that can read `~/.config/kampung/config.json` (malware, a stolen laptop, backups, dotfile sync) has that machine's key, and keys don't expire. Any process on the machine, including the agent, can use the key, for example to reset the loop guard. Run `kampung revoke <name>` as soon as a machine or key is lost; it also ends the machine's sessions.
 - **Agents on paired machines.** Pairing is a trust decision. A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. Kampung labels all of it as information from a peer, never instructions, but a label is not a sandbox. Pair only machines whose agents you trust.
-- **Floods from many addresses.** There is no per-address limit before authentication. Put the server behind Tailscale or a network-level rate limit if it faces the open internet.
+- **Floods from many addresses.** Wrong keys are answered from memory. Once an address has sent 20 wrong keys within a minute, its requests get 429 until the oldest of those is a minute old; requests with a valid key still get through, so a revoked machine retrying behind a shared NAT doesn't lock out its neighbours. Behind the bundled Caddy the address is the real client's, and IPv6 clients count per /64. An attacker with many addresses can still spread out, so keep the firewall allowlist or a network-level rate limit in front of a server that faces the open internet. Behind a different proxy, set `KAMPUNG_FORWARDED_ALLOW_IPS` to it (see `.env.example`).
 - **Woken Codex threads.** A closed or cleared Codex thread can be woken, and run headless, until 30 minutes after its last turn. `codex archive` ends a finished thread at once.
 
 ## Operator checklist
@@ -47,9 +47,12 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 |---|---|
 | Message body | 8 KB of UTF-8 |
 | Unread mail per mailbox | 1,000 (`mailbox_full`) |
+| Unread mail per mailbox from one sending machine | 200 (`mailbox_full`) |
 | Unread mail kept | 7 days |
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
+| Wrong keys per client address (IPv6: per /64) | 20 within a minute, then 429 for wrong keys until they age out |
+| Ended sessions kept | 30 days |
 | Live sessions | 32 per mailbox, 256 per machine |
 | Mailboxes per machine | 1,000 |
 | Session `cwd` | 1,024 printable characters |

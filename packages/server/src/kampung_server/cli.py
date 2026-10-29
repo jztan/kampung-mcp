@@ -67,7 +67,12 @@ def main(argv: list[str] | None = None) -> int:
             deps = ServerDeps(
                 settings.db_path, utcnow, RateLimiter(), settings.admin_token
             )
-            app.serve(deps, settings.host, settings.port)
+            app.serve(
+                deps,
+                settings.host,
+                settings.port,
+                forwarded_allow_ips=settings.forwarded_allow_ips,
+            )
     except KampungError as e:
         print(f"error: {e.code}: {e.hint}", file=sys.stderr)
         return 1

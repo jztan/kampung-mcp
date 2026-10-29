@@ -55,17 +55,16 @@ class InsecureServerError(HookError):
     """The configured server would get the machine key over plain http."""
 
 
-# Plain http is only for hosts whose traffic never crosses an untrusted
-# network: loopback, and Tailscale (WireGuard-encrypted end to end).
-_PLAIN_HTTP_NETS = tuple(
-    ipaddress.ip_network(n)
-    for n in ("127.0.0.0/8", "::1/128", "100.64.0.0/10", "fd7a:115c:a1e0::/48")
-)
+# Plain http is only for loopback, whose traffic never leaves the machine.
+# Tailscale addresses need --allow-insecure-http: 100.64.0.0/10 is also the
+# carrier-grade NAT range, so off Tailscale it can reach a host inside the
+# ISP, and a *.ts.net name falls back to public DNS when Tailscale is off.
+_PLAIN_HTTP_NETS = tuple(ipaddress.ip_network(n) for n in ("127.0.0.0/8", "::1/128"))
 
 
 def _plain_http_ok(host: str) -> bool:
     """Checked as written, never resolved: a name's DNS answer can change."""
-    if host == "localhost" or host.rstrip(".").endswith(".ts.net"):
+    if host == "localhost":
         return True
     try:
         address = ipaddress.ip_address(host)
@@ -86,7 +85,8 @@ def server_url_problem(url: str, allow_insecure_http: bool = False) -> str | Non
     if parts.scheme == "http" and not allow_insecure_http and not _plain_http_ok(host):
         return (
             f"Refusing to send the key over plain http to {host}; use https:// "
-            "(see the tls profile) or a Tailscale address."
+            "(see the tls profile), or pass --allow-insecure-http to setup for "
+            "a network you trust, such as Tailscale."
         )
     return None
 
@@ -497,7 +497,11 @@ def _session(event: Event) -> dict[str, object]:
 def _call(
     event: Event, clock: _Clock, method: str, action: str, revive: bool
 ) -> dict[str, object]:
-    """Call /v1/sessions/{id}/{action}; on 409 re-register (revive) and retry once."""
+    """Call /v1/sessions/{id}/{action}; on 409 or 404 re-register and retry once.
+
+    409: the session ended, and re-registering revives it. 404: the server
+    deleted it long after it ended (or the database was restored), and
+    re-registering gives the window a fresh one."""
     data = (
         _session(event)
         if not revive
@@ -511,7 +515,7 @@ def _call(
         status, body = api(method, path, None, clock.timeout())
         if status == 200:
             return body
-        if status == 409 and attempt == 0:
+        if status in (404, 409) and attempt == 0:
             data = _register_and_save(event, clock)
             continue
         raise HookError(f"{action}: HTTP {status} {body.get('error')}")

@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -58,20 +59,24 @@ def test_cli_audits_as_admin_cli(env: Path) -> None:
 def test_serve_warns_when_no_keys(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], env: Path
 ) -> None:
-    calls: list[tuple[str, int]] = []
+    calls: list[tuple[str, int, str]] = []
     monkeypatch.setattr(
-        app, "serve", lambda deps, host, port: calls.append((host, port))
+        app,
+        "serve",
+        lambda deps, host, port, forwarded_allow_ips: calls.append(
+            (host, port, forwarded_allow_ips)
+        ),
     )
     assert cli.main(["serve"]) == 0
     assert "No machine keys yet" in capsys.readouterr().err
-    assert calls == [("127.0.0.1", 8000)]
+    assert calls == [("127.0.0.1", 8000, "127.0.0.1")]
     assert env.exists()
 
 
 def test_serve_quiet_with_keys(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(app, "serve", lambda deps, host, port: None)
+    monkeypatch.setattr(app, "serve", lambda deps, host, port, **kw: None)
     cli.main(["key", "add", "laptop"])
     capsys.readouterr()
     cli.main(["serve"])
@@ -82,11 +87,19 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KAMPUNG_DB_PATH", "/tmp/x.db")
     monkeypatch.setenv("KAMPUNG_HTTP_HOST", "0.0.0.0")
     monkeypatch.setenv("KAMPUNG_HTTP_PORT", "9000")
-    assert Settings.from_env() == Settings(Path("/tmp/x.db"), "0.0.0.0", 9000)
+    monkeypatch.setenv("KAMPUNG_FORWARDED_ALLOW_IPS", "*")
+    assert Settings.from_env() == Settings(
+        Path("/tmp/x.db"), "0.0.0.0", 9000, forwarded_allow_ips="*"
+    )
 
 
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("KAMPUNG_DB_PATH", "KAMPUNG_HTTP_HOST", "KAMPUNG_HTTP_PORT"):
+    for name in (
+        "KAMPUNG_DB_PATH",
+        "KAMPUNG_HTTP_HOST",
+        "KAMPUNG_HTTP_PORT",
+        "KAMPUNG_FORWARDED_ALLOW_IPS",
+    ):
         monkeypatch.delenv(name, raising=False)
     assert Settings.from_env() == Settings(Path("/data/kampung.db"), "127.0.0.1", 8000)
 
@@ -95,3 +108,15 @@ def test_cli_migrates_fresh_db(env: Path) -> None:
     cli.main(["key", "list"])
     conn = db.connect(env)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_serve_trusts_forwarded_ips_only_from_the_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(app, "start_sweeper", lambda *a, **kw: None)
+    monkeypatch.setattr(app, "create_app", lambda deps: "asgi-app")
+    monkeypatch.setattr(app.uvicorn, "run", lambda asgi, **kw: seen.update(kw))
+    deps = SimpleNamespace(db_path=Path("unused.db"), clock=None)
+    app.serve(deps, "0.0.0.0", 8000, forwarded_allow_ips="*")  # type: ignore[arg-type]
+    assert seen["proxy_headers"] is True and seen["forwarded_allow_ips"] == "*"

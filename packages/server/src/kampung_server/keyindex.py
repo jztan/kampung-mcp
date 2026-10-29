@@ -33,6 +33,13 @@ class KeyIndex:
         """True when the key is surely wrong; never touches the database."""
         return self._fresh() and hash_key(key) not in self._hashes
 
+    def is_known(self, key: str) -> bool:
+        """True when the key was active at the last load; never blocks.
+
+        Used to let a valid key past the per-address throttle. A key revoked
+        since the last load still passes here, then fails the real check."""
+        return hash_key(key) in self._hashes
+
     def lookup(self, key: str) -> Machine | None:
         """The key's machine; blocking, so run it in the thread pool."""
         conn = self._connect()
