@@ -1,6 +1,7 @@
 """Helpers shared by client tests (uniquely named; see server_testlib)."""
 
 import json
+import queue
 import os
 import socket
 import subprocess
@@ -32,6 +33,23 @@ def home_env(home: Path) -> dict[str, str]:
 def set_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
     for name, value in home_env(home).items():
         monkeypatch.setenv(name, value)
+
+
+def nearest_kept(pid: int) -> int:
+    """`pid`, or on Windows its nearest ancestor that the chain keeps.
+
+    On Windows the chain leaves out shells and the Python launchers below the
+    first kept process (a venv's python.exe starts the real interpreter as its
+    child), so the first entry is not simply the parent."""
+    if sys.platform != "win32":
+        return pid
+    while True:
+        info = hook._lookup(pid)
+        assert info is not None, pid
+        name = os.path.basename(info[2]).lower()
+        if name not in hook.SHELLS and name not in hook.LAUNCHERS:
+            return pid
+        pid = info[0]
 
 
 @dataclass
@@ -200,6 +218,15 @@ class RawMCP:
             bufsize=1,
         )
         self.lines: list[dict[str, object]] = []
+        # A reader thread, not select(): Windows can only select on sockets.
+        self._out: queue.Queue[str] = queue.Queue()
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    def _pump(self) -> None:
+        assert self.proc.stdout is not None
+        for line in self.proc.stdout:
+            self._out.put(line)
+        self._out.put("")  # end of output
 
     def send(self, message: dict[str, object]) -> None:
         assert self.proc.stdin is not None
@@ -208,16 +235,13 @@ class RawMCP:
 
     def read(self, seconds: float, until: str | None = None) -> list[dict[str, object]]:
         """Collect messages for `seconds`, or until one with method/id `until`."""
-        import select
-
-        assert self.proc.stdout is not None
         got: list[dict[str, object]] = []
         end = time.time() + seconds
         while time.time() < end:
-            ready, _, _ = select.select([self.proc.stdout], [], [], 0.1)
-            if not ready:
+            try:
+                line = self._out.get(timeout=0.1)
+            except queue.Empty:
                 continue
-            line = self.proc.stdout.readline()
             if not line:
                 break
             msg = json.loads(line)
