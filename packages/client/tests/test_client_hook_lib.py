@@ -1,5 +1,9 @@
 import json
 import re
+import shlex
+import subprocess
+import sys
+import time
 import os
 from pathlib import Path
 from typing import Callable
@@ -152,6 +156,30 @@ def test_walk_skips_shell_wrappers() -> None:
     assert hook._walk(300, _table(rows)) == [(100, "t100"), (10, "t10"), (4, "t4")]
 
 
+def test_walk_skips_posix_shells() -> None:
+    # macOS and Linux: Claude Code runs `<python> hook.py || true` through
+    # /bin/sh, which stays alive as the hook's parent until the hook exits.
+    rows = {
+        300: (200, "t300", "python3.12"),  # the hook
+        200: (100, "t200", "sh"),
+        100: (50, "t100", "claude"),
+        50: (10, "t50", "zsh"),
+        10: (4, "t10", "tmux"),
+        4: (0, "t4", "launchd"),
+    }
+    assert hook._walk(300, _table(rows)) == [(100, "t100"), (10, "t10"), (4, "t4")]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shells and ps")
+def test_ancestors_skip_the_shell_running_the_hook() -> None:
+    probe = "from kampung_client import hook; print(hook.ancestors()[0][0])"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(probe)} || true"
+    out = subprocess.run(
+        ["/bin/sh", "-c", command], capture_output=True, text=True, timeout=10
+    )
+    assert int(out.stdout) == os.getpid()
+
+
 def test_walk_stops_on_a_pid_loop() -> None:
     # Windows reuses pids, so a parent pid can point back down the chain.
     rows = {
@@ -186,3 +214,31 @@ def test_walk_keeps_python_above_the_first_kept_ancestor() -> None:
         10: (4, "t10", "pythonw.exe"),  # a Python program further up
     }
     assert hook._walk(30, _table(rows)) == [(20, "t20"), (10, "t10")]
+
+
+def test_sweep_keeps_codex_files_and_ages_them_out(home: Path) -> None:
+    now = time.time()
+    hook.write_session_file(
+        "cx-new", {"agent": "codex", "ancestors": [], "written_at": now}
+    )
+    hook.write_session_file(
+        "cx-old", {"agent": "codex", "ancestors": [], "written_at": now - 8 * 86400}
+    )
+    hook.write_session_file(
+        "cc-dead", {"agent": "claude-code", "ancestors": [[999999, "x"]]}
+    )
+    assert hook.sweep_stale_files() == 2
+    assert hook.read_session_file("cx-new") is not None
+    assert hook.read_session_file("cx-old") is None
+
+
+def test_stale_turn_mark_counts_as_idle(home: Path) -> None:
+    # An interrupted turn may never fire Stop; its mark must not stop wakes
+    # for good.
+    hook.mark_turn("cx-1")
+    assert hook.turn_active("cx-1")
+    old = time.time() - hook.TURN_STALE - 1
+    os.utime(hook.cache_dir() / "turn" / "cx-1", (old, old))
+    assert not hook.turn_active("cx-1")
+    hook.end_turn("cx-1")
+    hook.end_turn("cx-1")  # already gone: no error

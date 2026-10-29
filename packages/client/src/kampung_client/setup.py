@@ -22,6 +22,7 @@ EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PostToolUse
 OUR_HOOK = re.compile(r"kampung_hook\.py|kampung_client[\\/]+hook\.py")
 SAFE_PS_ARG = re.compile(r"(?!--$)[\w./:=-]+")  # needs no quoting in PowerShell
 HOOK_TIMEOUT = 5  # seconds; also lifts Claude Code's 1.5 s SessionEnd budget
+CODEX_END_TIMEOUT = 3  # seconds; Codex caps SessionEnd hooks at 3
 
 
 class SetupError(Exception):
@@ -74,13 +75,38 @@ def hook_command(hook_path: str) -> str:
     return f"{shlex.quote(sys.executable)} {shlex.quote(hook_path)} || true"
 
 
+def codex_hook_command(hook_path: str) -> str:
+    """The same in-place hook, told it runs for Codex.
+
+    The hook ignores arguments it does not know, so this works whether or not
+    Codex runs the command through a shell.
+    """
+    return (
+        f"{shlex.quote(sys.executable)} {shlex.quote(hook_path)} --agent codex"
+        " || true"
+    )
+
+
+def _windows() -> bool:
+    return os.name == "nt"
+
+
+def _codex_hooks_path() -> Path:
+    return Path.home() / ".codex" / "hooks.json"
+
+
 def _claude_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
 def _load_claude_settings() -> dict[str, Any]:
     """Read and shape-check settings.json before setup changes anything."""
-    path = _claude_settings_path()
+    return _load_hooks_file(_claude_settings_path())
+
+
+def _load_hooks_file(path: Path) -> dict[str, Any]:
+    """Read and shape-check a hooks file (Claude Code settings.json or Codex
+    hooks.json share the shape) before setup changes anything."""
     if not path.exists():
         return {}
     try:
@@ -99,22 +125,42 @@ def _load_claude_settings() -> dict[str, Any]:
 
 
 def _merge_claude_hooks(data: dict[str, Any]) -> Path:
-    settings = _claude_settings_path()
-    if settings.exists():
-        backup = settings.with_name("settings.json.kampung-backup")
+    return _merge_hooks(
+        _claude_settings_path(), data, hook_command(hook.__file__), HOOK_TIMEOUT
+    )
+
+
+def _merge_codex_hooks(data: dict[str, Any]) -> Path:
+    return _merge_hooks(
+        _codex_hooks_path(),
+        data,
+        codex_hook_command(hook.__file__),
+        HOOK_TIMEOUT,
+        {"SessionEnd": CODEX_END_TIMEOUT},
+    )
+
+
+def _merge_hooks(
+    path: Path,
+    data: dict[str, Any],
+    command: str,
+    timeout: int,
+    timeouts: dict[str, int] | None = None,
+) -> Path:
+    """Replace our entry for every event, keep everyone else's, back up once."""
+    if path.exists():
+        backup = path.with_name(path.name + ".kampung-backup")
         if not backup.exists():
-            shutil.copyfile(settings, backup)
-    command = hook_command(hook.__file__)
-    entry = {
-        "hooks": [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT}]
-    }
+            shutil.copyfile(path, backup)
     hooks = data.setdefault("hooks", {})
     for event in EVENTS:
+        seconds = (timeouts or {}).get(event, timeout)
+        entry = {"hooks": [{"type": "command", "command": command, "timeout": seconds}]}
         kept = [e for e in hooks.get(event, []) if not _is_ours(e)]
         hooks[event] = kept + [entry]
-    settings.parent.mkdir(parents=True, exist_ok=True)
-    settings.write_text(json.dumps(data, indent=2) + "\n")
-    return settings
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    return path
 
 
 def _is_ours(entry: object) -> bool:
@@ -172,6 +218,11 @@ def run_setup(
         raise SetupError(f"Unexpected answer from the server (HTTP {status}).")
 
     claude_settings = _load_claude_settings() if "claude-code" in agents else None
+    codex_hooks = (
+        _load_hooks_file(_codex_hooks_path())
+        if "codex" in agents and not _windows()
+        else None
+    )
 
     _write_config(server, key)
     # Older setups copied the hook here; it now runs from the install.
@@ -207,14 +258,38 @@ def run_setup(
                 "until you type. To wake it, run setup again with --channels."
             )
     if "codex" in agents:
+        adapter = _adapter_cmd("codex")
+        if codex_hooks is None:
+            lines.append(
+                "Codex on Windows stays polling only for now: it reads mail "
+                "when it calls inbox."
+            )
+        else:
+            path = _merge_codex_hooks(codex_hooks)
+            lines.append(
+                f"Codex hooks added to {path}. Approve them once in Codex with "
+                "/hooks; until then Codex only polls."
+            )
+            codex_bin = shutil.which("codex")
+            if codex_bin is None:
+                lines.append(
+                    "codex was not found on PATH, so idle Codex sessions will "
+                    "not be woken; run setup again once it is installed."
+                )
+            else:
+                adapter += ["--codex-bin", codex_bin]
+                lines.append(
+                    "Idle Codex sessions wake on new mail. A closed or /clear'ed "
+                    "Codex thread can still be woken and run unattended; see "
+                    "README."
+                )
         manual = _register(
             ["codex", "mcp", "remove", "kampung"],
-            ["codex", "mcp", "add", "kampung", "--"] + _adapter_cmd("codex"),
+            ["codex", "mcp", "add", "kampung", "--"] + adapter,
             runner,
         )
         lines.append(
-            "Codex MCP server registered (polling: Codex reads mail when it "
-            "calls inbox)."
+            "Codex MCP server registered."
             if manual is None
             else f"Could not register with Codex. Run this yourself: {manual}"
         )

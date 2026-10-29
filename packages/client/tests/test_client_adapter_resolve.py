@@ -4,7 +4,7 @@ from pathlib import Path
 
 from client_testlib import LiveServer, db_query, hook_chain
 from kampung_client import hook
-from kampung_client.adapter import SessionResolver, pick_session
+from kampung_client.adapter import SessionResolver, codex_session_id, pick_session
 
 CHAIN = [(100, "a"), (50, "b"), (10, "c")]  # adapter: uv(100) <- claude(50) <- tmux(10)
 
@@ -199,3 +199,73 @@ def test_hook_and_adapter_launchers_do_not_block_a_match() -> None:
     hook_file = f("1", [list(a) for a in hook._walk(1500, rows.get)])
     adapter_chain = hook._walk(2816, rows.get)
     assert pick_session(adapter_chain, "/x", [hook_file])["session"] == "1"
+
+
+# Codex: bound by the session id in each tool call, never by ancestry ------
+
+
+def codex_file(sid: str, cwd: str = "/w/api") -> dict[str, object]:
+    data = hook.register("codex", cwd, True, sid, ancestry=False)
+    hook.write_session_file(sid, data)
+    return data
+
+
+def test_codex_bind_uses_hook_file_for_that_id(home: Path, server: LiveServer) -> None:
+    codex_file("cx-1")
+    two = codex_file("cx-2")
+    r = SessionResolver("codex", "/w/api", wait=0)
+    assert r.bind("cx-2")["session"] == two["session"]
+    assert r.bound == "cx-2"
+
+
+def test_codex_bind_registers_when_file_missing(home: Path, server: LiveServer) -> None:
+    got = SessionResolver("codex", "/w/api", wait=0).bind("cx-9")
+    assert db_query(server, "SELECT agent, hooks, agent_session_id FROM sessions") == [
+        ("codex", 1, "cx-9")
+    ]
+    f = hook.read_session_file("cx-9")
+    assert f is not None and f["ancestors"] == [] and f["session"] == got["session"]
+
+
+def test_codex_without_id_self_registers_without_hooks(
+    home: Path, server: LiveServer
+) -> None:
+    codex_file("cx-1")
+    hook.write_session_file("cc-1", f("99", hook_chain(), cwd="/w/api"))
+    got = SessionResolver("codex", "/w/api", wait=0).bind(None)
+    assert got["hooks"] is False
+    rows = db_query(server, "SELECT agent, hooks FROM sessions ORDER BY id")
+    assert rows == [("codex", 1), ("codex", 0)]
+
+
+def test_codex_never_adopts_by_ancestry(home: Path, server: LiveServer) -> None:
+    data = codex_file("cx-1")
+    data["ancestors"] = hook_chain()  # as if it shared this process tree
+    hook.write_session_file("cx-1", data)
+    r = SessionResolver("codex", "/w/api", wait=0)
+    assert r.target() is None
+    r.bind("cx-1")
+    assert r.target() is not None and r.target()["session"] == data["session"]
+
+
+def test_codex_refresh_revives_the_same_session(home: Path, server: LiveServer) -> None:
+    data = codex_file("cx-1")
+    r = SessionResolver("codex", "/w/api", wait=0)
+    r.bind("cx-1")
+    server.admin.end_session(int(str(data["session"])), "admin:cli")
+    assert r.refresh()["session"] == data["session"]
+    assert db_query(server, "SELECT count(*), max(ended_at) FROM sessions") == [
+        (1, None)
+    ]
+
+
+def test_codex_session_id_parsing() -> None:
+    assert codex_session_id({"x-codex-turn-metadata": {"session_id": "a"}}) == "a"
+    for bad in (
+        None,
+        {},
+        {"x-codex-turn-metadata": "x"},
+        {"x-codex-turn-metadata": {"session_id": 3}},
+        {"x-codex-turn-metadata": {"session_id": ""}},
+    ):
+        assert codex_session_id(bad) is None

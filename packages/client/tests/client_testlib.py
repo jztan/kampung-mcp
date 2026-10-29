@@ -65,9 +65,11 @@ def git_repo(parent: Path, name: str) -> Path:
     return repo
 
 
-def run_hook(home: Path, event: dict[str, object]) -> subprocess.CompletedProcess[str]:
+def run_hook(
+    home: Path, event: dict[str, object], *args: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, hook.__file__],
+        [sys.executable, hook.__file__, *args],
         input=json.dumps(event),
         text=True,
         capture_output=True,
@@ -125,7 +127,17 @@ def hook_chain() -> list[list[object]]:
 class RawMCP:
     """Speak line-delimited JSON-RPC to an adapter subprocess (stdio)."""
 
-    def __init__(self, home: Path, cwd: Path, *flags: str) -> None:
+    def __init__(
+        self,
+        home: Path,
+        cwd: Path,
+        *flags: str,
+        agent: str = "claude-code",
+        path: str | None = None,
+    ) -> None:
+        env = {**os.environ, "HOME": str(home)}
+        if path is not None:
+            env["PATH"] = path
         self.proc = subprocess.Popen(
             [
                 sys.executable,
@@ -133,14 +145,14 @@ class RawMCP:
                 "kampung_client",
                 "adapter",
                 "--agent",
-                "claude-code",
+                agent,
                 *flags,
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             cwd=cwd,
-            env={**os.environ, "HOME": str(home)},
+            env=env,
             text=True,
             bufsize=1,
         )
