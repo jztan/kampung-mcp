@@ -56,8 +56,8 @@ In the [Lightsail console](https://lightsail.aws.amazon.com/), choose **Create i
 
 - **Region:** the one closest to where you work. Kampung's hooks give up after 2 seconds, so latency matters more than price.
 - **Platform and blueprint:** Linux/Unix, **OS Only**, **Ubuntu 24.04 LTS**.
-- **SSH key pair:** create one or upload your own public key.
-- **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Running, the Kampung container uses about 100 MB and Caddy about 50 MB, so the whole server fits in roughly 400 MB. Building the image needs more, which the swap file in step 6 covers. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
+- **SSH key pair:** create one or upload your own public key. Give it a name of its own, such as `kampung-key`: Lightsail names must be unique across *all* resource types in a Region, so a key pair called `kampung` blocks an instance called `kampung`.
+- **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Ubuntu reports about 410 MB of it as usable and uses about 200 MB itself, which leaves room for Kampung (about 100 MB) and Caddy (about 50 MB), with idle pages moving to swap. Building the image needs more: in a test run it pushed about 210 MB into the swap file from step 6, so don't skip that step. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
 - **Name:** for example `kampung`.
 
 Ubuntu installs security updates on its own (`unattended-upgrades` is on by default).
@@ -120,14 +120,20 @@ ssh-keygen -t ed25519 -N "" -f ~/.ssh/kampung_deploy
 cat ~/.ssh/kampung_deploy.pub
 ```
 
-On GitHub: **Settings → Deploy keys → Add deploy key**, paste it, leave **Allow write access** off. Then:
+On GitHub: **Settings → Deploy keys → Add deploy key**, paste it, leave **Allow write access** off. Or, from a machine where `gh` is signed in, save the key to a file and run this as one line (it adds a read-only key unless you pass `--allow-write`):
+
+```bash
+gh repo deploy-key add kampung_deploy.pub --repo jztan/kampung-mcp --title "kampung-server"
+```
+
+Then, on the instance:
 
 ```bash
 cat >> ~/.ssh/config <<'EOF'
 Host github.com
   IdentityFile ~/.ssh/kampung_deploy
 EOF
-git clone git@github.com:jztan/kampung-mcp.git
+git clone git@github.com:jztan/kampung-mcp.git    # answer yes to GitHub's host key
 cd kampung-mcp
 ```
 
@@ -144,7 +150,7 @@ Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
 ## 9. Start it
 
 ```bash
-docker compose --profile tls up -d --build --wait
+docker compose --profile tls up -d --build --wait    # about 80 s on the Nano plan
 docker compose logs caddy | grep -i certificate    # "certificate obtained successfully"
 ```
 
@@ -154,7 +160,7 @@ From one of your allowed networks:
 curl https://kampung.example.com/health    # {"version":"0.1.0"}
 ```
 
-From anywhere else, the same command should time out: the firewall drops it.
+From anywhere else, the same command should time out: the firewall drops it. The instance itself is a handy "anywhere else": run the `curl` there, and it should time out after a few seconds, because the request arrives from the instance's own address, which isn't on the list.
 
 ## 10. Add machines and pair them
 
@@ -166,7 +172,7 @@ docker compose exec kampung kampung key add windows
 docker compose exec kampung kampung pair mac windows
 ```
 
-Each key is printed once. Copy it straight into the machine it belongs to; don't paste it into chat, tickets or notes.
+With more than two machines, pair every two that should talk (three machines need three `pair` commands). Each key is printed once. Copy it straight into the machine it belongs to; don't paste it into chat, tickets or notes.
 
 On each machine, from a checkout of the client:
 
@@ -187,11 +193,15 @@ Set `KAMPUNG_ADMIN_TOKEN` in `.env` (`openssl rand -hex 24`), then `docker compo
 ssh -i <key> -L 8803:127.0.0.1:8803 ubuntu@<static IP>
 ```
 
-Then open `http://localhost:8803/admin` on your own machine and sign in with the token.
+Then open `http://localhost:8803/admin` on your own machine and sign in with the token (`grep KAMPUNG_ADMIN_TOKEN .env` on the instance shows it).
 
 ## 12. Get told when it breaks
 
 **Metrics → Status check failures → Add alarm**, with an email notification contact. Kampung's hooks fail open, so a dead server shows up as mail that never arrives, not as an error. The alarm is how you find out.
+
+- Lightsail sends a verification email first. Its link opens a page with a **Confirm Subscription** button; the email isn't verified until you press it.
+- The metric is checked in 5-minute periods. Alarming on 2 of 2 periods means a reboot doesn't email you, and a real outage does after about 10 minutes.
+- **Test alarm** on the alarm (or `aws lightsail test-alarm`) sends a sample email, so you know it reaches you.
 
 ## 13. Day-to-day operations
 
