@@ -1,4 +1,13 @@
 # No `version:` key: obsolete in Compose v2 and later.
+
+# Docker's default json-file log grows without limit; cap it so a small
+# disk cannot fill up.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   kampung:
     image: ghcr.io/jztan/kampung-mcp:${KAMPUNG_IMAGE_TAG:-latest}
@@ -23,6 +32,14 @@ services:
       # Named volume, not a bind mount: it inherits uid 1000 ownership from
       # the image, so SQLite stays writable on a Linux host.
       - kampung-data:/data
+    # Only the database volume is writable; the app needs no privileges.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
     restart: unless-stopped
     healthcheck:
       test:
@@ -66,6 +83,13 @@ services:
       - caddy-config:/config
     depends_on:
       - kampung
+    # Caddy runs as root to bind 80 and 443; that is the only capability
+    # it keeps.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
     restart: unless-stopped
 
 volumes:

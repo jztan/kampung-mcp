@@ -1,6 +1,7 @@
 """The `kampung-mcp` command line: run the adapter, or set up a machine."""
 
 import argparse
+import os
 import sys
 
 
@@ -26,7 +27,9 @@ def _parser() -> argparse.ArgumentParser:
         "--server", required=True, help="e.g. https://kampung.example.com"
     )
     setup.add_argument(
-        "--key", required=True, help="this machine's key from kampung key add"
+        "--key",
+        help="this machine's key from kampung key add; '-' reads it from stdin. "
+        "Without it, KAMPUNG_KEY is used, or you are asked for it.",
     )
     setup.add_argument(
         "--agent", choices=["claude-code", "codex", "both"], default="claude-code"
@@ -68,10 +71,18 @@ def main(argv: list[str] | None = None) -> int:
         from . import setup
 
         agents = ["claude-code", "codex"] if args.agent == "both" else [args.agent]
+        key = _setup_key(args.key)
+        if not key:
+            print(
+                "error: no key. Pass --key -, set KAMPUNG_KEY, or run setup "
+                "in a terminal to be asked for it.",
+                file=sys.stderr,
+            )
+            return 1
         try:
             lines = setup.run_setup(
                 args.server,
-                args.key,
+                key,
                 agents,
                 setup.default_runner,
                 args.channels,
@@ -82,3 +93,21 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("\n".join(lines))
     return 0
+
+
+def _setup_key(flag: str | None) -> str:
+    """The key from --key, stdin, KAMPUNG_KEY or a prompt, in that order.
+
+    Everything but --key VALUE keeps the key out of shell history."""
+    if flag == "-":
+        return sys.stdin.readline().strip()
+    if flag:
+        return flag
+    env = os.environ.get("KAMPUNG_KEY", "").strip()
+    if env:
+        return env
+    if sys.stdin.isatty():
+        import getpass
+
+        return getpass.getpass("Machine key: ").strip()
+    return ""

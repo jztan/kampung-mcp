@@ -66,6 +66,18 @@ def test_published_on_loopback_only(tmp_path: Path) -> None:
         assert s.compose("port", "kampung", "8000").stdout.startswith("127.0.0.1:")
 
 
+def test_container_is_hardened(tmp_path: Path) -> None:
+    with stack(tmp_path) as s:
+        cid = s.compose("ps", "-q", "kampung").stdout.strip()
+        host = json.loads(docker_run("inspect", cid).stdout)[0]["HostConfig"]
+        assert host["ReadonlyRootfs"] is True
+        assert host["CapDrop"] == ["ALL"]
+        assert "no-new-privileges:true" in host["SecurityOpt"]
+        assert host["LogConfig"]["Config"]["max-size"] == "10m"
+        # The database volume is still writable as uid 1000.
+        assert s.exec("kampung", "key", "add", "probe").returncode == 0
+
+
 async def test_first_run_flow(tmp_path: Path) -> None:
     with stack(tmp_path) as s:
         key = parse_key(s.exec("kampung", "key", "add", "laptop").stdout)
