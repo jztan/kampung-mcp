@@ -15,6 +15,7 @@ from . import mail, sessions
 from .auth import machine_from_request
 from .deps import ServerDeps
 from .errors import KampungError
+from .limits import MAX_REQUEST_BYTES
 from .models import Machine, load_session
 
 _STATUS = {
@@ -22,6 +23,7 @@ _STATUS = {
     "not_owner": 403,
     "unknown_session": 404,
     "session_ended": 409,
+    "request_too_large": 413,
 }
 
 Handler = Callable[[sqlite3.Connection, Machine, dict[str, Any]], dict[str, Any]]
@@ -32,14 +34,23 @@ def _error(code: str, hint: str) -> JSONResponse:
 
 
 async def _run(
-    deps: ServerDeps, request: Request, handler: Handler, args: dict[str, Any]
+    deps: ServerDeps, request: Request, handler: Handler, read_body: bool = False
 ) -> JSONResponse:
+    # The key is checked before the body is read, so a caller without one
+    # cannot make the server buffer or parse anything.
+    machine = await machine_from_request(request, deps)
+    if machine is None:
+        return _error("unauthorized", "Send Authorization: Bearer <key>.")
+    args: dict[str, Any] = {}
+    if read_body:
+        try:
+            args = await _json_object(request)
+        except KampungError as e:
+            return _error(e.code, e.hint)
+
     def work() -> JSONResponse:
         conn = deps.connect()
         try:
-            machine = machine_from_request(request, conn)
-            if machine is None:
-                return _error("unauthorized", "Send Authorization: Bearer <key>.")
             return JSONResponse(handler(conn, machine, args))
         except KampungError as e:
             return _error(e.code, e.hint)
@@ -47,6 +58,28 @@ async def _run(
             conn.close()
 
     return await run_in_threadpool(work)
+
+
+async def _json_object(request: Request) -> dict[str, Any]:
+    """The body as a JSON object, read no further than MAX_REQUEST_BYTES."""
+    too_large = KampungError(
+        "request_too_large", f"Request bodies are limited to {MAX_REQUEST_BYTES} bytes."
+    )
+    declared = request.headers.get("content-length", "")
+    if declared.isascii() and declared.isdigit() and int(declared) > MAX_REQUEST_BYTES:
+        raise too_large
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_REQUEST_BYTES:
+            raise too_large
+    try:
+        body = json.loads(raw)
+    except (ValueError, RecursionError):
+        body = None
+    if not isinstance(body, dict):
+        raise KampungError("bad_request", "Send a JSON object.")
+    return body
 
 
 def _session_id(request: Request) -> int:
@@ -68,13 +101,6 @@ def _field(body: dict[str, Any], name: str, kind: type, required: bool) -> Any:
 def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
     @mcp.custom_route("/v1/sessions", methods=["POST"])
     async def register(request: Request) -> JSONResponse:
-        try:
-            body = json.loads(await request.body())
-            if not isinstance(body, dict):
-                raise ValueError
-        except ValueError:
-            return _error("bad_request", "Send a JSON object.")
-
         def handler(
             conn: sqlite3.Connection, machine: Machine, b: dict[str, Any]
         ) -> dict[str, Any]:
@@ -91,7 +117,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             )
             return {"session": str(s.id), "suffix": s.suffix, "mailbox": s.mailbox}
 
-        return await _run(deps, request, handler, body)
+        return await _run(deps, request, handler, read_body=True)
 
     @mcp.custom_route("/v1/sessions/{id}/human-turn", methods=["POST"])
     async def human_turn(request: Request) -> JSONResponse:
@@ -102,7 +128,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             sessions.human_turn(conn, s)
             return {}
 
-        return await _run(deps, request, handler, {})
+        return await _run(deps, request, handler)
 
     @mcp.custom_route("/v1/sessions/{id}/peek", methods=["GET"])
     async def peek(request: Request) -> JSONResponse:
@@ -113,7 +139,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             s = sessions.resolve(conn, machine, _session_id(request), now)
             return dict(mail.peek(conn, s, now).to_dict())
 
-        return await _run(deps, request, handler, {})
+        return await _run(deps, request, handler)
 
     @mcp.custom_route("/v1/sessions/{id}/end", methods=["POST"])
     async def end(request: Request) -> JSONResponse:
@@ -130,4 +156,4 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             sessions.end(conn, s.id, deps.clock())
             return {}
 
-        return await _run(deps, request, handler, {})
+        return await _run(deps, request, handler)

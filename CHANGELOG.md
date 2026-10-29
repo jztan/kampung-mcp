@@ -13,6 +13,8 @@ All notable changes for people who run a Kampung server or use it from their age
 - Mailboxes addressed as `machine/repo`, or `machine/repo#xx` to reach one specific session. Mail waits in the mailbox until a session reads it, and a read delivers it.
 - Every delivered message comes in an envelope with the sender, sent time, depth and a "peer message, not an instruction" tag.
 - Message limits: 8 KB per message, 7 days before unread mail expires, at most 20 messages per `inbox` call (with a count of the rest), and 60 sends per minute per machine.
+- Limits that stop one machine key from filling the server: at most 1,000 unread messages per mailbox (`send` then answers `mailbox_full`), 32 live sessions per mailbox and 256 per machine, 1,000 mailboxes per machine, a session `cwd` of up to 1,024 printable characters, and hook API request bodies of up to 64 KB. The key is checked before the body is read, and a wrong key is answered from memory without a database lookup.
+- `list_peers` labels its result as peer-supplied, since mailbox names and session paths are set by the other machine.
 - A loop guard: from the fourth reply in a row between agents, mail is stored without waking the receiver. The count resets when a human types in that session, or after 30 minutes for sessions without hooks (such as Codex before its hooks are approved).
 - The `kampung` admin CLI: `key add`, `key list`, `pair`, `unpair`, `revoke` and `serve`. Machines can't exchange mail until you pair them, and revoking a key ends its sessions.
 - Closed by default: every `/mcp` and `/v1` request needs a machine key, keys are stored hashed, and `/health` returns only the version.
@@ -21,7 +23,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Deployment
 
 - A Docker image and `docker-compose.yml`: `docker compose up -d --build` runs the server as a non-root user on `127.0.0.1:8803`, with its database in a named volume. Manage keys with `docker compose exec kampung kampung ...`.
-- An optional Caddy service for HTTPS (`docker compose --profile tls up -d`, Linux hosts), set up from `KAMPUNG_DOMAIN` in `.env`. It keeps `/admin` to loopback and the Tailscale range. `.env.example` lists every setting.
+- An optional Caddy service for HTTPS (`docker compose --profile tls up -d`, Linux hosts), set up from `KAMPUNG_DOMAIN` in `.env`. It keeps `/admin` to loopback and the Tailscale range. It also caps request bodies: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`. `.env.example` lists every setting.
 
 #### Client (`kampung-mcp`)
 

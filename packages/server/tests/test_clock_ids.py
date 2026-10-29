@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from kampung_server import ids, limits
 from kampung_server.clock import parse_ts, ts, utcnow
+from kampung_server.errors import KampungError
 
 T0 = datetime(2026, 10, 27, 9, 0, 0, tzinfo=timezone.utc)
 
@@ -52,3 +55,15 @@ def test_limits_values() -> None:
     assert limits.NOHOOK_DEPTH_RESET == timedelta(minutes=30)
     assert limits.SEND_RATE == 60
     assert limits.SEND_RATE_WINDOW == timedelta(seconds=60)
+
+
+def test_new_suffix_finds_last_free_one() -> None:
+    taken = {f"{i:02x}" for i in range(256)} | {f"{i:04x}" for i in range(65535)}
+    assert ids.new_suffix(taken) == "ffff"
+
+
+def test_new_suffix_raises_when_none_left() -> None:
+    taken = {f"{i:02x}" for i in range(256)} | {f"{i:04x}" for i in range(65536)}
+    with pytest.raises(KampungError) as e:
+        ids.new_suffix(taken)
+    assert e.value.code == "too_many_sessions"

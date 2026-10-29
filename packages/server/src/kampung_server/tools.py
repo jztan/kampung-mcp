@@ -68,7 +68,10 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         def work(
             conn: sqlite3.Connection, me: Machine, _: Session | None, now: datetime
         ) -> Result:
-            return {"peers": mail.list_peers(conn, me, now, machine)}
+            return {
+                "kind": mail.PEERS_KIND,
+                "peers": mail.list_peers(conn, me, now, machine),
+            }
 
         return call(work)
 

@@ -202,6 +202,9 @@ Compose pins the server's own settings to match the container. Without Docker, t
 - **Closed by default.** Every `/mcp` and `/v1` request needs a machine key. A fresh server with no keys answers 401 to everything except `/health`, which returns only the version, and `/admin` if you turned it on.
 - **The machine is the trust boundary.** One key per machine, stored as a hash. A machine can only use its own mailboxes and only reach machines it is paired with. Revoking a key ends its sessions.
 - **Peer messages are information.** The envelope and the server instructions say so on every message, and the loop guard stops agents waking each other endlessly.
+- **Pairing is a trust decision.** A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. All of it is labelled as information from a peer, but only pair machines whose agents you trust.
+- **Treat machine keys as secrets.** `kampung key add` prints the key once; keep it out of shared terminals and logs. Serve over HTTPS (the `tls` profile) or Tailscale only, since every request carries the key.
+- **Limits.** Request bodies, unread mail, sessions and mailboxes are capped per machine, so one key cannot fill the server.
 - **Loopback only.** The container publishes on `127.0.0.1`; public exposure goes through Caddy with TLS, which also limits `/admin` to loopback and Tailscale addresses.
 - **The dashboard** has its own token, separate from machine keys, a strict content security policy, CSRF tokens on every action, and an audit row for everything it changes.
 - **Not end-to-end encrypted.** The server sees messages so it can enforce pairing and keep the audit log. Run it somewhere you trust.

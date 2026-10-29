@@ -7,7 +7,8 @@ from server_testlib import FakeClock, MakeSession
 from kampung_server.admin import AdminService
 from kampung_server.clock import ts
 from kampung_server.errors import KampungError
-from kampung_server.mail import SendResult, effective_depth, send
+from kampung_server.limits import MAX_WAITING_PER_MAILBOX
+from kampung_server.mail import SendResult, effective_depth, inbox, send
 from kampung_server.models import Session, load_session
 from kampung_server.sweep import sweep
 
@@ -220,3 +221,15 @@ def test_sweep_expires_original_before_its_reply(
     sweep(conn, clock.now())
     ids = [r[0] for r in conn.execute("SELECT id FROM messages")]
     assert ids == [reply.id]
+
+
+def test_mailbox_full_counts_only_waiting_mail(
+    conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
+) -> None:
+    for _ in range(MAX_WAITING_PER_MAILBOX):
+        send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
+    assert _code(conn, pair[0], "desktop/blog", "hi", clock.now()) == "mailbox_full"
+    inbox(conn, pair[1], 1, clock.now())
+    send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
+    clock.advance(days=8)
+    send(conn, pair[0], "desktop/blog", "hi", None, clock.now())

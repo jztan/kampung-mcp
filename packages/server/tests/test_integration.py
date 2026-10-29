@@ -17,6 +17,7 @@ from kampung_server.app import create_app
 from kampung_server.clock import utcnow
 from kampung_server.deps import ServerDeps
 from kampung_server.ratelimit import RateLimiter
+from kampung_server.mail import PEERS_KIND
 from kampung_server.tools import SERVER_INSTRUCTIONS
 
 
@@ -98,6 +99,7 @@ async def test_two_machines_exchange(server: Server) -> None:
             "desktop/blog",
             "laptop/api",
         ]
+        assert peers.data["kind"] == PEERS_KIND
 
 
 async def test_session_header_spoof_is_not_owner(server: Server) -> None:
