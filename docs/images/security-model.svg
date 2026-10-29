@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" viewBox="0 0 960 560" role="img" aria-labelledby="t d">
+  <title id="t">Kampung security model</title>
+  <desc id="d">Each machine is a trust boundary: its agent and the kampung-mcp adapter and hooks share one machine key, kept in config.json with mode 0600. Calls go with that key over HTTPS or Tailscale to Caddy, which terminates TLS, caps request bodies and keeps the admin dashboard to loopback and the tailnet. The owner's browser reaches the dashboard with the admin token. A client with no key or a wrong key is answered 401 from memory before its body is read. Inside the Kampung server every request passes six checks in order: machine key, ownership, pairing, limits, loop guard, and the envelope that marks peer text as information only. Mail, hashed keys and the audit log live in SQLite on a volume. Mail is not end-to-end encrypted.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f6b57"/>
+    </marker>
+    <marker id="stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b4423a"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #18201c; }
+      .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; fill: #5d6a63; }
+      .boundary { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; fill: #9a6a17; }
+      .title { font-size: 14px; font-weight: 600; }
+      .row { font-size: 13px; font-weight: 600; }
+      .sub { font-size: 12px; fill: #5d6a63; }
+      .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+      .on-dark { fill: #ffffff; }
+      .on-dark-sub { fill: #c9e3d9; }
+      .num { font-size: 11px; font-weight: 700; fill: #ffffff; }
+      .edge { font-size: 11.5px; font-weight: 600; fill: #1f6b57; }
+      .danger { fill: #b4423a; }
+    </style>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="959" height="559" rx="16" fill="#f6f7f5" stroke="#dde2dc"/>
+
+  <!-- Machines: each one is a trust boundary -->
+  <g>
+    <rect x="28" y="28" width="290" height="118" rx="10" fill="#ffffff" stroke="#b7791f" stroke-width="1.25" stroke-dasharray="6 4"/>
+    <text x="44" y="52" class="eyebrow">LAPTOP</text>
+    <text x="302" y="52" text-anchor="end" class="boundary">TRUST BOUNDARY</text>
+    <rect x="44" y="64" width="100" height="48" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
+    <text x="94" y="93" text-anchor="middle" class="title">Claude Code</text>
+    <line x1="144" y1="88" x2="168" y2="88" stroke="#7a857f" stroke-width="1.5"/>
+    <rect x="168" y="64" width="134" height="48" rx="8" fill="#e2efe9" stroke="#1f6b57"/>
+    <text x="235" y="85" text-anchor="middle" class="title">kampung-mcp</text>
+    <text x="235" y="101" text-anchor="middle" class="sub">adapter + hooks</text>
+    <text x="44" y="132" class="mono">config.json</text>
+    <text x="132" y="132" class="sub">holds the key, mode 0600</text>
+  </g>
+  <g>
+    <rect x="28" y="162" width="290" height="118" rx="10" fill="#ffffff" stroke="#b7791f" stroke-width="1.25" stroke-dasharray="6 4"/>
+    <text x="44" y="186" class="eyebrow">DESKTOP</text>
+    <text x="302" y="186" text-anchor="end" class="boundary">TRUST BOUNDARY</text>
+    <rect x="44" y="198" width="100" height="48" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
+    <text x="94" y="227" text-anchor="middle" class="title">Codex</text>
+    <line x1="144" y1="222" x2="168" y2="222" stroke="#7a857f" stroke-width="1.5"/>
+    <rect x="168" y="198" width="134" height="48" rx="8" fill="#e2efe9" stroke="#1f6b57"/>
+    <text x="235" y="219" text-anchor="middle" class="title">kampung-mcp</text>
+    <text x="235" y="235" text-anchor="middle" class="sub">adapter + hooks</text>
+    <text x="44" y="266" class="mono">config.json</text>
+    <text x="132" y="266" class="sub">holds the key, mode 0600</text>
+  </g>
+
+  <!-- Owner's browser -->
+  <g>
+    <rect x="28" y="296" width="290" height="76" rx="10" fill="#ffffff" stroke="#dde2dc"/>
+    <text x="44" y="320" class="eyebrow">OWNER'S BROWSER</text>
+    <text x="44" y="342" class="title">Admin dashboard</text>
+    <text x="44" y="360" class="sub">from loopback or your tailnet only</text>
+  </g>
+
+  <!-- Anyone else -->
+  <g>
+    <rect x="28" y="388" width="290" height="76" rx="10" fill="#fbf3f2" stroke="#e3b5b0"/>
+    <text x="44" y="412" class="eyebrow danger">ANYONE ELSE</text>
+    <text x="44" y="434" class="title">No key, or a wrong key</text>
+    <text x="44" y="452" class="sub">answered 401 from memory</text>
+  </g>
+
+  <!-- Server -->
+  <rect x="450" y="28" width="482" height="504" rx="10" fill="#ffffff" stroke="#dde2dc"/>
+  <text x="468" y="52" class="eyebrow">YOUR SERVER · DOCKER COMPOSE</text>
+
+  <!-- Edges into Caddy: level at the start so labels sit clear of them -->
+  <path d="M302,88 H352 C420,88 420,206 466,206" fill="none" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
+  <path d="M302,222 H466" fill="none" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
+  <path d="M318,334 H352 C424,334 424,238 466,238" fill="none" stroke="#1f6b57" stroke-width="1.75" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <path d="M318,426 H352 C428,426 428,254 466,254" fill="none" stroke="#b4423a" stroke-width="1.75" stroke-dasharray="2 4" marker-end="url(#stop)"/>
+  <text x="326" y="78" class="edge">machine key</text>
+  <text x="326" y="212" class="edge">HTTPS or Tailscale</text>
+  <text x="326" y="242" class="sub">plain http refused</text>
+  <text x="326" y="354" class="edge">admin token</text>
+  <text x="326" y="446" class="edge danger">rejected at check 1</text>
+  <text x="326" y="462" class="sub">body never read</text>
+
+  <rect x="470" y="168" width="128" height="136" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
+  <text x="534" y="196" text-anchor="middle" class="title">Caddy</text>
+  <text x="534" y="218" text-anchor="middle" class="sub">TLS certificates</text>
+  <text x="534" y="236" text-anchor="middle" class="sub">body size caps</text>
+  <text x="534" y="254" text-anchor="middle" class="sub">/admin: loopback</text>
+  <text x="534" y="272" text-anchor="middle" class="sub">and tailnet only</text>
+
+  <line x1="598" y1="236" x2="620" y2="236" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
+
+  <rect x="622" y="64" width="290" height="332" rx="10" fill="#1f6b57"/>
+  <text x="642" y="94" class="title on-dark">Kampung server</text>
+  <text x="642" y="112" class="sub on-dark-sub">127.0.0.1:8803 · checks run in this order</text>
+  <line x1="642" y1="126" x2="892" y2="126" stroke="#3d8a74"/>
+
+  <g>
+    <circle cx="652" cy="146" r="10" fill="#3d8a74"/>
+    <text x="652" y="150" text-anchor="middle" class="num">1</text>
+    <text x="672" y="150" class="row on-dark">Machine key</text>
+    <text x="672" y="166" class="sub on-dark-sub">checked before the body is read</text>
+  </g>
+  <g>
+    <circle cx="652" cy="188" r="10" fill="#3d8a74"/>
+    <text x="652" y="192" text-anchor="middle" class="num">2</text>
+    <text x="672" y="192" class="row on-dark">Ownership</text>
+    <text x="672" y="208" class="sub on-dark-sub">own mailboxes; sender from the key</text>
+  </g>
+  <g>
+    <circle cx="652" cy="230" r="10" fill="#3d8a74"/>
+    <text x="652" y="234" text-anchor="middle" class="num">3</text>
+    <text x="672" y="234" class="row on-dark">Pairing</text>
+    <text x="672" y="250" class="sub on-dark-sub">default deny until kampung pair</text>
+  </g>
+  <g>
+    <circle cx="652" cy="272" r="10" fill="#3d8a74"/>
+    <text x="652" y="276" text-anchor="middle" class="num">4</text>
+    <text x="672" y="276" class="row on-dark">Limits</text>
+    <text x="672" y="292" class="sub on-dark-sub">rates, sizes and counts capped</text>
+  </g>
+  <g>
+    <circle cx="652" cy="314" r="10" fill="#3d8a74"/>
+    <text x="652" y="318" text-anchor="middle" class="num">5</text>
+    <text x="672" y="318" class="row on-dark">Loop guard</text>
+    <text x="672" y="334" class="sub on-dark-sub">no wake past depth 3</text>
+  </g>
+  <g>
+    <circle cx="652" cy="356" r="10" fill="#3d8a74"/>
+    <text x="652" y="360" text-anchor="middle" class="num">6</text>
+    <text x="672" y="360" class="row on-dark">Envelope</text>
+    <text x="672" y="376" class="sub on-dark-sub">peer text marked information only</text>
+  </g>
+
+  <!-- SQLite cylinder -->
+  <line x1="767" y1="396" x2="767" y2="420" stroke="#7a857f" stroke-width="1.5"/>
+  <g>
+    <path d="M707,432 v48 a60,12 0 0 0 120,0 v-48" fill="#eef1ed" stroke="#7a857f"/>
+    <ellipse cx="767" cy="432" rx="60" ry="12" fill="#f6f7f5" stroke="#7a857f"/>
+    <text x="767" y="466" text-anchor="middle" class="title">SQLite</text>
+    <text x="767" y="482" text-anchor="middle" class="sub">on a volume</text>
+  </g>
+  <text x="845" y="452" class="sub">keys hashed</text>
+  <text x="845" y="468" class="sub">mail 7 days</text>
+  <text x="845" y="484" class="sub">audit log</text>
+
+  <text x="468" y="516" class="sub">Not end-to-end encrypted: the server reads mail to enforce pairing.</text>
+
+  <!-- Legend -->
+  <g>
+    <line x1="28" y1="500" x2="56" y2="500" stroke="#1f6b57" stroke-width="1.75"/>
+    <text x="64" y="504" class="sub">machine key</text>
+    <line x1="168" y1="500" x2="196" y2="500" stroke="#1f6b57" stroke-width="1.75" stroke-dasharray="5 4"/>
+    <text x="204" y="504" class="sub">admin token</text>
+    <line x1="28" y1="526" x2="56" y2="526" stroke="#b4423a" stroke-width="1.75" stroke-dasharray="2 4"/>
+    <text x="64" y="530" class="sub">rejected</text>
+    <rect x="168" y="519" width="28" height="14" rx="3" fill="none" stroke="#b7791f" stroke-width="1.25" stroke-dasharray="6 4"/>
+    <text x="204" y="530" class="sub">trust boundary</text>
+  </g>
+</svg>

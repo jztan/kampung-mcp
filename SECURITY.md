@@ -8,18 +8,9 @@ Please don't open a public issue. Use **Report a vulnerability** on the reposito
 
 Kampung is built for one owner per server: one container, one SQLite database, one set of machine keys. Two people means two containers. There is no tenant boundary inside a server, so don't share one.
 
-```
-                      machine keys over HTTPS or Tailscale
-  laptop ----------+
-  (agent, adapter, |      +----------------- server host ------------------+
-   hooks,          +----->| Caddy (tls profile)  ->  127.0.0.1:8803        |
-   config.json)    |      |   /admin: loopback and Tailscale only          |
-                   |      |                          kampung container     |
-  desktop ---------+      |                          /mcp  /v1  /health    |
-                          |                          /admin (if token set) |
-                          |                          SQLite on a volume    |
-                          +------------------------------------------------+
-```
+<p align="center">
+  <img src="docs/images/security-model.svg" alt="Each machine is a trust boundary holding one machine key in config.json. Calls go with the key over HTTPS or Tailscale to Caddy, which terminates TLS, caps request bodies and keeps /admin to loopback and the tailnet. A client with no key or a wrong key is rejected at the first check before its body is read. Inside the Kampung server every request passes six checks in order: machine key, ownership, pairing, limits, loop guard and the envelope that marks peer text as information only. Mail, hashed keys and the audit log are kept in SQLite on a volume." width="860">
+</p>
 
 - **Closed by default.** Every `/mcp` and `/v1` request needs a machine key. `/health` is open and returns only the version. `/admin` exists only when `KAMPUNG_ADMIN_TOKEN` is set.
 - **Loopback only.** The container publishes on `127.0.0.1`. Reach it from other machines through the `tls` profile (Caddy with automatic HTTPS) or over Tailscale.
