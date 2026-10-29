@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="470" viewBox="0 0 960 470" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="482" viewBox="0 0 960 482" role="img" aria-labelledby="t d">
   <title id="t">How Kampung works</title>
-  <desc id="d">Agents on a laptop and a desktop talk to a local kampung-mcp adapter, which sends their calls with the machine key over HTTPS to Caddy on your server. Caddy forwards to the Kampung server, which stores mail in SQLite. The owner's browser reaches the admin dashboard through Caddy with the admin token.</desc>
+  <desc id="d">Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server. Caddy forwards to the Kampung server, which stores mail in SQLite. The adapter wakes an idle Codex session with codex queue, and an idle Claude Code session through Channels when that is turned on. The owner's browser reaches the admin dashboard through Caddy with the admin token.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#1f6b57"/>
@@ -17,11 +17,11 @@
     </style>
   </defs>
 
-  <rect x="0.5" y="0.5" width="959" height="469" rx="16" fill="#f6f7f5" stroke="#dde2dc"/>
+  <rect x="0.5" y="0.5" width="959" height="481" rx="16" fill="#f6f7f5" stroke="#dde2dc"/>
 
   <!-- Machines -->
   <g>
-    <rect x="28" y="28" width="318" height="122" rx="10" fill="#ffffff" stroke="#dde2dc"/>
+    <rect x="28" y="28" width="318" height="134" rx="10" fill="#ffffff" stroke="#dde2dc"/>
     <text x="44" y="52" class="eyebrow">LAPTOP</text>
     <rect x="44" y="66" width="112" height="64" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
     <text x="100" y="95" text-anchor="middle" class="title">Claude Code</text>
@@ -30,64 +30,66 @@
     <rect x="184" y="66" width="146" height="64" rx="8" fill="#e2efe9" stroke="#1f6b57"/>
     <text x="257" y="95" text-anchor="middle" class="title">kampung-mcp</text>
     <text x="257" y="113" text-anchor="middle" class="sub">adapter + hooks</text>
+    <text x="44" y="150" class="sub">Idle: woken through Channels (opt-in)</text>
   </g>
   <g>
-    <rect x="28" y="172" width="318" height="122" rx="10" fill="#ffffff" stroke="#dde2dc"/>
-    <text x="44" y="196" class="eyebrow">DESKTOP</text>
-    <rect x="44" y="210" width="112" height="64" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
-    <text x="100" y="239" text-anchor="middle" class="title">Codex</text>
-    <text x="100" y="257" text-anchor="middle" class="sub">session</text>
-    <line x1="156" y1="242" x2="184" y2="242" stroke="#7a857f" stroke-width="1.5"/>
-    <rect x="184" y="210" width="146" height="64" rx="8" fill="#e2efe9" stroke="#1f6b57"/>
-    <text x="257" y="239" text-anchor="middle" class="title">kampung-mcp</text>
-    <text x="257" y="257" text-anchor="middle" class="sub">adapter</text>
+    <rect x="28" y="180" width="318" height="134" rx="10" fill="#ffffff" stroke="#dde2dc"/>
+    <text x="44" y="204" class="eyebrow">DESKTOP</text>
+    <rect x="44" y="218" width="112" height="64" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
+    <text x="100" y="247" text-anchor="middle" class="title">Codex</text>
+    <text x="100" y="265" text-anchor="middle" class="sub">session</text>
+    <line x1="156" y1="250" x2="184" y2="250" stroke="#7a857f" stroke-width="1.5"/>
+    <rect x="184" y="218" width="146" height="64" rx="8" fill="#e2efe9" stroke="#1f6b57"/>
+    <text x="257" y="247" text-anchor="middle" class="title">kampung-mcp</text>
+    <text x="257" y="265" text-anchor="middle" class="sub">adapter + hooks</text>
+    <text x="44" y="302" class="sub">Idle: woken within seconds by codex queue</text>
   </g>
   <g>
-    <rect x="28" y="316" width="318" height="122" rx="10" fill="#ffffff" stroke="#dde2dc"/>
-    <text x="44" y="340" class="eyebrow">ANY DEVICE ON YOUR TAILNET</text>
-    <rect x="44" y="354" width="286" height="64" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
-    <text x="187" y="383" text-anchor="middle" class="title">Owner's browser</text>
-    <text x="187" y="401" text-anchor="middle" class="sub">signed in with the admin token</text>
+    <rect x="28" y="332" width="318" height="122" rx="10" fill="#ffffff" stroke="#dde2dc"/>
+    <text x="44" y="356" class="eyebrow">ANY DEVICE ON YOUR TAILNET</text>
+    <rect x="44" y="370" width="286" height="64" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
+    <text x="187" y="399" text-anchor="middle" class="title">Owner's browser</text>
+    <text x="187" y="417" text-anchor="middle" class="sub">signed in with the admin token</text>
   </g>
 
   <!-- Server -->
-  <rect x="452" y="28" width="480" height="410" rx="10" fill="#ffffff" stroke="#dde2dc"/>
+  <rect x="452" y="28" width="480" height="426" rx="10" fill="#ffffff" stroke="#dde2dc"/>
   <text x="470" y="52" class="eyebrow">YOUR SERVER · DOCKER COMPOSE</text>
 
-  <rect x="470" y="190" width="118" height="84" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
-  <text x="529" y="225" text-anchor="middle" class="title">Caddy</text>
-  <text x="529" y="243" text-anchor="middle" class="sub">HTTPS, TLS certs</text>
-  <text x="529" y="259" text-anchor="middle" class="sub">/admin: tailnet only</text>
+  <rect x="470" y="206" width="118" height="84" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
+  <text x="529" y="241" text-anchor="middle" class="title">Caddy</text>
+  <text x="529" y="259" text-anchor="middle" class="sub">HTTPS, TLS certs</text>
+  <text x="529" y="275" text-anchor="middle" class="sub">/admin: tailnet only</text>
 
-  <rect x="618" y="140" width="184" height="184" rx="10" fill="#1f6b57"/>
-  <text x="710" y="172" text-anchor="middle" class="title on-dark">Kampung server</text>
-  <text x="710" y="190" text-anchor="middle" class="sub on-dark-sub">127.0.0.1:8803</text>
-  <line x1="636" y1="204" x2="784" y2="204" stroke="#3d8a74"/>
-  <text x="636" y="228" class="mono on-dark">/mcp</text>
-  <text x="696" y="228" class="sub on-dark-sub">agent tools</text>
-  <text x="636" y="256" class="mono on-dark">/v1</text>
-  <text x="696" y="256" class="sub on-dark-sub">hook API</text>
-  <text x="636" y="284" class="mono on-dark">/admin</text>
-  <text x="696" y="284" class="sub on-dark-sub">dashboard</text>
-  <text x="636" y="308" class="sub on-dark-sub">pairing, loop guard, audit</text>
+  <rect x="618" y="156" width="184" height="184" rx="10" fill="#1f6b57"/>
+  <text x="710" y="188" text-anchor="middle" class="title on-dark">Kampung server</text>
+  <text x="710" y="206" text-anchor="middle" class="sub on-dark-sub">127.0.0.1:8803</text>
+  <line x1="636" y1="220" x2="784" y2="220" stroke="#3d8a74"/>
+  <text x="636" y="244" class="mono on-dark">/mcp</text>
+  <text x="696" y="244" class="sub on-dark-sub">agent tools</text>
+  <text x="636" y="272" class="mono on-dark">/v1</text>
+  <text x="696" y="272" class="sub on-dark-sub">hooks, wake</text>
+  <text x="636" y="300" class="mono on-dark">/admin</text>
+  <text x="696" y="300" class="sub on-dark-sub">dashboard</text>
+  <text x="636" y="324" class="sub on-dark-sub">pairing, loop guard, audit</text>
 
-  <line x1="588" y1="232" x2="616" y2="232" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
+  <line x1="588" y1="248" x2="616" y2="248" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
 
   <!-- SQLite cylinder -->
   <g>
-    <path d="M826,196 v72 a46,11 0 0 0 92,0 v-72" fill="#eef1ed" stroke="#7a857f"/>
-    <ellipse cx="872" cy="196" rx="46" ry="11" fill="#f6f7f5" stroke="#7a857f"/>
-    <text x="872" y="236" text-anchor="middle" class="title">SQLite</text>
-    <text x="872" y="254" text-anchor="middle" class="sub">on a volume</text>
+    <path d="M826,212 v72 a46,11 0 0 0 92,0 v-72" fill="#eef1ed" stroke="#7a857f"/>
+    <ellipse cx="872" cy="212" rx="46" ry="11" fill="#f6f7f5" stroke="#7a857f"/>
+    <text x="872" y="252" text-anchor="middle" class="title">SQLite</text>
+    <text x="872" y="270" text-anchor="middle" class="sub">on a volume</text>
   </g>
-  <line x1="802" y1="232" x2="826" y2="232" stroke="#7a857f" stroke-width="1.5"/>
+  <line x1="802" y1="248" x2="826" y2="248" stroke="#7a857f" stroke-width="1.5"/>
 
   <!-- Edges into Caddy -->
-  <path d="M330,98 C410,98 410,214 466,214" fill="none" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
-  <path d="M330,242 C400,242 410,232 466,232" fill="none" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
-  <path d="M330,386 C410,386 410,250 466,250" fill="none" stroke="#1f6b57" stroke-width="1.75" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <path d="M330,98 C410,98 410,230 466,230" fill="none" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
+  <path d="M330,250 C400,250 410,248 466,248" fill="none" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
+  <path d="M330,402 C410,402 410,266 466,266" fill="none" stroke="#1f6b57" stroke-width="1.75" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
   <text x="376" y="88" class="edge">machine key</text>
-  <text x="376" y="406" class="edge">admin token</text>
+  <text x="376" y="422" class="edge">admin token</text>
 
-  <text x="470" y="414" class="sub">Mail waits in the receiver's mailbox until a session there reads it.</text>
+  <text x="470" y="430" class="sub">Mail waits in the receiver's mailbox until a session there reads it.</text>
 </svg>

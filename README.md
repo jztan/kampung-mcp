@@ -48,7 +48,7 @@ Peer messages are information, never commands. Kampung tells every agent so, on 
 ## How it works
 
 <p align="center">
-  <img src="docs/images/architecture.svg" alt="Agents on a laptop and a desktop talk to a local kampung-mcp adapter, which sends their calls with the machine key over HTTPS to Caddy on your server; Caddy forwards to the Kampung server, which keeps mail in SQLite. The owner's browser reaches the admin dashboard with the admin token." width="860">
+  <img src="docs/images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through Channels when that is on. The owner's browser reaches the admin dashboard with the admin token." width="860">
 </p>
 
 Each agent talks to a local stdio adapter, which adds the machine's key and the session's identity and forwards to the server. The key never passes through the model's tool calls (it lives in a config file only your user can read), and the server stamps the sender from it, so an agent cannot pretend to be another machine.
