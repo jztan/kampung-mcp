@@ -18,16 +18,22 @@ WAKE = (
 )
 
 
-def fake_codex(tmp_path: Path, exit_code: int = 0) -> tuple[Path, Path]:
-    """A `codex` stand-in that logs its arguments, one JSON line per call."""
+def fake_codex(
+    tmp_path: Path, exit_code: int = 0, hang_first: float = 0
+) -> tuple[Path, Path]:
+    """A `codex` stand-in that logs its arguments, one JSON line per call.
+    With `hang_first`, the first call sleeps that long, then writes `finished`."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     log = tmp_path / "codex-calls.jsonl"
     script = bindir / "codex"
     script.write_text(
         f"#!{sys.executable}\n"
-        "import json, sys\n"
+        "import json, sys, time\n"
         f"open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        f"if {hang_first} and len(open({str(log)!r}).readlines()) == 1:\n"
+        f"    time.sleep({hang_first})\n"
+        f"    open({str(tmp_path / 'finished')!r}, 'w').close()\n"
         f"sys.exit({exit_code})\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
@@ -165,6 +171,31 @@ def test_waker_queue_failure_logged_once(
         reply = call_inbox(mcp, "cx-1", "c2")
         text = json.dumps(reply)
         assert "one" in text and "two" in text  # tools still work
+    finally:
+        mcp.close()
+
+
+def test_waker_kills_a_hung_codex_queue_and_wakes_again(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    data = codex_start(home, repo)
+    codex, log = fake_codex(tmp_path, hang_first=7)  # past the 5 s queue timeout
+    mcp = RawMCP(home, repo, "--codex-bin", str(codex), agent="codex")
+    try:
+        mcp.initialize()
+        call_inbox(mcp, "cx-1")
+        peer_send(server, f"laptop/api#{data['suffix']}", "one")
+        wait_for_calls(log, 1, 8)
+        first = time.monotonic()  # the hung call has started
+        end = time.monotonic() + 10
+        while time.monotonic() < end and not log_lines(home, "codex-wake"):
+            time.sleep(0.2)
+        assert any("timed out" in line for line in log_lines(home, "codex-wake"))
+        peer_send(server, f"laptop/api#{data['suffix']}", "two")
+        assert len(wait_for_calls(log, 2, 8)) == 2  # still polling after the hang
+        time.sleep(max(0.0, first + 9 - time.monotonic()))
+        assert not (tmp_path / "finished").exists()  # the hung call was killed
     finally:
         mcp.close()
 
