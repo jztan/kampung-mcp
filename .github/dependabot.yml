@@ -1,26 +1,43 @@
 # Weekly update pull requests into develop. Dependabot's branches
 # (dependabot/...) are allowed by scripts/check-commits.sh.
+#
+# Every ecosystem waits 14 days after a release before proposing it, so a
+# compromised or broken release has time to be caught and pulled first.
+# Security updates are not delayed by this.
 version: 2
 updates:
   - package-ecosystem: "uv"
     directory: "/"
     target-branch: "develop"
+    ignore:
+      # Pinned to 3.x on purpose: FastMCP 4 breaks Channels with current
+      # Claude Code. Lift this together with the pin in both pyproject files.
+      - dependency-name: "fastmcp"
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
   - package-ecosystem: "github-actions"
     directory: "/"
     target-branch: "develop"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
   # The Dockerfile's python base image and the uv copy.
   - package-ecosystem: "docker"
     directory: "/"
     target-branch: "develop"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
   # The Caddy image in docker-compose.yml.
   - package-ecosystem: "docker-compose"
     directory: "/"
     target-branch: "develop"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
