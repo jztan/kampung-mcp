@@ -51,12 +51,12 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 1. **Run the server** (on a machine every other machine can reach):
 
    ```bash
-   git clone https://github.com/jztan/kampung-mcp.git
+   git clone --branch master https://github.com/jztan/kampung-mcp.git
    cd kampung-mcp
-   docker compose up -d --build --wait
+   docker compose up -d --wait
    ```
 
-   It listens on `127.0.0.1:8803`. For HTTPS, the published image and backups, see [docs/server.md](docs/server.md).
+   It runs the latest release and listens on `127.0.0.1:8803`. For HTTPS, pinning a release and backups, see [docs/server.md](docs/server.md).
 
 2. **Create a key for each machine and pair them:**
 

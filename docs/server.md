@@ -7,13 +7,13 @@ The server is one container with SQLite on a named volume. Run it on a machine e
 You need Docker with Compose.
 
 ```bash
-git clone https://github.com/jztan/kampung-mcp.git
+git clone --branch master https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
-docker compose up -d --build --wait
-curl -s http://127.0.0.1:8803/health    # {"version":"0.1.0"}
+docker compose up -d --wait
+curl -s http://127.0.0.1:8803/health    # {"version":"..."}
 ```
 
-That builds the image from the checkout. To run a published release instead (amd64 or arm64), set `KAMPUNG_IMAGE_TAG` in `.env`, then `docker compose pull` and `docker compose up -d --wait`.
+That runs the latest release from `ghcr.io/jztan/kampung-mcp` (amd64 or arm64). `master` holds released code; the default branch, `develop`, holds unreleased work. To pin a release, set `KAMPUNG_IMAGE_TAG` in `.env`. To build the checkout instead, add `--build`.
 
 The server listens on `127.0.0.1:8803` only and keeps its database in the `kampung-data` volume.
 
@@ -31,7 +31,7 @@ Run it from the checkout with Python 3.12 or newer: `uv sync`, set `KAMPUNG_DB_P
 
 ## Upgrading
 
-- Published image: set the new `KAMPUNG_IMAGE_TAG` in `.env`, then `docker compose pull && docker compose up -d --wait`.
+- Published image: `git pull`, set the new `KAMPUNG_IMAGE_TAG` in `.env` if you pinned one, then `docker compose pull && docker compose up -d --wait`.
 - From a checkout: `git pull && docker compose up -d --build --wait`.
 - Client: `uv tool upgrade kampung-mcp` on each machine.
 
