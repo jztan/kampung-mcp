@@ -48,7 +48,7 @@ a { color: var(--accent); }
 .app { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 100vh; }
 .nav { background: var(--nav-bg); color: var(--nav-fg); padding-block: 18px; display: flex; flex-direction: column; gap: 20px; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 18px; color: var(--nav-active); font-weight: 650; letter-spacing: .01em; }
-.brand-mark { width: 26px; height: 26px; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: var(--accent-fg); font-size: 13px; font-weight: 700; }
+.brand-mark { width: 26px; height: 26px; flex-shrink: 0; display: block; }
 .brand small { display: block; font-weight: 400; color: var(--nav-fg); font-size: 11.5px; }
 .nav ul { list-style: none; margin: 0; padding: 0 10px; display: flex; flex-direction: column; gap: 2px; }
 .nav a { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--r); color: var(--nav-fg); text-decoration: none; }

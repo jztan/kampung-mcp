@@ -134,6 +134,7 @@ def test_security_headers(web: TestClient) -> None:
         "/admin",
         "/admin/static/admin.css",
         "/admin/static/admin.js",
+        "/admin/static/logo.svg",
     ):
         r = web.get(path, follow_redirects=False)
         assert r.headers["content-security-policy"] == CSP, path
@@ -159,6 +160,13 @@ def test_stylesheet_served(web: TestClient) -> None:
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/css")
     assert "--accent" in r.text
+
+
+def test_logo_served(web: TestClient) -> None:
+    r = web.get("/admin/static/logo.svg")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in r.text
 
 
 def test_machine_key_does_not_open_admin(
