@@ -15,10 +15,9 @@
 //   npm run record            # writes ../../docs/images/demo.gif
 //
 // Tunables via env: FPS, MAXCOLORS, LOSSY, SPEED, OUT_GIF, PORT.
-// Requires `ffmpeg` on PATH (brew install ffmpeg).
+// Requires `ffmpeg` and `gifsicle` on PATH (brew install ffmpeg gifsicle).
 
 import { chromium } from "playwright";
-import gifsicle from "gifsicle";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -127,5 +126,5 @@ const vf = `crop=${crop},fps=${FPS},tpad=stop_mode=clone:stop_duration=${HOLD_MS
   `[s1][p]paletteuse=dither=none:diff_mode=rectangle`;
 execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
   "-i", listFile, "-vf", vf, "-loop", "0", rawGif], { stdio: "inherit" });
-execFileSync(gifsicle, ["-O3", `--lossy=${LOSSY}`, rawGif, "-o", OUT], { stdio: "inherit" });
+execFileSync("gifsicle", ["-O3", `--lossy=${LOSSY}`, rawGif, "-o", OUT], { stdio: "inherit" });
 mark(`gif: ${OUT} (${(statSync(OUT).size / 1e6).toFixed(2)} MB)`);
