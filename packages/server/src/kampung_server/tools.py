@@ -32,8 +32,10 @@ BUSY = KampungError("busy", "The server is busy. Try again in a moment.")
 
 def session_id_from_header(raw: str) -> int | None:
     """The session id from its header, or None. ASCII digits only: str.isdigit
-    also accepts characters like "\u00b2" that int() then rejects."""
-    return int(raw) if raw.isascii() and raw.isdigit() else None
+    also accepts characters like "\u00b2" that int() then rejects. At most 18
+    digits, so the id fits SQLite's 64-bit integer."""
+    valid = raw.isascii() and raw.isdigit() and len(raw) <= 18
+    return int(raw) if valid else None
 
 
 def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
@@ -54,7 +56,11 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
             return work(conn, machine, session, now)
         except KampungError as e:
             return e.to_dict()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            # Only contention is worth retrying; anything else (a read-only
+            # volume, a missing table) must surface, not loop on "busy".
+            if e.sqlite_errorcode not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise
             return BUSY.to_dict()
         finally:
             conn.close()
