@@ -260,3 +260,15 @@ def test_admin_dashboard_in_container(tmp_path: Path) -> None:
         assert login.status_code == 200 and "Sign in" in login.text
         css = httpx.get(s.url + "/admin/static/admin.css")
         assert css.status_code == 200 and "--accent" in css.text
+
+
+def test_venv_is_not_writable_by_app_user() -> None:
+    out = docker_run(
+        "run",
+        "--rm",
+        build_image(),
+        "sh",
+        "-c",
+        "stat -c %u /opt/venv; touch /opt/venv/x 2>/dev/null || echo denied",
+    ).stdout
+    assert out.splitlines()[0] == "0" and "denied" in out

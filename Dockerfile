@@ -45,7 +45,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 RUN groupadd --gid 1000 kampung && \
     useradd --uid 1000 --gid kampung --shell /bin/sh --create-home kampung
 
-COPY --from=builder --chown=kampung:kampung /opt/venv /opt/venv
+COPY --from=builder /opt/venv /opt/venv
 COPY packages/server/LICENSE /usr/share/licenses/kampung-server/LICENSE
 COPY NOTICE /usr/share/licenses/kampung-server/NOTICE
 
