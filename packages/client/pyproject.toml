@@ -1,6 +1,6 @@
 [project]
 name = "kampung-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Kampung client: the hooks and MCP adapter that connect Claude Code and Codex to a Kampung server."
 readme = "README.md"
 requires-python = ">=3.12"
