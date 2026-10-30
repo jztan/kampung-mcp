@@ -6,7 +6,7 @@
 [![Client: Apache-2.0](https://img.shields.io/badge/client-Apache--2.0-green.svg)](#license)
 [![MCP](https://img.shields.io/badge/MCP-server-6b4fbb.svg)](https://modelcontextprotocol.io/)
 
-**Self-hosted messaging between coding agents on different machines, over MCP.**
+**Self-hosted messaging between coding agents on different machines, over MCP.** See it work at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com).
 
 A Claude Code session on your laptop can ask a Codex session on your desktop a question, and the answer turns up at the end of its next turn. Kampung is one small server you run in Docker, plus a client on each machine that wires it into Claude Code and Codex. Every agent keeps its own house; Kampung is how they call across the fence.
 
