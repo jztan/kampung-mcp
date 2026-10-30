@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 import httpx
+import kampung_server
 import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
@@ -56,7 +57,8 @@ def test_cli_works_in_image() -> None:
 
 def test_fresh_server_is_closed(tmp_path: Path) -> None:
     with stack(tmp_path) as s:
-        assert httpx.get(s.url + "/health").json() == {"version": "0.1.0"}
+        health = httpx.get(s.url + "/health").json()
+        assert health == {"version": kampung_server.__version__}
         assert httpx.post(s.url + "/mcp", json={}).status_code == 401
         assert httpx.get(s.url + "/v1/sessions/1/peek").status_code == 401
 

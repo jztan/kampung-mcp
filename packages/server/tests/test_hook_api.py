@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+import kampung_server
 from server_testlib import FakeClock
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
@@ -40,7 +41,7 @@ def _register(client: TestClient, key: str, **kw: Any) -> str:
 
 
 def test_health_no_auth(client: TestClient) -> None:
-    assert client.get("/health").json() == {"version": "0.1.0"}
+    assert client.get("/health").json() == {"version": kampung_server.__version__}
 
 
 def test_v1_requires_key(client: TestClient) -> None:
