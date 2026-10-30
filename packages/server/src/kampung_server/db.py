@@ -6,7 +6,8 @@ from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+# schema.sql builds version 1; schema_<n>.sql upgrades version n - 1 to n.
+SCHEMA_VERSION = 2
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -21,11 +22,18 @@ def connect(path: str | Path) -> sqlite3.Connection:
 def migrate(conn: sqlite3.Connection) -> None:
     if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
         return
-    schema = resources.files("kampung_server").joinpath("schema.sql").read_text()
     with transaction(conn):
-        for statement in _statements(schema):
-            conn.execute(statement)
-        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        # Read again under the write lock: another process may have migrated.
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        for target in range(version + 1, SCHEMA_VERSION + 1):
+            for statement in _statements(_script(target)):
+                conn.execute(statement)
+        conn.execute(f"PRAGMA user_version={max(version, SCHEMA_VERSION)}")
+
+
+def _script(version: int) -> str:
+    name = "schema.sql" if version == 1 else f"schema_{version}.sql"
+    return resources.files("kampung_server").joinpath(name).read_text()
 
 
 def _statements(script: str) -> list[str]:
