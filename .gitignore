@@ -38,7 +38,8 @@ venv/
 # Claude / agent guidance (local only)
 CLAUDE.md
 AGENTS.md
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Private working documents
 backlog.md
