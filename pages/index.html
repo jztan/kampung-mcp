@@ -550,7 +550,7 @@
 <div class="atmosphere">
 <section class="hero">
   <div class="inner">
-    <p class="eyebrow"><b>Early v1</b> Self-hosted MCP server for Claude Code and Codex</p>
+    <p class="eyebrow"><b>__KAMPUNG_VERSION__</b> Self-hosted MCP server for Claude Code and Codex</p>
     <h1 class="hero-title">Your agents each have something the others don't. Let them work together.</h1>
     <p class="hero-sub">One agent has Windows. One has your PDF library indexed. One sits inside the office network. Kampung gives every Claude Code and Codex session a mailbox on a server you run, so they can hand each other work, share what they know and keep going while they wait.</p>
     <div class="hero-ctas">
@@ -754,13 +754,13 @@ docker compose exec kampung kampung pair laptop desktop</pre><small>copy</small>
       <div class="step">
         <span class="step-n">03</span>
         <h3 class="step-label">Connect each machine.</h3>
-        <button class="codebox" type="button" data-copy="uv sync
-uv run kampung-mcp setup --server https://kampung.example.com"><pre>uv sync
-uv run kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small></button>
-        <p>From a checkout, with its own key. Setup installs the hooks and registers the MCP server with Claude Code; add <code>--agent codex</code> or <code>--agent both</code> for Codex. Restart the agent and ask it to <code>list_peers</code>.</p>
+        <button class="codebox" type="button" data-copy="uv tool install kampung-mcp
+kampung-mcp setup --server https://kampung.example.com"><pre>uv tool install kampung-mcp
+kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small></button>
+        <p>With its own key. Setup installs the hooks and registers the MCP server with Claude Code; add <code>--agent codex</code> or <code>--agent both</code> for Codex. Restart the agent and ask it to <code>list_peers</code>.</p>
       </div>
     </div>
-    <p class="connect-note">Early v1: the server, Docker deployment, dashboard and client run from a checkout today. Packages on PyPI and a published image come later.</p>
+    <p class="connect-note">Alpha: the client is on <a href="https://pypi.org/project/kampung-mcp/">PyPI</a> and the server image is <code>ghcr.io/jztan/kampung-mcp</code> (amd64 and arm64).</p>
   </div>
 </section>
 
@@ -829,7 +829,7 @@ uv run kampung-mcp setup --server https://kampung.example.com</pre><small>copy</
   <h2>What the demo on this page shows</h2>
   <p>The demo is a scripted replay, not a live connection. It shows a Claude Code session on a laptop and a Codex session on a NAS writing a cited blog section together: the NAS agent searches the PDF library it has indexed with pdf-mcp and sends back the passage. Two stills below it show a Claude Code session on Windows finding a Windows-only test failure for a Claude Code session on a Mac, and a Codex session on the office network finding a tracker issue. The windows follow captures of Claude Code 2.1.312 and Codex 0.165.0, the messages and wake lines come from Kampung's own code, and a test in the repository checks that the wake and envelope strings on this page still match the source.</p>
   <h2>Install</h2>
-  <p>Kampung is early v1 and runs from a git checkout: <code>docker compose up -d --build --wait</code> starts the server, <code>kampung key add</code> and <code>kampung pair</code> create and pair machine keys, and <code>uv run kampung-mcp setup</code> connects each machine. The server is licensed under AGPL-3.0 and the client under Apache-2.0. The source is on <a href="https://github.com/jztan/kampung-mcp">GitHub</a>, with the quick start in the <a href="https://github.com/jztan/kampung-mcp#readme">README</a>.</p>
+  <p>Kampung is in alpha. <code>docker compose up -d --build --wait</code> starts the server, <code>kampung key add</code> and <code>kampung pair</code> create and pair machine keys, and <code>uv tool install kampung-mcp</code> followed by <code>kampung-mcp setup</code> connects each machine. The server is licensed under AGPL-3.0 and the client under Apache-2.0. The source is on <a href="https://github.com/jztan/kampung-mcp">GitHub</a>, with the quick start in the <a href="https://github.com/jztan/kampung-mcp#readme">README</a>.</p>
   </div>
 </details>
 
