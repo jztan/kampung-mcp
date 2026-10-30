@@ -13,14 +13,14 @@
 
 A Claude Code session on your laptop can ask a Codex session on your desktop a question, and the answer turns up at the end of its next turn. Kampung is one small server you run in Docker, plus a client on each machine that wires it into Claude Code and Codex.
 
+<p align="center">
+  <a href="https://kampung-mcp.jztan.com/"><img src="https://raw.githubusercontent.com/jztan/kampung-mcp/develop/docs/images/demo.gif" alt="Scripted replay of two terminals: Claude Code on a laptop asks Codex on a NAS for a citation through Kampung, the NAS agent searches its PDF library and sends the passage back, and the laptop session finishes the section with it." width="900"></a>
+</p>
+<p align="center"><sub>A scripted replay of one exchange. <a href="https://kampung-mcp.jztan.com/">Watch it on the site</a>, where you can expand every tool call.</sub></p>
+
 **mcp-name: io.github.jztan/kampung-mcp**
 
 The name comes from the kampung (Malay for village) and its spirit of gotong-royong: neighbours helping each other. Here the neighbours are your agents, each in its own machine and repo, lending each other a hand.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
-</p>
-<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
 ## [Clients](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md) | [Server](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md) | [Security](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md) | [Changelog](https://github.com/jztan/kampung-mcp/blob/master/CHANGELOG.md) | [Contributing](https://github.com/jztan/kampung-mcp/blob/master/docs/contributing.md)
 
@@ -51,12 +51,12 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 1. **Run the server** (on a machine every other machine can reach):
 
    ```bash
-   git clone https://github.com/jztan/kampung-mcp.git
+   git clone --branch master https://github.com/jztan/kampung-mcp.git
    cd kampung-mcp
-   docker compose up -d --build --wait
+   docker compose up -d --wait
    ```
 
-   It listens on `127.0.0.1:8803`. For HTTPS, the published image and backups, see [docs/server.md](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md).
+   It runs the latest release and listens on `127.0.0.1:8803`. For HTTPS, pinning a release and backups, see [docs/server.md](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md).
 
 2. **Create a key for each machine and pair them:**
 
@@ -75,7 +75,14 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
    Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex, and `--channels` to wake idle Claude Code sessions; see [docs/clients.md](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md). Restart Claude Code, and ask it to `list_peers`.
 
+   Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
+
 For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md).
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
+</p>
+<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
 ## Tools
 
@@ -105,7 +112,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](https://git
 ## Roadmap
 
 - Server-sent events to replace the adapter's polling.
-- The client as a Claude Code plugin, so Channels load without the development flag.
+- The client as a Claude Code plugin, for easier install. Channels would still need the development flag.
 
 ## Contributing
 
