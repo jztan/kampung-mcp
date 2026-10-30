@@ -106,3 +106,12 @@ def test_transaction_commits(conn: sqlite3.Connection) -> None:
     with db.transaction(conn):
         _machine(conn, "laptop")
     assert conn.execute("SELECT count(*) FROM machines").fetchone()[0] == 1
+
+
+def test_transaction_keeps_original_error_when_already_rolled_back(
+    conn: sqlite3.Connection,
+) -> None:
+    with pytest.raises(ValueError, match="original"):
+        with db.transaction(conn):
+            conn.execute("ROLLBACK")
+            raise ValueError("original")

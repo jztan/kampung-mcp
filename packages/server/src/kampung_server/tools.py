@@ -27,6 +27,13 @@ SERVER_INSTRUCTIONS = (
 )
 
 Result = dict[str, Any]
+BUSY = KampungError("busy", "The server is busy. Try again in a moment.")
+
+
+def session_id_from_header(raw: str) -> int | None:
+    """The session id from its header, or None. ASCII digits only: str.isdigit
+    also accepts characters like "\u00b2" that int() then rejects."""
+    return int(raw) if raw.isascii() and raw.isdigit() else None
 
 
 def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
@@ -38,14 +45,17 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
             if not needs_session:
                 return work(conn, machine, None, now)
             raw = get_http_headers(include={SESSION_HEADER}).get(SESSION_HEADER, "")
-            if not raw.isdigit():
+            session_id = session_id_from_header(raw)
+            if session_id is None:
                 raise KampungError(
                     "missing_session", "Run Kampung through its adapter."
                 )
-            session = sessions.resolve(conn, machine, int(raw), now)
+            session = sessions.resolve(conn, machine, session_id, now)
             return work(conn, machine, session, now)
         except KampungError as e:
             return e.to_dict()
+        except sqlite3.OperationalError:
+            return BUSY.to_dict()
         finally:
             conn.close()
 

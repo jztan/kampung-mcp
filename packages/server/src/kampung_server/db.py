@@ -48,6 +48,9 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     try:
         yield conn
     except BaseException:
-        conn.execute("ROLLBACK")
+        # SQLite may already have rolled back (some errors end the transaction),
+        # and a second ROLLBACK would hide the original error.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     conn.execute("COMMIT")
