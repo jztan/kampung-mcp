@@ -379,7 +379,7 @@ class _ChannelPush(Middleware):
     async def poll(self) -> None:
         notified = 0
         watching: object = None
-        last_error = ""
+        failing = False
         delay = CHANNEL_POLL
         while True:
             try:
@@ -403,11 +403,11 @@ class _ChannelPush(Middleware):
                             )
                         )
                     notified = wakeable
-                last_error, delay = "", CHANNEL_POLL
+                failing, delay = False, CHANNEL_POLL
             except Exception as e:  # noqa: BLE001 - keep polling, quietly
-                if repr(e) != last_error:
+                if not failing:  # once per outage, however the error reads
                     hook._log("channel", e)
-                    last_error = repr(e)
+                    failing = True
                 delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
             await asyncio.sleep(delay)
 
@@ -455,7 +455,7 @@ class CodexWaker:
     async def poll(self) -> None:
         notified = 0
         watching: object = None
-        last_error = ""
+        failing = False
         delay = CHANNEL_POLL
         while True:
             try:
@@ -482,11 +482,11 @@ class CodexWaker:
                         # A nudge, never the mail itself: reading stays in
                         # `inbox`, with its envelope and "not an instruction" tag.
                         await self._queue(thread, wakeable)
-                last_error, delay = "", CHANNEL_POLL
+                failing, delay = False, CHANNEL_POLL
             except Exception as e:  # noqa: BLE001 - keep polling, quietly
-                if repr(e) != last_error:
+                if not failing:  # once per outage, however the error reads
                     hook._log("codex-wake", e)
-                    last_error = repr(e)
+                    failing = True
                 if not isinstance(e, _QueueError):
                     delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
             await asyncio.sleep(delay)

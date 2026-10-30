@@ -1,7 +1,12 @@
 from pathlib import Path
 
+import asyncio
+import contextlib
 import os
 import sys
+from typing import Any
+
+import pytest
 
 from client_testlib import (
     LiveServer,
@@ -12,7 +17,7 @@ from client_testlib import (
     run_hook,
     write_config,
 )
-from kampung_client import hook
+from kampung_client import adapter, hook
 
 
 def hook_chain_for_child() -> list[list[object]]:
@@ -199,4 +204,41 @@ def test_server_down_is_logged_once(home: Path, tmp_path: Path) -> None:
         mcp.close()
     log = hook.cache_dir() / "hooks.log"
     lines = [x for x in log.read_text().splitlines() if " channel:" in x]
+    assert len(lines) == 1
+
+
+@pytest.mark.parametrize("poller", ["channel", "codex-wake"])
+def test_an_outage_is_logged_once_however_its_error_reads(
+    home: Path, monkeypatch: pytest.MonkeyPatch, poller: str
+) -> None:
+    # Windows reports one dead server as "refused" on one poll and "timed
+    # out" on the next; that is still one outage, so one log line.
+    errors = iter(["refused", "timed out"] * 50)
+
+    def down(*_: object) -> tuple[int, dict[str, object]]:
+        raise hook.HookError(f"GET /v1/sessions/1/peek: {next(errors)}")
+
+    class Found:
+        bound = "thread-1"
+
+        def target(self) -> dict[str, object]:
+            return {"session": "1"}
+
+    monkeypatch.setattr(hook, "api", down)
+    monkeypatch.setattr(adapter, "CHANNEL_POLL", 0.001)
+    monkeypatch.setattr(adapter, "CHANNEL_MAX_BACKOFF", 0.001)
+    resolver: Any = Found()
+    loop = (
+        adapter._ChannelPush(resolver).poll()
+        if poller == "channel"
+        else adapter.CodexWaker(resolver, "codex").poll()
+    )
+
+    async def run() -> None:
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(loop, 0.2)
+
+    asyncio.run(run())
+    log = hook.cache_dir() / "hooks.log"
+    lines = [x for x in log.read_text().splitlines() if f" {poller}:" in x]
     assert len(lines) == 1
