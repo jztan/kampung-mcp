@@ -1,0 +1,44 @@
+name: Commit policy
+
+# Branch naming and commit metadata checks. Pushes to develop and master are
+# skipped: the develop ruleset requires this check on the commit itself, so it
+# already ran on the branch the commit came from.
+on:
+  push:
+    branches-ignore:
+      - develop
+      - master
+  pull_request:
+    branches:
+      - develop
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  commit-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check branch name and commit identities
+        env:
+          EVENT: ${{ github.event_name }}
+          AFTER: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ] && [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "Pull request from a fork: not checked."
+          elif [ "$EVENT" = pull_request ]; then
+            scripts/check-commits.sh "$HEAD_REF" "$BASE_SHA..$HEAD_SHA"
+          else
+            # Only what the branch adds on top of develop.
+            scripts/check-commits.sh "$REF_NAME" "origin/develop..$AFTER"
+          fi
