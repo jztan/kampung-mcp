@@ -26,6 +26,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write  # Codecov upload over OIDC
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -36,7 +39,13 @@ jobs:
       - run: uv run flake8 packages scripts
       - run: uv run mypy packages/server/src packages/client/src
       - run: bash scripts/audit.sh
-      - run: uv run pytest -q
+      - run: uv run pytest -q --cov --cov-report=xml
+      # OIDC instead of a stored token. A failed upload never fails CI.
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage.xml
+          use_oidc: true
+          fail_ci_if_error: false
 
   docker:
     # Builds the real image and drives the compose stack. Runs on Linux,
