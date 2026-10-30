@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Added
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp doctor` checks a machine's setup and says how to fix what it finds: the config, the server, the key, client and server versions, each agent's hooks and MCP registration, and recent failures in `hooks.log`. It exits 1 if a check fails.
+
 ## [0.1.1] - 2026-10-31
 
 ### Changed
