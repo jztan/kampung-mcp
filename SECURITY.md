@@ -41,6 +41,12 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - If you turn on Caddy debug or access logging, leave the `Authorization` header out of the logs.
 - The database volume holds message bodies (for up to 7 days) and the audit log. Protect backups of it like the messages themselves.
 
+## Dependencies and the image
+
+- The locked third-party dependencies of both packages are audited against osv.dev with `pip-audit` on every CI run (Linux and Windows), weekly, whenever the lockfile changes, and before every release. A known vulnerability blocks the release.
+- Every release image is scanned with Trivy before it gets a version tag. A high or critical finding with a fix available blocks the release; unfixed ones are listed in the release run.
+- Dependabot opens weekly update pull requests for the Python dependencies, GitHub Actions and the Docker base images. Actions are pinned to commit hashes.
+
 ## Limits
 
 | What | Limit |

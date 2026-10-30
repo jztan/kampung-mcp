@@ -585,37 +585,10 @@ def preflight_checks(config: ReleaseConfig) -> None:
         print(f"  ✓ {label.capitalize()} OK")
 
     print("  Auditing dependencies...")
-    reqs = run_command(
-        [
-            "uv",
-            "export",
-            "--no-hashes",
-            "--no-emit-workspace",
-            "--all-packages",
-            "--no-dev",
-        ]
-    ).stdout
-    req_path = config.project_root / ".release-audit.txt"
-    req_path.write_text(reqs, encoding="utf-8")
-    try:
-        audit = run_command(
-            [
-                "uvx",
-                "pip-audit",
-                "-r",
-                str(req_path),
-                "--no-deps",
-                "--disable-pip",
-                "--strict",
-                "--progress-spinner",
-                "off",
-            ],
-            check=False,
-        )
-    finally:
-        req_path.unlink(missing_ok=True)
+    audit = run_command(["bash", "scripts/audit.sh"], check=False)
     if audit.returncode != 0:
         print(f"Error: dependency audit failed:\n{audit.stdout}{audit.stderr}")
+        print("Fix it, or add --ignore-vuln to scripts/audit.sh with a reason.")
         sys.exit(1)
     print("  ✓ No known vulnerabilities")
 

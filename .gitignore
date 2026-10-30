@@ -53,4 +53,3 @@ docs/design.md
 
 # Release notes drafts (scripts/release.py)
 release_notes_v*.md
-.release-audit.txt

@@ -1,0 +1,33 @@
+name: Dependency audit
+
+# CI audits whenever it runs, but advisories are published against versions
+# already locked: the code does not change, the advisory data does. This
+# re-runs scripts/audit.sh weekly, and on any branch push that touches the
+# lockfile, so a new disclosure surfaces without waiting for a release.
+# Windows runs too, for the dependencies only installed there.
+on:
+  schedule:
+    - cron: '0 2 * * 1'
+  push:
+    paths:
+      - 'uv.lock'
+      - '**/pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+      - run: bash scripts/audit.sh
+        shell: bash
