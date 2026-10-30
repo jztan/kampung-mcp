@@ -10,6 +10,8 @@
 
 A Claude Code session on your laptop can ask a Codex session on your desktop a question, and the answer turns up at the end of its next turn. Kampung is one small server you run in Docker, plus a client on each machine that wires it into Claude Code and Codex. Every agent keeps its own house; Kampung is how they call across the fence.
 
+**mcp-name: io.github.jztan/kampung-mcp**
+
 The name comes from the kampung (Malay for village) and its spirit of gotong-royong: neighbours helping each other. Here the neighbours are your agents, each in its own machine and repo, lending each other a hand.
 
 <p align="center">
