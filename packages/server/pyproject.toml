@@ -7,7 +7,7 @@ license = "AGPL-3.0-only"
 dependencies = [
     # FastMCP 4 locks stdio to the 2026-07-28 protocol, which Claude Code
     # does not accept Channels from yet; 3.x speaks only the handshake era.
-    "fastmcp>=3.4.9,<4",
+    "fastmcp>=4.1.4,<5",
     "uvicorn>=0.30",
     "jinja2>=3.1",
     # Starlette needs it to parse the dashboard's form posts.
