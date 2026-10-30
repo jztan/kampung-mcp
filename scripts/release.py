@@ -52,8 +52,8 @@ REGISTRY_NAME = "io.github.jztan/kampung-mcp"
 REGISTRY_URL = (
     f"https://registry.modelcontextprotocol.io/v0/servers?search={REGISTRY_NAME}"
 )
-# This repo's GitHub remote is named kampung-mcp, not origin.
-REMOTE = "kampung-mcp"
+# The remote that points at GITHUB_REPO, whatever it is named; set in main().
+REMOTE = "origin"
 
 PYPROJECTS = ("packages/server/pyproject.toml", "packages/client/pyproject.toml")
 VERSION_MODULES = (
@@ -132,6 +132,16 @@ def get_current_version(project_root: Path) -> str:
         detail = ", ".join(f"{k}={v}" for k, v in sorted(versions.items()))
         raise ValueError(f"versions disagree: {detail}")
     return distinct.pop()
+
+
+def find_remote(listing: str) -> str:
+    """The remote in `git remote -v` output whose URL is this repository."""
+    url = re.compile(rf"github\.com[:/]{re.escape(GITHUB_REPO)}(\.git)?/?$")
+    for line in listing.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and url.search(parts[1]):
+            return parts[0]
+    raise ValueError(f"no git remote points at {GITHUB_REPO}")
 
 
 def calculate_new_version(current: str, bump_type: str) -> str:
@@ -862,6 +872,12 @@ Release notes, edited outside the terminal:
         hotfix=args.hotfix,
     )
     os.chdir(config.project_root)
+    global REMOTE
+    try:
+        REMOTE = find_remote(run_command(["git", "remote", "-v"]).stdout)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
     print("=" * 60 + "\n  Kampung Release (gitflow)\n" + "=" * 60)
     if config.dry_run:
         print("\n  DRY-RUN: nothing is changed, but a notes draft is saved\n")
