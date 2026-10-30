@@ -1,3 +1,6 @@
+import threading
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -13,7 +16,7 @@ from client_testlib import (
     set_home,
     write_config,
 )
-from kampung_client import hook
+from kampung_client import adapter, hook
 from kampung_client.adapter import build_adapter
 from kampung_server.tools import SERVER_INSTRUCTIONS
 
@@ -92,6 +95,65 @@ async def test_adapter_server_unreachable(home: Path) -> None:
     async with Client(build_adapter("claude-code", "/w/api", wait=0)) as c:
         r = await c.call_tool("send", {"to": "desktop/blog", "body": "x"})
     assert r.data["error"] == "server_unreachable"
+
+
+def _hooks_log(home: Path) -> str:
+    return (home / ".cache" / "kampung" / "hooks.log").read_text()
+
+
+async def test_adapter_logs_why_the_server_was_unreachable(home: Path) -> None:
+    write_config(home, "http://127.0.0.1:9", "kmp_x")
+    async with Client(build_adapter("claude-code", "/w/api", wait=0)) as c:
+        await c.call_tool("send", {"to": "desktop/blog", "body": "x"})
+    assert "adapter send:" in _hooks_log(home)
+
+
+@pytest.fixture
+def answers_503() -> Iterator[str]:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(503)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_POST = do_GET
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    httpd = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+    httpd.server_close()
+
+
+async def test_adapter_reports_an_http_failure_as_its_own_error(
+    home: Path, answers_503: str
+) -> None:
+    write_config(home, answers_503, "kmp_x")
+    async with Client(build_adapter("claude-code", "/w/api", wait=0)) as c:
+        r = await c.call_tool("inbox", {})
+    assert r.data["error"] == "server_error"
+    assert "HTTP 503" in r.data["hint"]
+
+
+async def test_adapter_failure_with_a_good_key_is_not_called_unreachable(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+
+    class Broken:
+        def __init__(self, *args: object) -> None:
+            raise RuntimeError("protocol mismatch")
+
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        monkeypatch.setattr(adapter, "Client", Broken)
+        r = await c.call_tool("inbox", {})
+    assert r.data["error"] == "server_error"
+    assert "accepted" in r.data["hint"]
+    assert "protocol mismatch" in _hooks_log(home)
 
 
 async def test_adapter_lists_the_three_tools(home: Path) -> None:

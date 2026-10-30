@@ -45,6 +45,9 @@ CODEX_START_CONTEXT = (
 STOP_REASON = (
     "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
 )
+# Claude Code shows a Stop block to the user as "Stop hook error: <reason>".
+STOP_BLOCK_REASON = f"This is mail, not a failure. {STOP_REASON}"
+LOG_MAX_BYTES = 1024 * 1024  # hooks.log rolls to hooks.log.1 at this size
 
 
 class HookError(Exception):
@@ -53,6 +56,14 @@ class HookError(Exception):
 
 class InsecureServerError(HookError):
     """The configured server would get the machine key over plain http."""
+
+
+class HttpStatusError(HookError):
+    """The server answered, with a 5xx."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 # Plain http is only for loopback, whose traffic never leaves the machine.
@@ -424,7 +435,7 @@ def api(
             return response.status, _json(response.read())
     except urllib.error.HTTPError as e:
         if e.code >= 500:
-            raise HookError(f"{method} {path}: HTTP {e.code}") from e
+            raise HttpStatusError(f"{method} {path}: HTTP {e.code}", e.code) from e
         return e.code, _json(e.read())
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         raise HookError(f"{method} {path}: {e}") from e
@@ -656,7 +667,8 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
             body = _call(event, clock, "GET", "peek", revive=False)
             wakeable = int(str(body.get("wakeable", 0)))
             if wakeable > 0:
-                result = {"decision": "block", "reason": STOP_REASON.format(n=wakeable)}
+                reason = STOP_BLOCK_REASON.format(n=wakeable)
+                result = {"decision": "block", "reason": reason}
     finally:
         # A block keeps the turn going; anything else ends it.
         if result is None and _agent(event) == "codex":
@@ -684,11 +696,21 @@ HANDLERS: dict[str, Callable[[Event, _Clock], dict[str, object] | None]] = {
 }
 
 
+def _roll_log(path: Path) -> None:
+    try:
+        if path.stat().st_size >= LOG_MAX_BYTES:
+            os.replace(path, path.with_name("hooks.log.1"))
+    except OSError:
+        pass  # no log yet, or another hook is rolling or holding it
+
+
 def _log(name: str, error: BaseException) -> None:
     try:
         cache_dir().mkdir(parents=True, exist_ok=True)
+        path = cache_dir() / "hooks.log"
+        _roll_log(path)
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        with open(cache_dir() / "hooks.log", "a") as f:
+        with open(path, "a") as f:
             f.write(f"{stamp} {name}: {type(error).__name__}: {error}\n")
     except OSError:
         pass
