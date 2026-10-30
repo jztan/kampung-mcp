@@ -28,6 +28,9 @@ def _parser() -> argparse.ArgumentParser:
         "name"
     )
     key.add_parser("list", help="list machines")
+    key.add_parser(
+        "rotate", help="give a machine a new key, keeping its mailboxes"
+    ).add_argument("name")
     for name, text in (("pair", "let two machines talk"), ("unpair", "undo pair")):
         sp = sub.add_parser(name, help=text)
         sp.add_argument("a")
@@ -47,7 +50,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "key" and args.key_command == "add":
             _, key = admin.add_machine(args.name, ACTOR)
-            print(f"Machine {args.name} created. Key (shown once): {key}")
+            print(
+                f"Machine {args.name} created. Its key is shown once, on the "
+                "next line:",
+                file=sys.stderr,
+            )
+            # Alone on stdout, so it can be piped into `setup --key -`.
+            print(key)
+        elif args.command == "key" and args.key_command == "rotate":
+            key = admin.rotate_key(args.name, ACTOR)
+            print(
+                f"New key for {args.name}; the old one no longer works and its "
+                "sessions are ended. Shown once, on the next line:",
+                file=sys.stderr,
+            )
+            print(key)
         elif args.command == "key":
             for m in admin.list_machines():
                 state = "revoked" if m.revoked_at else "active"

@@ -89,14 +89,33 @@ class AdminService:
                     "WHERE id = ? AND revoked_at IS NULL",
                     (ts(now), machine.id),
                 )
-                conn.execute(
-                    "UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL "
-                    "AND mailbox_id IN (SELECT id FROM mailboxes WHERE machine_id = ?)",
-                    (ts(now), machine.id),
-                )
+                _end_sessions(conn, machine, now)
                 audit.record(conn, now, actor, "revoke", {"machine": name})
         finally:
             conn.close()
+
+    def rotate_key(self, name: str, actor: str) -> str:
+        """Give a machine a new key, keeping its name, mailboxes and pairings.
+
+        The old key stops working at once, and the machine's live sessions
+        end, since they were started with the old key."""
+        key = new_key()
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                machine = _require(conn, name)
+                if machine.revoked_at is not None:
+                    raise KampungError("already_revoked", f"{name} is revoked.")
+                conn.execute(
+                    "UPDATE machines SET key_hash = ? WHERE id = ?",
+                    (hash_key(key), machine.id),
+                )
+                _end_sessions(conn, machine, now)
+                audit.record(conn, now, actor, "rotate_key", {"machine": name})
+        finally:
+            conn.close()
+        return key
 
     def end_session(self, session_id: int, actor: str) -> None:
         now = self._clock()
@@ -166,6 +185,14 @@ class AdminService:
             conn.close()
         pairs = [(min(r[0], r[1]), max(r[0], r[1])) for r in rows]
         return sorted(pairs)
+
+
+def _end_sessions(conn: sqlite3.Connection, machine: Machine, now: datetime) -> None:
+    conn.execute(
+        "UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL "
+        "AND mailbox_id IN (SELECT id FROM mailboxes WHERE machine_id = ?)",
+        (ts(now), machine.id),
+    )
 
 
 def _require(conn: sqlite3.Connection, name: str) -> Machine:

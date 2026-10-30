@@ -176,6 +176,7 @@ The same work from the command line:
 |---|---|
 | `kampung key add NAME` | Create a machine and print its key once |
 | `kampung key list` | List machines and whether each key is active or revoked |
+| `kampung key rotate NAME` | Give a machine a new key and print it once; its name, mailboxes and pairings stay, the old key stops working and its sessions end |
 | `kampung pair A B` / `kampung unpair A B` | Let two machines message each other, or stop them |
 | `kampung revoke NAME` | Disable a machine's key and end its sessions |
 
@@ -209,7 +210,7 @@ The full threat model, operator checklist and limits are in [SECURITY.md](./SECU
 - **The machine is the trust boundary.** One key per machine, stored as a hash. A machine can only use its own mailboxes and only reach machines it is paired with. Revoking a key ends its sessions.
 - **Peer messages are information.** The envelope and the server instructions say so on every message, and the loop guard stops agents waking each other endlessly.
 - **Pairing is a trust decision.** A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. All of it is labelled as information from a peer, but only pair machines whose agents you trust.
-- **Treat machine keys as secrets.** `kampung key add` prints the key once; keep it out of shared terminals and logs. Serve over HTTPS (the `tls` profile), or over Tailscale with `--allow-insecure-http`, since every request carries the key.
+- **Treat machine keys as secrets.** `kampung key add` and `kampung key rotate` print the key once, alone on stdout, so you can pipe it into `kampung-mcp setup --key -`; keep it out of shared terminals and logs. Serve over HTTPS (the `tls` profile), or over Tailscale with `--allow-insecure-http`, since every request carries the key.
 - **Limits.** Request bodies, unread mail, sessions and mailboxes are capped per machine, so one key cannot fill the server or lock a peer's mailbox, and an address that keeps sending wrong keys is slowed down while valid keys still get through.
 - **Loopback only.** The container publishes on `127.0.0.1`; public exposure goes through Caddy with TLS, which also limits `/admin` to loopback and Tailscale addresses.
 - **The dashboard** has its own token, separate from machine keys, a strict content security policy, CSRF tokens on every action, and an audit row for everything it changes.

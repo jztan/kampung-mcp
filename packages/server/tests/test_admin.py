@@ -7,6 +7,7 @@ from kampung_server.admin import AdminService
 from kampung_server.errors import KampungError
 from kampung_server.identity import authenticate
 from kampung_server.keys import hash_key
+from kampung_server.models import Machine
 
 
 def _code(fn: object, *args: object) -> str:
@@ -178,3 +179,39 @@ def test_ended_session_cannot_be_ended_or_reset(
         assert e.value.code == "session_ended"
     actions = [r[0] for r in conn.execute("SELECT action FROM audit")]
     assert actions.count("end_session") == 1 and "reset_depth" not in actions
+
+
+def test_rotate_key_replaces_the_key_and_keeps_the_machine(
+    admin: AdminService,
+    conn: sqlite3.Connection,
+    machines: dict[str, tuple[Machine, str]],
+    make_session: MakeSession,
+) -> None:
+    laptop, old = machines["laptop"]
+    session = make_session("laptop", "api")
+    mailboxes = conn.execute("SELECT id, repo FROM mailboxes").fetchall()
+    new = admin.rotate_key("laptop", "admin:cli")
+    assert new != old and new.startswith("kmp_")
+    assert authenticate(conn, old) is None
+    assert authenticate(conn, new) == laptop
+    assert admin.list_pairs() == [("desktop", "laptop")]
+    assert conn.execute("SELECT id, repo FROM mailboxes").fetchall() == mailboxes
+    # Live sessions belong to whoever held the old key, so they end.
+    loaded = load_session(conn, session.id)
+    assert loaded is not None and loaded.ended_at is not None
+    row = conn.execute(
+        "SELECT actor, action, detail FROM audit ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert (row[0], row[1], json.loads(row[2])) == (
+        "admin:cli",
+        "rotate_key",
+        {"machine": "laptop"},
+    )
+
+
+def test_rotate_key_refuses_unknown_and_revoked_machines(
+    admin: AdminService, machines: dict[str, tuple[Machine, str]]
+) -> None:
+    assert _code(admin.rotate_key, "nope", "admin:cli") == "unknown_machine"
+    admin.revoke("laptop", "admin:cli")
+    assert _code(admin.rotate_key, "laptop", "admin:cli") == "already_revoked"
