@@ -62,6 +62,11 @@ class AdminService:
                     )
                 lo, hi = sorted((ma.id, mb.id))
                 if add:
+                    for m in (ma, mb):
+                        if m.revoked_at is not None:
+                            raise KampungError(
+                                "already_revoked", f"{m.name} is revoked."
+                            )
                     conn.execute(
                         "INSERT OR IGNORE INTO pairings VALUES (?, ?, ?)",
                         (lo, hi, ts(now)),
