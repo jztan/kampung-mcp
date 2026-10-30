@@ -147,3 +147,24 @@ def test_explicit_version(current: str, wanted: str, ok: bool) -> None:
 def test_explicit_version_refuses_an_existing_tag() -> None:
     with pytest.raises(ValueError, match="already"):
         release.explicit_version("0.1.0", "0.1.0", {"v0.1.0"})
+
+
+@pytest.mark.parametrize(
+    "listing,want",
+    [
+        ("origin\tgit@github.com:jztan/kampung-mcp.git (fetch)\n", "origin"),
+        (
+            "fork\tgit@github.com:someone/kampung-mcp.git (fetch)\n"
+            "upstream\thttps://github.com/jztan/kampung-mcp (fetch)\n",
+            "upstream",
+        ),
+        ("kampung-mcp\tgit@github.com:jztan/kampung-mcp.git (push)\n", "kampung-mcp"),
+    ],
+)
+def test_find_remote_by_url(listing: str, want: str) -> None:
+    assert release.find_remote(listing) == want
+
+
+def test_find_remote_refuses_when_none_points_at_the_repo() -> None:
+    with pytest.raises(ValueError, match="jztan/kampung-mcp"):
+        release.find_remote("origin\tgit@github.com:jztan/other.git (fetch)\n")
