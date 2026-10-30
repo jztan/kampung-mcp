@@ -2,7 +2,7 @@
 
 Regenerates `docs/images/demo.gif`, the hero of the README, by playing the scripted replay in `pages/index.html` and encoding the two windows as a GIF.
 
-Rerun it after changing the replay. It needs Node.js 18+ and `ffmpeg` on your PATH (`brew install ffmpeg`).
+Rerun it after changing the replay. It needs Node.js 18+, plus `ffmpeg` and `gifsicle` 1.92 or later on your PATH (`brew install ffmpeg gifsicle`).
 
 ```bash
 cd scripts/demo-recorder

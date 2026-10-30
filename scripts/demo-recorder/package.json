@@ -7,7 +7,6 @@
     "record": "node record.mjs"
   },
   "dependencies": {
-    "gifsicle": "^7.0.1",
     "playwright": "^1.49.0"
   }
 }
