@@ -343,7 +343,7 @@ def run_setup(
                 lines.append(
                     "Idle Codex sessions wake on new mail. A closed or /clear'ed "
                     "Codex thread can still be woken and run unattended; see "
-                    "README."
+                    "docs/clients.md."
                 )
         manual = _register(
             ["codex", "mcp", "remove", "kampung"],

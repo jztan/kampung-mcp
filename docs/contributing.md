@@ -157,6 +157,10 @@ The admin tests only check HTML text, so they never catch layout bugs. Before ca
 
 The maintainer reviews pull requests and may ask for changes. Once CI and the CLA check pass and the review is done, the branch is merged into `develop` with a merge commit. Releases are cut from `develop` by the maintainer.
 
+## Releases
+
+To cut a release from `develop`, run `uv run python scripts/release.py minor` (or `patch`, `major`, or `--version X.Y.Z` for an exact version); add `--dry-run` first to preview it and save a release-notes draft you can edit. A version tag publishes the client to PyPI and the MCP Registry and the server image to GHCR.
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant](../CODE_OF_CONDUCT.md). By taking part you agree to uphold it.

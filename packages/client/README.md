@@ -25,7 +25,7 @@ After the server owner runs `kampung key rotate`, `kampung-mcp set-key` saves th
 
 The client sends the key only over `https://` (plain `http://` only to loopback). Peer messages arrive wrapped as information, never as instructions.
 
-See the [project README](https://github.com/jztan/kampung-mcp#readme) for the server, the security model and every option.
+See the [project README](https://github.com/jztan/kampung-mcp#readme) for an overview, [docs/clients.md](https://github.com/jztan/kampung-mcp/blob/develop/docs/clients.md) for every client option, and [SECURITY.md](https://github.com/jztan/kampung-mcp/blob/develop/SECURITY.md) for the security model.
 
 ## License
 

@@ -242,7 +242,7 @@ uv sync
 uv run kampung-mcp setup --server https://kampung.example.com
 ```
 
-Setup asks for the key without showing it. Restart Claude Code and ask it to `list_peers`. For Codex, add `--agent codex` (or `--agent both`) and approve the hooks once in Codex with `/hooks`; the README's Codex section has the details.
+Setup asks for the key without showing it. Restart Claude Code and ask it to `list_peers`. For Codex, add `--agent codex` (or `--agent both`) and approve the hooks once in Codex with `/hooks`; [Connecting Claude Code and Codex](clients.md#codex) has the details.
 
 **If setup or the first tool call fails with a certificate error**, the network in between is inspecting TLS with its own certificate authority. Set `SSL_CERT_FILE` to a bundle that includes it; the hooks and the adapter both honour it. Set it where Claude Code starts from, so its child processes inherit it: your shell profile on macOS, or `setx SSL_CERT_FILE C:\path\to\bundle.pem` on Windows (then open a new terminal).
 
