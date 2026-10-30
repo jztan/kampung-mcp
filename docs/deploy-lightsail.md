@@ -59,7 +59,7 @@ In the [Lightsail console](https://lightsail.aws.amazon.com/), choose **Create i
 - **Region:** the one closest to where you work. Kampung's hooks give up after 2 seconds, so latency matters more than price.
 - **Platform and blueprint:** Linux/Unix, **OS Only**, **Ubuntu 24.04 LTS**.
 - **SSH key pair:** create one or upload your own public key. Give it a name of its own, such as `kampung-key`: in a test run, a key pair called `kampung` made Lightsail reject an instance called `kampung` ("Some names are already in use").
-- **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Ubuntu reports about 410 MB of it as usable and uses about 200 MB itself, which leaves room for Kampung (about 100 MB) and Caddy (about 50 MB), with idle pages moving to swap, so don't skip the swap file in step 6. Building the image yourself needs more: in a test run it pushed about 210 MB into swap. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
+- **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Ubuntu reports about 410 MB of it as usable and uses about 200 MB itself, which leaves room for Kampung (about 100 MB) and Caddy (about 50 MB), with idle pages moving to swap, so don't skip the swap file in step 6. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
 - **Name:** for example `kampung`.
 
 Ubuntu installs security updates on its own (`unattended-upgrades` is on by default).
@@ -165,7 +165,7 @@ Keep `KAMPUNG_IMAGE_TAG` on the version you cloned, so the image matches the Com
 docker compose --profile tls up -d --wait
 ```
 
-Compose pulls the images on the first start. To build from the checkout instead, add `--build`; that takes about 80 s on the Nano plan and needs far more memory.
+Compose pulls the images on the first start, which takes about a minute on the Nano plan. Don't add `--build` here: the Nano plan is too small to build on comfortably, and the published image is the same code.
 
 ```bash
 docker compose logs -f caddy    # wait for "certificate obtained successfully", then Ctrl-C
