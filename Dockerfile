@@ -27,6 +27,11 @@ RUN uv sync --locked --no-dev --package kampung-server --no-editable
 
 FROM python:3.12-slim AS runtime
 
+LABEL org.opencontainers.image.title="Kampung server" \
+      org.opencontainers.image.description="Self-hosted messaging between coding-agent sessions on different machines, over MCP" \
+      org.opencontainers.image.source="https://github.com/jztan/kampung-mcp" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+
 # 0.0.0.0 is not a weakening of the loopback default: a container has its
 # own network namespace, so binding loopback here would be unreachable even
 # from the host. The loopback guarantee lives in the compose port publish.
@@ -41,6 +46,8 @@ RUN groupadd --gid 1000 kampung && \
     useradd --uid 1000 --gid kampung --shell /bin/sh --create-home kampung
 
 COPY --from=builder --chown=kampung:kampung /opt/venv /opt/venv
+COPY packages/server/LICENSE /usr/share/licenses/kampung-server/LICENSE
+COPY NOTICE /usr/share/licenses/kampung-server/NOTICE
 
 # Create and chown /data BEFORE any volume mounts. Docker seeds a fresh named
 # volume from the ownership of the image directory it covers, which is what
