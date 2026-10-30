@@ -158,22 +158,48 @@ def _merge_hooks(
     for event in EVENTS:
         seconds = (timeouts or {}).get(event, timeout)
         entry = {"hooks": [{"type": "command", "command": command, "timeout": seconds}]}
-        kept = [e for e in hooks.get(event, []) if not _is_ours(e)]
-        hooks[event] = kept + [entry]
+        stripped = (_strip_ours(e) for e in hooks.get(event, []))
+        hooks[event] = [e for e in stripped if e is not None] + [entry]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    _write_json_atomic(path, data)
     return path
 
 
-def _is_ours(entry: object) -> bool:
-    """Our hook entry: the installed hook.py, or the copy older setups made."""
-    if not isinstance(entry, dict):
-        return False
-    return any(
-        OUR_HOOK.search(str(h.get("command", "")))
-        for h in entry.get("hooks", [])
-        if isinstance(h, dict)
+def _is_ours(hook_entry: object) -> bool:
+    """Our hook: the installed hook.py, or the copy older setups made."""
+    return isinstance(hook_entry, dict) and bool(
+        OUR_HOOK.search(str(hook_entry.get("command", "")))
     )
+
+
+def _strip_ours(entry: object) -> object | None:
+    """The entry without our hooks; None if nothing of anyone else's is left.
+
+    A matcher entry may hold someone else's hooks next to ours, so only our
+    inner hooks go.
+    """
+    if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+        return entry
+    others = [h for h in entry["hooks"] if not _is_ours(h)]
+    if len(others) == len(entry["hooks"]):
+        return entry
+    return {**entry, "hooks": others} if others else None
+
+
+def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    """Write through a temp file and a rename, so a crash never leaves half a
+    file. The rename goes to the resolved path, so a symlinked dotfile stays a
+    symlink."""
+    target = path.resolve()
+    tmp = target.with_name(f"{target.name}.kampung-tmp{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        if target.exists():
+            shutil.copymode(target, tmp)
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _register(remove: list[str], add: list[str], runner: Runner) -> str | None:

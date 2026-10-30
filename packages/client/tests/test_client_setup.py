@@ -456,3 +456,41 @@ def test_cli_setup_channels_flag(
         == 0
     )
     assert rec.calls[-1][-2:] == ["claude-code", "--channels"]
+
+
+def test_setup_keeps_foreign_hook_in_shared_entry(
+    home: Path, server: LiveServer
+) -> None:
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(hook.__file__)} || true"
+    other = {"type": "command", "command": "other.sh"}
+    ours = {"type": "command", "command": command, "timeout": 5}
+    shared = {"matcher": "*", "hooks": [other, ours]}
+    (home / ".claude").mkdir()
+    (home / ".claude" / "settings.json").write_text(
+        json.dumps({"hooks": {"Stop": [shared]}})
+    )
+    for _ in range(2):
+        run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert settings(home)["hooks"]["Stop"] == [
+        {"matcher": "*", "hooks": [other]},
+        {"hooks": [ours]},
+    ]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges")
+def test_setup_keeps_settings_symlink(home: Path, server: LiveServer) -> None:
+    dotfiles = home / "dotfiles" / "settings.json"
+    dotfiles.parent.mkdir()
+    dotfiles.write_text(json.dumps({"model": "x"}))
+    (home / ".claude").mkdir()
+    link = home / ".claude" / "settings.json"
+    link.symlink_to(dotfiles)
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert link.is_symlink()
+    data = json.loads(dotfiles.read_text())
+    assert data["model"] == "x" and "Stop" in data["hooks"]
+
+
+def test_setup_leaves_no_tmp_files(home: Path, server: LiveServer) -> None:
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert [p.name for p in (home / ".claude").iterdir() if "tmp" in p.name] == []
