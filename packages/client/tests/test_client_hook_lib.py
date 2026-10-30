@@ -261,3 +261,27 @@ def test_stale_turn_mark_counts_as_idle(home: Path) -> None:
     assert not hook.turn_active("cx-1")
     hook.end_turn("cx-1")
     hook.end_turn("cx-1")  # already gone: no error
+
+
+def test_sweep_keeps_file_when_lookup_fails(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hook.write_session_file("busy", {"ancestors": [[12345, "t"]]})
+
+    def fail(pid: int) -> None:
+        raise hook.LookupFailed(pid)
+
+    monkeypatch.setattr(hook, "_lookup", fail)
+    assert hook.sweep_stale_files() == 0
+    assert hook.read_session_file("busy") is not None
+
+
+def test_ps_timeout_is_a_failed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    def timeout(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired("ps", 2)
+
+    monkeypatch.setattr(hook.subprocess, "run", timeout)
+    with pytest.raises(hook.LookupFailed):
+        hook._ps_lookup(12345)
+    assert hook._process(12345) is None
+    assert hook.ancestors(12345) == []

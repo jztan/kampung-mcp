@@ -156,6 +156,11 @@ LAUNCHERS = frozenset({"python.exe", "pythonw.exe"})
 MAX_ANCESTORS = 64
 
 
+class LookupFailed(Exception):
+    """The process table could not be read (ps timed out or is missing), as
+    opposed to the process being gone. The sweep must not delete on this."""
+
+
 def _ps_lookup(pid: int) -> ProcessInfo | None:
     try:
         out = subprocess.run(
@@ -167,8 +172,8 @@ def _ps_lookup(pid: int) -> ProcessInfo | None:
             # lstart is locale-formatted; pin it so start times compare equal.
             env={**os.environ, "LC_ALL": "C"},
         ).stdout.split()
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as e:
+        raise LookupFailed(pid) from e
     # lstart is five words in the C locale; comm is a path (login shells
     # start with "-") and may contain spaces.
     if len(out) < 7:
@@ -226,7 +231,7 @@ if sys.platform == "win32":
     def _win_lookup(pid: int) -> ProcessInfo | None:
         snap = _k32.CreateToolhelp32Snapshot(_SNAPPROCESS, 0)
         if not snap or snap == _INVALID_HANDLE:
-            return None
+            raise LookupFailed(pid)
         try:
             entry = _ProcessEntry()
             entry.dwSize = ctypes.sizeof(_ProcessEntry)
@@ -234,8 +239,8 @@ if sys.platform == "win32":
             while ok:
                 if entry.th32ProcessID == pid:
                     start = _win_start(pid)
-                    if start is None:
-                        return None
+                    if start is None:  # alive, but its start time is unreadable
+                        raise LookupFailed(pid)
                     return int(entry.th32ParentProcessID), start, entry.szExeFile
                 ok = _k32.Process32NextW(snap, ctypes.byref(entry))
             return None
@@ -244,14 +249,22 @@ if sys.platform == "win32":
 
 
 def _lookup(pid: int) -> ProcessInfo | None:
+    """The process, or None if it is gone. Raises LookupFailed."""
     if sys.platform == "win32":
         return _win_lookup(pid)
     return _ps_lookup(pid)
 
 
+def _lookup_or_none(pid: int) -> ProcessInfo | None:
+    try:
+        return _lookup(pid)
+    except LookupFailed:
+        return None
+
+
 def _process(pid: int) -> tuple[int, str] | None:
     """(parent pid, start time) for a live process, or None."""
-    info = _lookup(pid)
+    info = _lookup_or_none(pid)
     return None if info is None else (info[0], info[1])
 
 
@@ -279,7 +292,7 @@ def _walk(pid: int, lookup: Callable[[int], ProcessInfo | None]) -> list[Ancesto
 
 def ancestors(pid: int | None = None) -> list[Ancestor]:
     """(pid, start time) of every ancestor of `pid`, nearest first, without pid 1."""
-    return _walk(os.getpid() if pid is None else pid, _lookup)
+    return _walk(os.getpid() if pid is None else pid, _lookup_or_none)
 
 
 def repo_name(cwd: str) -> str:
@@ -357,7 +370,10 @@ def sweep_stale_files() -> int:
             pid, start = data["ancestors"][0]
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             continue
-        live = _process(int(pid))
+        try:
+            live = _lookup(int(pid))
+        except LookupFailed:
+            continue  # unknown is not dead: keep the file
         if live is None or live[1] != start:
             path.unlink(missing_ok=True)
             removed += 1
