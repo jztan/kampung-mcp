@@ -1,0 +1,230 @@
+# The FILENAME of this workflow must stay `publish-pypi.yml`: scripts/release.py
+# polls the release run with `gh run list --workflow=publish-pypi.yml`, which
+# selects by filename. The display name below is free to change.
+#
+# A version tag (v1.2.3) publishes everything a release ships:
+#   - the server image to ghcr.io/jztan/kampung-mcp, amd64 and arm64, each
+#     built on its own native runner;
+#   - the client package `kampung-mcp` to PyPI (trusted publishing, no token).
+# The image is built under a staging tag, smoke-tested on both architectures,
+# and only promoted to the version tags after PyPI has the client, so a failed
+# run never leaves a half-published release that users would pick up.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:  # build-only validation of both arches; nothing is pushed
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false  # never abort a half-pushed release
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/jztan/kampung-mcp
+
+jobs:
+  test-before-publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: The tag matches both package versions
+        if: github.event_name == 'push'
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          for f in packages/server/pyproject.toml packages/client/pyproject.toml; do
+            have="$(grep -m1 '^version = ' "$f" | cut -d '"' -f2)"
+            [ "$have" = "$want" ] \
+              || { echo "::error::$f is $have, tag is $GITHUB_REF_NAME"; exit 1; }
+          done
+      - run: uv run black --check .
+      - run: uv run flake8 packages scripts
+      - run: uv run mypy packages/server/src packages/client/src
+      - run: uv run pytest -q
+
+  build-image:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' }}
+      - name: Export digest
+        if: github.event_name == 'push'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - name: Upload digest
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  assemble:
+    # One manifest list under a staging tag that nothing users follow points
+    # at, so a later failure leaves no partial release behind.
+    needs: build-image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Create the staging manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create --tag "${IMAGE}:sha-${GITHUB_SHA}" \
+            $(printf "${IMAGE}@sha256:%s " *)
+      - name: Both architectures are present
+        run: |
+          docker buildx imagetools inspect "${IMAGE}:sha-${GITHUB_SHA}" \
+            --format '{{json .Manifest}}' > /tmp/manifest.json
+          for arch in amd64 arm64; do
+            jq -e --arg a "$arch" '[.manifests[].platform.architecture] | index($a)' \
+              /tmp/manifest.json > /dev/null \
+              || { echo "::error::$arch missing from the manifest list"; exit 1; }
+          done
+
+  smoke:
+    # Pulling the staging tag on each native runner gets that runner's arch.
+    needs: assemble
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: The server starts and reports the release version
+        run: |
+          docker run -d --name smoke -p 127.0.0.1:8803:8000 "${IMAGE}:sha-${GITHUB_SHA}"
+          for _ in $(seq 1 40); do
+            body="$(curl -fsS http://127.0.0.1:8803/health 2>/dev/null)" && break
+            sleep 2
+          done
+          echo "health: $body"
+          [ "$body" = "{\"version\":\"${GITHUB_REF_NAME#v}\"}" ] \
+            || { echo "::error::/health did not report ${GITHUB_REF_NAME#v}"; exit 1; }
+      - name: Closed by default
+        run: |
+          for path in /mcp /v1/sessions; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+              "http://127.0.0.1:8803${path}" -H 'Content-Type: application/json' -d '{}')"
+            [ "$code" = "401" ] \
+              || { echo "::error::POST $path without a key returned $code, want 401"; exit 1; }
+          done
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs smoke || true
+
+  publish:
+    needs: [test-before-publish, smoke]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write  # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+      # Only the client goes to PyPI; the server ships as the image.
+      - run: uv build --package kampung-mcp --out-dir dist
+      - run: uvx twine check --strict dist/*
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          skip-existing: true  # a re-run after a partial upload is safe
+
+  promote-image:
+    needs: [assemble, smoke, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      # No rebuild: the tested multi-arch manifest gets the version tags.
+      - name: Promote the staging manifest
+        env:
+          METADATA_JSON: ${{ steps.meta.outputs.json }}
+        run: |
+          tags=$(jq -cr '.tags | map("--tag " + .) | join(" ")' <<< "$METADATA_JSON")
+          [ -n "$tags" ] || { echo "::error::no tags for ${GITHUB_REF}"; exit 1; }
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $tags "${IMAGE}:sha-${GITHUB_SHA}"
+          jq -r '.tags[]' <<< "$METADATA_JSON"

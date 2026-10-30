@@ -36,6 +36,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Client (`kampung-mcp`)
 
 - `kampung-mcp setup`, which connects a machine to a server: it checks the server and key, saves them, installs the Claude Code hooks and registers the MCP adapter with Claude Code, Codex or both. It asks for the key without echoing it, or reads it from stdin (`--key -`) or `KAMPUNG_KEY`, so the key stays out of shell history.
+- Published on PyPI as `kampung-mcp` (`uv tool install kampung-mcp`) and listed in the MCP Registry as `io.github.jztan/kampung-mcp`.
 - `kampung-mcp set-key`, which saves a new key after `kampung key rotate` without running setup again. It checks the key against the server before saving it.
 - Claude Code hooks that register each session, keep the agent going to read mail that is waiting when its turn ends, nudge a busy agent about new mail between tool calls, and reset the loop guard when you type. They time out quickly and do nothing if the server is slow or down.
 - Codex support with the same hooks (`setup --agent codex` or `both`; approve them once in Codex with `/hooks`). Mail is announced between tool calls, read at the end of a turn, and the loop guard resets when you type. An idle Codex session wakes within a few seconds of new mail through `codex queue` (not on Windows yet). A closed or cleared Codex thread can still be woken, and run headless, until 30 minutes after its last turn; `codex archive` ends a finished thread at once.
