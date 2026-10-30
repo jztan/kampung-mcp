@@ -28,6 +28,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Deployment
 
 - A Docker image and `docker-compose.yml`: `docker compose up -d --build` runs the server as a non-root user on `127.0.0.1:8803`, with its database in a named volume. Manage keys with `docker compose exec kampung kampung ...`.
+- Release images for amd64 and arm64 at `ghcr.io/jztan/kampung-mcp`, published for each version tag. Compose pulls the tag set in `KAMPUNG_IMAGE_TAG`, or builds from the checkout with `--build`.
 - The image carries the server's AGPL-3.0 license and the NOTICE file under `/usr/share/licenses/kampung-server/`, and OCI labels that link it to this repository.
 - An optional Caddy service for HTTPS (`docker compose --profile tls up -d`, Linux hosts), set up from `KAMPUNG_DOMAIN` in `.env`. It keeps `/admin` to loopback and the Tailscale range. It also caps request bodies: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`.
 - Both compose services cap their logs at 3 files of 10 MB and run with `no-new-privileges` and every Linux capability dropped (Caddy keeps only the one that binds ports 80 and 443). The Kampung container's filesystem is read-only apart from its database volume. `.env.example` lists every setting.

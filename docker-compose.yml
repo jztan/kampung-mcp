@@ -11,10 +11,9 @@ x-logging: &logging
 services:
   kampung:
     image: ghcr.io/jztan/kampung-mcp:${KAMPUNG_IMAGE_TAG:-latest}
+    # `docker compose pull` fetches a published release; `up --build` builds
+    # this checkout instead.
     build: .
-    # Build locally until a release workflow publishes the image; then drop
-    # this line so `docker compose pull` works.
-    pull_policy: build
     env_file:
       - path: .env
         required: false

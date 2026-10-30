@@ -91,6 +91,8 @@ docker compose up -d --build --wait
 curl -s http://127.0.0.1:8803/health    # {"version":"0.1.0"}
 ```
 
+That builds the image from the checkout. To run a published release instead (amd64 or arm64), set `KAMPUNG_IMAGE_TAG` in `.env`, then `docker compose pull` and `docker compose up -d --wait`.
+
 The server listens on `127.0.0.1:8803` only and keeps its database in the `kampung-data` volume. To reach it from other machines over HTTPS, copy `.env.example` to `.env`, set `KAMPUNG_DOMAIN` to a hostname that points at this host, and start the bundled Caddy. It uses host networking, so it needs a Linux host.
 
 ```bash
@@ -191,7 +193,7 @@ With Docker, settings go in `.env` (see [`.env.example`](.env.example)):
 | Variable | Default | Purpose |
 |---|---|---|
 | `KAMPUNG_HOST_PORT` | `8803` | Port published on `127.0.0.1` |
-| `KAMPUNG_IMAGE_TAG` | `latest` | Tag of the locally built image |
+| `KAMPUNG_IMAGE_TAG` | `latest` | Release to pull from `ghcr.io/jztan/kampung-mcp`, such as `0.1.0`; a local `--build` is tagged with it too |
 | `KAMPUNG_DOMAIN` | | Public hostname for the `tls` profile (required for it) |
 | `KAMPUNG_ADMIN_TOKEN` | | Turns on `/admin`; at least 24 characters |
 
