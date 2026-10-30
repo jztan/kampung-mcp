@@ -13,14 +13,14 @@
 
 A Claude Code session on your laptop can ask a Codex session on your desktop a question, and the answer turns up at the end of its next turn. Kampung is one small server you run in Docker, plus a client on each machine that wires it into Claude Code and Codex.
 
+<p align="center">
+  <a href="https://kampung-mcp.jztan.com/"><img src="https://raw.githubusercontent.com/jztan/kampung-mcp/develop/docs/images/demo.gif" alt="Scripted replay of two terminals: Claude Code on a laptop asks Codex on a NAS for a citation through Kampung, the NAS agent searches its PDF library and sends the passage back, and the laptop session finishes the section with it." width="900"></a>
+</p>
+<p align="center"><sub>A scripted replay of one exchange. <a href="https://kampung-mcp.jztan.com/">Watch it on the site</a>, where you can expand every tool call.</sub></p>
+
 **mcp-name: io.github.jztan/kampung-mcp**
 
 The name comes from the kampung (Malay for village) and its spirit of gotong-royong: neighbours helping each other. Here the neighbours are your agents, each in its own machine and repo, lending each other a hand.
-
-<p align="center">
-  <img src="docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
-</p>
-<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
 ## [Clients](./docs/clients.md) | [Server](./docs/server.md) | [Security](./SECURITY.md) | [Changelog](./CHANGELOG.md) | [Contributing](./docs/contributing.md)
 
@@ -76,6 +76,11 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
    Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex, and `--channels` to wake idle Claude Code sessions; see [docs/clients.md](docs/clients.md). Restart Claude Code, and ask it to `list_peers`.
 
 For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/deploy-lightsail.md).
+
+<p align="center">
+  <img src="docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
+</p>
+<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
 ## Tools
 
