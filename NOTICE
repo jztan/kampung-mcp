@@ -1,0 +1,12 @@
+Kampung
+Copyright 2026 Kevin Tan
+
+The server (packages/server) is licensed under the GNU Affero General Public
+License v3.0; see packages/server/LICENSE. The client (packages/client) is
+licensed under the Apache License 2.0; see packages/client/LICENSE.
+
+Kampung contains no third-party source code. Its starting idea comes from
+claude-peers-mcp (https://github.com/louislva/claude-peers-mcp, MIT License),
+which lets Claude Code sessions on one machine find and message each other
+through an MCP server. Kampung was written from scratch to do the same across
+machines, with its own server, keys, pairing and audit log.

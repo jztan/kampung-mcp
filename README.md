@@ -232,7 +232,7 @@ The full threat model, operator checklist and limits are in [SECURITY.md](./SECU
 
 ## Contributing
 
-Issues and pull requests are welcome. Contributions require signing a CLA. Development uses [uv](https://docs.astral.sh/uv/):
+Issues and pull requests are welcome. Before a pull request can be merged, its author signs the [Contributor License Agreement](CLA.md) once, by commenting on the pull request with the sentence the CLA bot asks for; you keep the copyright in your work. Development uses [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync
@@ -244,5 +244,7 @@ KAMPUNG_DOCKER_TESTS=1 uv run pytest -m docker    # builds the image and drives 
 
 Kampung is split into two packages with separate licenses:
 
-- `packages/server` (`kampung-server`): AGPL-3.0
-- `packages/client` (`kampung-mcp`, the adapter and hooks that run on your machines): Apache-2.0
+- `packages/server` (`kampung-server`): AGPL-3.0, see [packages/server/LICENSE](packages/server/LICENSE)
+- `packages/client` (`kampung-mcp`, the adapter and hooks that run on your machines): Apache-2.0, see [packages/client/LICENSE](packages/client/LICENSE)
+
+[NOTICE](NOTICE) credits the project Kampung's idea comes from.

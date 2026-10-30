@@ -76,6 +76,9 @@ def test_container_is_hardened(tmp_path: Path) -> None:
         assert host["LogConfig"]["Config"]["max-size"] == "10m"
         # The database volume is still writable as uid 1000.
         assert s.exec("kampung", "key", "add", "probe").returncode == 0
+        # The image carries its license and NOTICE (AGPL section 4).
+        found = s.exec("ls", "/usr/share/licenses/kampung-server").stdout.split()
+        assert found == ["LICENSE", "NOTICE"]
 
 
 def test_throttle_keys_on_the_forwarded_client_ip(tmp_path: Path) -> None:

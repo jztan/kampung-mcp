@@ -11,7 +11,7 @@ range=$2
 status=0
 
 case $branch in
-  develop | master | feature/?* | release/?* | hotfix/?*) ;;
+  develop | master | feature/?* | release/?* | hotfix/?* | cla-signatures) ;;
   *)
     echo "::error::branch '$branch' must be develop, master, feature/*, release/* or hotfix/*"
     status=1
