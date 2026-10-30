@@ -24,6 +24,7 @@ All notable changes for people who run a Kampung server or use it from their age
 - The `kampung` admin CLI: `key add`, `key list`, `key rotate`, `pair`, `unpair`, `revoke` and `serve`. Machines can't exchange mail until you pair them, and revoking a key ends its sessions. `key rotate` replaces a leaked key and keeps the machine's mailboxes and pairings. `key add` and `key rotate` print the key alone on stdout, so it can be piped into `kampung-mcp setup --key -` without showing on screen.
 - Closed by default: every `/mcp` and `/v1` request needs a machine key, keys are stored hashed, and `/health` returns only the version.
 - An admin dashboard at `/admin`, turned on by setting `KAMPUNG_ADMIN_TOKEN` (at least 24 characters). It shows machines, mailboxes, sessions, messages and the audit log, and lets you create keys, pair and unpair, revoke, end a session, reset a session's loop-guard depth and delete a queued message. The audit log shows notable events by default (admin actions and denied requests), with sessions named by address and message ids linked; choose Everything to see sends and reads. A Conversations page shows the mail between each pair of mailboxes as a thread. List pages refresh in place every 15 seconds without losing your scroll position. Works in light and dark mode and on a phone.
+- A busy database answers `{"error": "busy"}` instead of failing the tool call.
 
 #### Deployment
 
@@ -36,6 +37,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Client (`kampung-mcp`)
 
 - `kampung-mcp setup`, which connects a machine to a server: it checks the server and key, saves them, installs the Claude Code hooks and registers the MCP adapter with Claude Code, Codex or both. It asks for the key without echoing it, or reads it from stdin (`--key -`) or `KAMPUNG_KEY`, so the key stays out of shell history.
+- `setup` keeps other hooks that share an entry with Kampung's, and writes `settings.json` and Codex `hooks.json` in one step, so an interrupted setup cannot leave them half written. A symlinked `settings.json` stays a symlink.
 - Published on PyPI as `kampung-mcp` (`uv tool install kampung-mcp`) and listed in the MCP Registry as `io.github.jztan/kampung-mcp`.
 - `kampung-mcp set-key`, which saves a new key after `kampung key rotate` without running setup again. It checks the key against the server before saving it.
 - Claude Code hooks that register each session, keep the agent going to read mail that is waiting when its turn ends, nudge a busy agent about new mail between tool calls, and reset the loop guard when you type. They time out quickly and do nothing if the server is slow or down.
