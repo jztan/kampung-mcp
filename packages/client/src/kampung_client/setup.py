@@ -201,15 +201,7 @@ def manual_command(cmd: list[str], windows: bool) -> str:
     )
 
 
-def run_setup(
-    server: str,
-    key: str,
-    agents: list[str],
-    runner: Runner,
-    channels: bool = False,
-    allow_insecure_http: bool = False,
-) -> list[str]:
-    server = server.rstrip("/")
+def _check_key(server: str, key: str, allow_insecure_http: bool) -> None:
     # Before any request: a refused server is sent nothing at all.
     problem = hook.server_url_problem(server, allow_insecure_http)
     if problem is not None:
@@ -223,6 +215,36 @@ def run_setup(
         raise SetupError("The server rejected this key.")
     if status != 404:
         raise SetupError(f"Unexpected answer from the server (HTTP {status}).")
+
+
+def set_key(key: str) -> list[str]:
+    """Swap in a new key (after `kampung key rotate`), keeping everything else.
+
+    The key is checked against the configured server before it is saved."""
+    try:
+        config = hook._read_config()
+    except hook.HookError as e:
+        raise SetupError(f"{e}. Run kampung-mcp setup first.") from e
+    server = str(config["server"]).rstrip("/")
+    allow = config.get("allow_insecure_http") is True
+    _check_key(server, key, allow)
+    _write_config(server, key, allow)
+    return [
+        f"Saved the new key to {hook.config_dir() / 'config.json'}.",
+        "Restart Claude Code (and Codex) so running sessions use it.",
+    ]
+
+
+def run_setup(
+    server: str,
+    key: str,
+    agents: list[str],
+    runner: Runner,
+    channels: bool = False,
+    allow_insecure_http: bool = False,
+) -> list[str]:
+    server = server.rstrip("/")
+    _check_key(server, key, allow_insecure_http)
 
     claude_settings = _load_claude_settings() if "claude-code" in agents else None
     codex_hooks = (

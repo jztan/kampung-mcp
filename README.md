@@ -113,6 +113,8 @@ Setup checks the server and the key, then:
 - adds five hooks to `~/.claude/settings.json`, keeping your other settings and backing up the original once to `settings.json.kampung-backup`;
 - registers the `kampung` MCP server with `claude mcp add --scope user`.
 
+After `kampung key rotate` on the server, `uv run kampung-mcp set-key` saves the new key on the machine (it asks for it without echoing, or reads `--key -`), checks it against the server first, and leaves the hooks and MCP registration as they are. Restart Claude Code afterwards.
+
 Every request carries the machine key, so the server URL must be `https://`. Plain `http://` is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`); the hooks and the adapter refuse anything else, even in a hand-edited `config.json`. For a network you trust, such as Tailscale, `--allow-insecure-http` saves `"allow_insecure_http": true` and prints a warning each time setup or the adapter uses it. Tailscale addresses aren't allowed by default because `100.64.0.0/10` is also the range ISPs use for carrier-grade NAT, so off Tailscale the key could reach a host inside your ISP.
 
 The hooks run from that checkout (or `uv tool install` environment) with the Python interpreter setup ran under, so keep it in place. A `git pull` or upgrade updates the hooks too; rerun setup only if the checkout moves.

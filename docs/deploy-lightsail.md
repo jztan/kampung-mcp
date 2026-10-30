@@ -269,7 +269,7 @@ This alarm only covers the instance itself: it fires when the machine or its net
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | A machine is lost | `docker compose exec kampung kampung revoke <name>` (ends its sessions too) |
-| A key leaked | `docker compose exec kampung kampung key rotate <name>`, then run `setup` again on that machine with the new key. The name, mailboxes and pairings stay; the old key stops working and its sessions end |
+| A key leaked | `docker compose exec kampung kampung key rotate <name>`, then `uv run kampung-mcp set-key` on that machine and paste the new key. The name, mailboxes and pairings stay; the old key stops working and its sessions end |
 | Restore | Copy an automatic snapshot to a manual one first (deleting an instance deletes its automatic snapshots). Create a new instance from it, then **redo steps 3, 4 and 12**: firewall rules, automatic snapshots and the alarm don't carry over, and a new instance starts with SSH open to everyone. Move the static IP to it, check `/health`, then delete the old instance |
 | Logs | `docker compose logs --tail 100 kampung` (capped at 3 x 10 MB per service) |
 | Tear down | Delete the instance (its automatic snapshots go with it), then the static IP, which is billed while unattached |
