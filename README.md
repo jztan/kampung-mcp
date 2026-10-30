@@ -97,6 +97,8 @@ The server listens on `127.0.0.1:8803` only and keeps its database in the `kampu
 docker compose --profile tls up -d
 ```
 
+For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/deploy-lightsail.md).
+
 Without Docker, run it from the checkout with Python 3.12 or newer: `uv sync`, set `KAMPUNG_DB_PATH` to where the database should live, then `uv run kampung key add ...` and `uv run kampung serve` (port 8000). Put it behind your own TLS proxy, with `flush_interval -1` or its equivalent so streamed responses are not buffered.
 
 ### Claude Code
