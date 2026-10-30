@@ -1,0 +1,105 @@
+# No `version:` key: obsolete in Compose v2 and later.
+
+# Docker's default json-file log grows without limit; cap it so a small
+# disk cannot fill up.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  kampung:
+    image: ghcr.io/jztan/kampung-mcp:${KAMPUNG_IMAGE_TAG:-latest}
+    # `docker compose pull` fetches a published release; `up --build` builds
+    # this checkout instead.
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Pinned so nothing in .env can move the app off the port the publish
+      # targets, or the database off the volume.
+      KAMPUNG_HTTP_HOST: 0.0.0.0
+      KAMPUNG_HTTP_PORT: "8000"
+      KAMPUNG_DB_PATH: /data/kampung.db
+      # Take the client IP from X-Forwarded-For, for the wrong-key throttle
+      # and the dashboard's login limit. "*" is safe with this file as is:
+      # the port is published on loopback only, and the bundled Caddy
+      # replaces any X-Forwarded-For a client sends. A proxy that appends to
+      # the header instead (nginx, a load balancer, tailscale serve) or a
+      # publish beyond loopback lets clients pick their own address; set
+      # this in .env to that proxy's address then.
+      KAMPUNG_FORWARDED_ALLOW_IPS: ${KAMPUNG_FORWARDED_ALLOW_IPS:-*}
+    # Published to loopback ONLY. TLS and public exposure belong to Caddy
+    # (the `tls` profile below, or Caddy on the host).
+    ports:
+      - "127.0.0.1:${KAMPUNG_HOST_PORT:-8803}:8000"
+    volumes:
+      # Named volume, not a bind mount: it inherits uid 1000 ownership from
+      # the image, so SQLite stays writable on a Linux host.
+      - kampung-data:/data
+    # Only the database volume is writable; the app needs no privileges.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      start_interval: 2s
+      retries: 3
+
+  # Optional TLS in front of the server: docker compose --profile tls up -d
+  # Needs KAMPUNG_DOMAIN in .env and a Linux host. Host networking is what
+  # lets Caddy reach the loopback publish and see real client addresses for
+  # the /admin rule; Docker Desktop on macOS or Windows does not give that.
+  caddy:
+    image: caddy:2.11.7
+    profiles: ["tls"]
+    network_mode: host
+    # Only what Caddy needs, interpolated the same way as the publish above
+    # (shell, then .env), so the upstream always matches it and no other
+    # .env secret reaches this container.
+    environment:
+      KAMPUNG_DOMAIN: ${KAMPUNG_DOMAIN:-}
+      KAMPUNG_HOST_PORT: ${KAMPUNG_HOST_PORT:-8803}
+    # An empty site address would make Caddy misread the file, so say why.
+    # (${VAR:?} would also break plain `docker compose up`.)
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -z "$$KAMPUNG_DOMAIN" ]; then
+        echo "kampung: set KAMPUNG_DOMAIN in .env to use the tls profile" >&2;
+        exit 1; fi;
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - kampung
+    # Caddy runs as root to bind 80 and 443; that is the only capability
+    # it keeps.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    restart: unless-stopped
+
+volumes:
+  kampung-data:
+  caddy-data:
+  caddy-config:

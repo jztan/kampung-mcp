@@ -1,0 +1,244 @@
+from pathlib import Path
+
+import asyncio
+import contextlib
+import os
+import sys
+from typing import Any
+
+import pytest
+
+from client_testlib import (
+    LiveServer,
+    RawMCP,
+    db_query,
+    git_repo,
+    peer_send,
+    run_hook,
+    write_config,
+)
+from kampung_client import adapter, hook
+
+
+def hook_chain_for_child() -> list[list[object]]:
+    """What a hook run by this test process records: this process first.
+
+    On Windows this process is a python.exe, which the chain skips as a
+    launcher, so the hook's chain starts where this process's own does."""
+    if sys.platform == "win32":
+        return [list(a) for a in hook.ancestors()]
+    me = hook._process(os.getpid())
+    assert me is not None
+    return [[os.getpid(), me[1]]] + [list(a) for a in hook.ancestors()]
+
+
+REASON = "1 Kampung message(s) waiting. Call the kampung inbox tool to read them."
+MODERN_DISCOVER = {
+    "jsonrpc": "2.0",
+    "id": "disc",
+    "method": "server/discover",
+    "params": {
+        "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "0"},
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }
+    },
+}
+
+
+def experimental(reply: dict[str, object]) -> object:
+    return reply["result"]["capabilities"].get("experimental")  # type: ignore[index]
+
+
+def test_channel_capability_only_with_flag(home: Path, tmp_path: Path) -> None:
+    plain = RawMCP(home, tmp_path)
+    try:
+        assert not experimental(plain.initialize())
+    finally:
+        plain.close()
+    channel = RawMCP(home, tmp_path, "--channels")
+    try:
+        assert experimental(channel.initialize()) == {"claude/channel": {}}
+    finally:
+        channel.close()
+
+
+def test_channel_nudge_on_new_wakeable_mail(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    start = run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "cc-1",
+            "cwd": str(repo),
+            "source": "startup",
+        },
+    )
+    assert start.returncode == 0
+    mcp = RawMCP(home, repo, "--channels")
+    try:
+        mcp.initialize()
+        mcp.send({"jsonrpc": "2.0", "id": "tl", "method": "tools/list"})
+        mcp.read(10, until="tl")
+        assert not [m for m in mcp.read(3) if m.get("method")]  # nothing waiting yet
+        peer_send(server, "laptop/api", "hello")
+        pushed = [m for m in mcp.read(8) if m.get("method")]
+        assert pushed == [
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/claude/channel",
+                "params": {"content": REASON},
+            }
+        ]
+        peer_send(server, "laptop/api", "deep one", depth_seen=3)  # wake = false
+        assert not [m for m in mcp.read(5) if m.get("method")]
+    finally:
+        mcp.close()
+
+
+def test_channels_accept_initialize_after_discover(home: Path, tmp_path: Path) -> None:
+    # Claude Code opens with an enveloped server/discover and, when that is
+    # refused, falls back to initialize. It only takes Channels from servers
+    # that end up in the handshake (initialize) era, so the fallback must work.
+    mcp = RawMCP(home, tmp_path, "--channels")
+    try:
+        mcp.send(MODERN_DISCOVER)
+        answer = [m for m in mcp.read(10, until="disc") if m.get("id") == "disc"]
+        assert answer and "error" in answer[0]
+        assert experimental(mcp.initialize()) == {"claude/channel": {}}
+    finally:
+        mcp.close()
+
+
+def hook_start(home: Path, repo: Path, sid: str = "cc-1") -> None:
+    r = run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": sid,
+            "cwd": str(repo),
+            "source": "startup",
+        },
+    )
+    assert r.returncode == 0
+
+
+def test_no_push_before_initialized(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    # Review fix: a push before notifications/initialized breaks MCP ordering
+    # and can be dropped, leaving startup mail unannounced.
+    repo = git_repo(tmp_path, "api")
+    hook_start(home, repo)
+    peer_send(server, "laptop/api", "waiting at startup")
+    mcp = RawMCP(home, repo, "--channels")
+    try:
+        mcp.send(
+            {
+                "jsonrpc": "2.0",
+                "id": "init",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            }
+        )
+        mcp.read(15, until="init")
+        assert not [m for m in mcp.read(4) if m.get("method")]
+        mcp.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        pushed = [m for m in mcp.read(6) if m.get("method")]
+        assert [m["method"] for m in pushed] == ["notifications/claude/channel"]
+    finally:
+        mcp.close()
+
+
+def test_poller_never_registers_or_revives(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    # Review fix: after SessionEnd (or an admin end) the poller must not
+    # create a stray no-hooks session or bring the ended one back.
+    repo = git_repo(tmp_path, "api")
+    hook_start(home, repo)
+    mcp = RawMCP(home, repo, "--channels")
+    try:
+        mcp.initialize()
+        mcp.read(3)
+        end = run_hook(
+            home,
+            {"hook_event_name": "SessionEnd", "session_id": "cc-1", "reason": "clear"},
+        )
+        assert end.returncode == 0
+        mcp.read(7)
+    finally:
+        mcp.close()
+    assert db_query(server, "SELECT count(*) FROM sessions WHERE ended_at IS NULL") == [
+        (0,)
+    ]
+
+
+def test_server_down_is_logged_once(home: Path, tmp_path: Path) -> None:
+    write_config(home, "http://127.0.0.1:9", "kmp_x")
+    repo = git_repo(tmp_path, "api")
+    hook.write_session_file(
+        "cc-1",
+        {
+            "session": "1",
+            "suffix": "ab",
+            "cwd": str(repo),
+            "written_at": 1.0,
+            "hooks": True,
+            "agent": "claude-code",
+            "ancestors": hook_chain_for_child(),
+        },
+    )
+    mcp = RawMCP(home, repo, "--channels")
+    try:
+        mcp.initialize()
+        mcp.read(9)
+    finally:
+        mcp.close()
+    log = hook.cache_dir() / "hooks.log"
+    lines = [x for x in log.read_text().splitlines() if " channel:" in x]
+    assert len(lines) == 1
+
+
+@pytest.mark.parametrize("poller", ["channel", "codex-wake"])
+def test_an_outage_is_logged_once_however_its_error_reads(
+    home: Path, monkeypatch: pytest.MonkeyPatch, poller: str
+) -> None:
+    # Windows reports one dead server as "refused" on one poll and "timed
+    # out" on the next; that is still one outage, so one log line.
+    errors = iter(["refused", "timed out"] * 50)
+
+    def down(*_: object) -> tuple[int, dict[str, object]]:
+        raise hook.HookError(f"GET /v1/sessions/1/peek: {next(errors)}")
+
+    class Found:
+        bound = "thread-1"
+
+        def target(self) -> dict[str, object]:
+            return {"session": "1"}
+
+    monkeypatch.setattr(hook, "api", down)
+    monkeypatch.setattr(adapter, "CHANNEL_POLL", 0.001)
+    monkeypatch.setattr(adapter, "CHANNEL_MAX_BACKOFF", 0.001)
+    resolver: Any = Found()
+    loop = (
+        adapter._ChannelPush(resolver).poll()
+        if poller == "channel"
+        else adapter.CodexWaker(resolver, "codex").poll()
+    )
+
+    async def run() -> None:
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(loop, 0.2)
+
+    asyncio.run(run())
+    log = hook.cache_dir() / "hooks.log"
+    lines = [x for x in log.read_text().splitlines() if f" {poller}:" in x]
+    assert len(lines) == 1

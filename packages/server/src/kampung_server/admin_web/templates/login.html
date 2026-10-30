@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Kampung admin</title>
+<link rel="icon" href="/admin/static/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body>
+<div class="login">
+  <form class="login-card" method="post" action="/admin/login">
+    <div class="brand plain"><img class="brand-mark" src="/admin/static/logo.svg" alt=""><span>Kampung<small>admin · v{{ version }}</small></span></div>
+    <h1>Sign in to the admin dashboard</h1>
+    {% if error %}<p class="error-text" role="alert">{{ error }}</p>{% endif %}
+    <label class="f" for="token">Admin token
+      <input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
+    </label>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p class="help">The token is <span class="mono">KAMPUNG_ADMIN_TOKEN</span> in the server's <span class="mono">.env</span>. You stay signed in for 12 hours. Open this page over HTTPS, or as <span class="mono">http://localhost</span> on the server itself; over plain HTTP from another machine the browser will not keep you signed in.</p>
+  </form>
+</div>
+</body>
+</html>

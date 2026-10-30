@@ -1,0 +1,16 @@
+{% macro pill(state) -%}
+{% set kinds = {"live": "ok", "idle": "warn", "ended": "", "queued": "acc", "no-wake": "warn", "delivered": "ok", "expired": "", "active": "ok", "revoked": "bad"} %}
+<span class="pill {{ kinds.get(state, '') }}">{{ state | capitalize }}</span>
+{%- endmacro %}
+{% macro depth(n) -%}
+<span class="depth{% if n > 3 %} hot{% endif %}">{{ n }}</span>
+{%- endmacro %}
+{% macro more(page) -%}
+{% if page.total > page.rows | length %}<div class="more">Showing {{ page.rows | length }} of {{ page.total }}, newest first.</div>{% endif %}
+{%- endmacro %}
+{% macro detail(fields) -%}
+<span class="fields">{% for f in fields %}<span class="field"><span class="k">{{ f.key }}</span> {% if f.href %}<a class="mono" href="{{ f.href }}">{{ f.text }}</a>{% else %}<span class="mono">{{ f.text }}</span>{% endif %}</span>{% endfor %}</span>
+{%- endmacro %}
+{% macro csrf_field(csrf) -%}
+<input type="hidden" name="csrf" value="{{ csrf }}">
+{%- endmacro %}

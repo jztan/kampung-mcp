@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, csrf_field %}
+{% block content %}
+{% if new_key %}<div class="flash" role="status">Created machine <b>{{ new_key[0] }}</b>. Copy its key now, it is not shown again: <span class="mono">{{ new_key[1] }}</span></div>{% endif %}
+<div class="split">
+  <div class="panel">
+    <div class="panel-head"><h2>Machines</h2><span class="sub">A machine can only message machines it is paired with.</span></div>
+    {% if rows %}
+    <div class="scroll"><table>
+      <thead><tr><th>Name</th><th>Status</th><th>Paired with</th><th>Last seen</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+      {% for m in rows %}
+        <tr>
+          <td class="mono{% if not m.active %} muted{% endif %}">{{ m.name }}</td>
+          <td>{{ pill("active" if m.active else "revoked") }}</td>
+          <td class="mono">{{ m.paired_with | join(", ") if m.paired_with else "none" }}</td>
+          <td class="num">{{ m.last_seen | ago }}</td>
+          <td class="num muted">{{ (m.created_at | utc)[:10] }}</td>
+          <td class="right">{% if m.active %}<a class="btn sm danger" href="/admin/machines/{{ m.name | urlencode }}/revoke">Revoke</a>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<div class="empty">No machines yet. Add one on the right.</div>{% endif %}
+  </div>
+  <div class="stack">
+    <form class="panel" method="post" action="/admin/machines">
+      {{ csrf_field(csrf) }}
+      <div class="panel-head"><h2>Add a machine</h2></div>
+      <div class="form">
+        <label class="f" for="m-name">Name<input id="m-name" name="name" placeholder="e.g. desktop" required></label>
+        <p class="help">Lowercase letters, digits and dashes. The key is shown once.</p>
+        <div><button class="btn primary" type="submit">Create key</button></div>
+      </div>
+    </form>
+    {% if active | length >= 2 %}
+    <form class="panel" method="post" action="/admin/pairs">
+      {{ csrf_field(csrf) }}
+      <div class="panel-head"><h2>Pair machines</h2></div>
+      <div class="form">
+        <div class="row">
+          <label class="f" for="p-a">Machine<select id="p-a" name="a">{% for n in active %}<option{% if loop.first %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
+          <label class="f" for="p-b">With<select id="p-b" name="b">{% for n in active %}<option{% if loop.index == 2 %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
+        </div>
+        <div class="row"><button class="btn primary" type="submit">Pair</button><button class="btn" type="submit" formaction="/admin/pairs/delete">Unpair</button></div>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

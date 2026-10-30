@@ -1,0 +1,13 @@
+# An allowlist: only what the Dockerfile copies reaches the build daemon, so
+# local databases, .env files and private notes never enter the context.
+*
+!pyproject.toml
+!uv.lock
+!packages/server/pyproject.toml
+!packages/client/pyproject.toml
+!packages/server/src/**
+!packages/server/LICENSE
+!NOTICE
+
+**/__pycache__
+**/*.pyc

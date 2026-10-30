@@ -1,0 +1,36 @@
+# Caddy in front of Kampung, used by `docker compose --profile tls up -d`.
+# KAMPUNG_DOMAIN (in .env) is the public hostname; Caddy gets and renews its
+# certificate automatically. Caddy runs on the host network, so it reaches
+# the loopback publish and sees real client addresses for the /admin rule.
+{
+	# Caddy shares the host network, so its admin API would listen on the
+	# host's localhost:2019 where any local process could rewrite the proxy.
+	# Restart the container to apply changes instead.
+	admin off
+}
+
+{$KAMPUNG_DOMAIN} {
+	# The dashboard shows message bodies: only loopback and the Tailscale
+	# range may reach it. The admin token is the second layer, not the only one.
+	@admin_outside {
+		path /admin /admin/*
+		not remote_ip 127.0.0.1/8 100.64.0.0/10
+	}
+	respond @admin_outside 404
+
+	# The hook API and dashboard take small JSON and forms; the app caps
+	# /v1 at 64 KB too. MCP calls carry message bodies of up to 8 KB, which
+	# JSON escaping can grow several times over, so /mcp gets more room.
+	@small_bodies path /v1/* /admin/*
+	request_body @small_bodies {
+		max_size 64KB
+	}
+	request_body /mcp* {
+		max_size 1MB
+	}
+
+	reverse_proxy 127.0.0.1:{$KAMPUNG_HOST_PORT:8803} {
+		# MCP and SSE stream responses; do not buffer them.
+		flush_interval -1
+	}
+}

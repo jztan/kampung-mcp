@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, depth, more %}
+{% block content %}
+<div class="panel">
+  <div class="panel-head"><h2>Messages</h2><span class="sub">Bodies are shown: every message here was sent by your own agents.</span></div>
+  <form class="filters" method="get" action="/admin/messages">
+    <label class="f" for="f-box">Mailbox<select id="f-box" name="mailbox">
+      <option value="">All mailboxes</option>{% for b in boxes %}<option{% if mailbox == b %} selected{% endif %}>{{ b }}</option>{% endfor %}
+    </select></label>
+    <label class="f" for="f-state">State<select id="f-state" name="state">
+      {% for v in ["queued", "delivered", "expired", "all"] %}<option value="{{ v }}"{% if state == v %} selected{% endif %}>{{ v | capitalize }}</option>{% endfor %}
+    </select></label>
+    <label class="f" for="f-depth">Depth<select id="f-depth" name="no_wake">
+      <option value="">Any</option><option value="1"{% if no_wake %} selected{% endif %}>No-wake only (over 3)</option>
+    </select></label>
+    <button class="btn" type="submit">Apply</button>
+  </form>
+  {% if page.rows %}
+  <div class="scroll"><table>
+    <thead><tr><th>Sent (UTC)</th><th>From</th><th>To</th><th>Depth</th><th>State</th><th class="right">Size</th><th></th></tr></thead>
+    <tbody>
+    {% for m in page.rows %}
+      <tr>
+        <td class="num">{{ m.sent_at | utc }}</td>
+        <td class="mono">{{ m.sender }}</td>
+        <td class="mono">{{ m.to }}</td>
+        <td>{{ depth(m.depth) }}</td>
+        <td>{{ pill(m.state) }}</td>
+        <td class="right num">{{ m.size }} B</td>
+        <td class="right"><a href="/admin/messages/{{ m.id }}">Open</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {{ more(page) }}
+  {% else %}<div class="empty">No messages match.</div>{% endif %}
+</div>
+{% endblock %}

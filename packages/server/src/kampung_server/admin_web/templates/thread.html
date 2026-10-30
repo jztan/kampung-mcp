@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, depth %}
+{% block content %}
+<div class="panel">
+  <div class="panel-head"><h2 class="mono">{{ a }} &harr; {{ b }}</h2><a class="btn sm" href="/admin/conversations">All conversations</a></div>
+  {% if page.total > page.rows | length %}<div class="more">Showing the last {{ page.rows | length }} of {{ page.total }}, oldest first.</div>{% endif %}
+  {% if page.rows %}
+  <ol class="thread">
+    {% for m in page.rows %}
+    <li class="msg {{ m.side }}">
+      <div class="msg-head"><span class="mono">{{ m.sender }}</span> <span class="muted">to</span> <span class="mono">{{ m.to }}</span><span class="msg-meta"><span class="num">{{ m.sent_at | utc }}</span> {{ depth(m.depth) }} {{ pill(m.state) }} <a href="/admin/messages/{{ m.id }}">Open</a></span></div>
+      <pre class="body">{{ m.body }}{% if m.cut %}&hellip;{% endif %}</pre>
+      {% if m.cut %}<p class="help msg-cut">{{ m.cut }} more characters. <a href="/admin/messages/{{ m.id }}">Open</a> to read the whole message.</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}<div class="empty">No mail between these mailboxes is in the store.</div>{% endif %}
+</div>
+{% endblock %}

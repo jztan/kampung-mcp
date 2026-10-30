@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field %}
+{% block content %}
+<form class="panel confirm" method="post" action="/admin/machines/{{ name | urlencode }}/revoke">
+  {{ csrf_field(csrf) }}
+  <div class="panel-head"><h2>Revoke {{ name }}?</h2></div>
+  <div class="form">
+    <div class="danger-zone">Revoking disables this machine's key, ends its <b>{{ open }} open session{{ "" if open == 1 else "s" }}</b>, and stops delivery to its <b>{{ boxes }} mailbox{{ "" if boxes == 1 else "es" }}</b>. Agents on {{ name }} get "unauthorized" until you create a new key and run setup again.</div>
+    {% if error %}<p class="error-text" role="alert">{{ error }}</p>{% endif %}
+    <label class="f" for="confirm-name">Type <span class="mono">{{ name }}</span> to confirm<input id="confirm-name" name="confirm" autocomplete="off" required></label>
+    <div class="row"><button class="btn danger solid" type="submit">Revoke {{ name }}</button><a class="btn" href="/admin/machines">Cancel</a></div>
+  </div>
+</form>
+{% endblock %}

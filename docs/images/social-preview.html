@@ -1,0 +1,83 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #0d1714; --ink: #eaf2ee; --soft: #9db3a8; --dim: #5f766b;
+    --brand: #0a8a63; --glow: #3ddc9e; --line: #24372f; --card: #13211c;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(900px 520px at 88% 50%, rgba(10,138,99,.22), transparent 60%),
+      radial-gradient(1px 1px at 1px 1px, rgba(157,179,168,.10) 1px, transparent 0) 0 0/28px 28px,
+      var(--bg);
+    color: var(--ink); font-family: "Geist", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: grid; grid-template-columns: 1fr 500px; column-gap: 40px; padding: 72px 80px;
+  }
+  .left { display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 20px; }
+  .brand svg { width: 76px; height: 76px; }
+  .brand h1 { font-size: 84px; font-weight: 600; letter-spacing: -0.045em; line-height: 1; }
+  .tag { max-width: 560px; margin-top: 36px; font-size: 38px; line-height: 1.18; font-weight: 500; letter-spacing: -0.025em; }
+  .sub { margin-top: 20px; font-size: 22px; line-height: 1.45; color: var(--soft); max-width: 500px; }
+  .foot { margin-top: auto; display: flex; gap: 10px; }
+  .pill { font-family: "Geist Mono", monospace; font-size: 17px; color: var(--soft);
+    border: 1px solid var(--line); background: rgba(19,33,28,.7); border-radius: 999px; padding: 7px 15px; }
+  .pill.repo { color: var(--ink); }
+
+  .right { position: relative; }
+  .right svg { width: 100%; height: 100%; display: block; }
+  .node rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+  .node text { font-family: "Geist Mono", monospace; fill: var(--ink); font-size: 19px; }
+  .node .k { fill: var(--dim); font-size: 14px; font-family: "Geist", sans-serif; }
+  .wire { stroke: #2d4a3e; stroke-width: 2; fill: none; }
+  .live { stroke: var(--glow); stroke-width: 2.5; fill: none; stroke-dasharray: 2 9; stroke-linecap: round; }
+  .msg rect { fill: #0f2a20; stroke: var(--glow); stroke-width: 1.5; }
+  .msg text { font-family: "Geist Mono", monospace; font-size: 15px; fill: #c9f5e2; }
+</style></head>
+<body>
+  <div class="left">
+    <div class="brand">
+      <svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0a8a63"/>
+        <g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(12.8 12.8) scale(1.6)">
+          <circle cx="5" cy="4" r="2.2"/><circle cx="5" cy="12" r="2.2"/><circle cx="5" cy="20" r="2.2"/>
+          <circle cx="19" cy="4" r="2.2"/><circle cx="19" cy="20" r="2.2"/>
+          <path d="M5 6.2v3.6M5 14.2v3.6M6.91 10.91 17.09 5.09M6.91 13.09l10.18 5.82"/></g></svg>
+      <h1>Kampung</h1>
+    </div>
+    <p class="tag">Let your coding agents talk across machines.</p>
+    <p class="sub">A self-hosted MCP server that carries messages between Claude Code and Codex sessions.</p>
+    <div class="foot">
+      <span class="pill repo">jztan/kampung-mcp</span>
+      <span class="pill">Claude Code</span>
+      <span class="pill">Codex</span>
+    </div>
+  </div>
+
+  <div class="right">
+    <svg viewBox="0 0 500 496">
+      <path class="wire" d="M250 248 C 250 130, 270 80, 310 80"/>
+      <path class="wire" d="M250 248 C 250 366, 270 416, 310 416"/>
+      <path class="wire" d="M170 248 L 250 248"/>
+      <path class="live" d="M170 248 L 250 248"/>
+      <path class="live" d="M250 248 C 250 130, 270 80, 310 80"/>
+      <circle cx="250" cy="248" r="62" fill="none" stroke="#0a8a63" stroke-opacity=".15" stroke-width="1.5"/>
+      <circle cx="250" cy="248" r="46" fill="none" stroke="#0a8a63" stroke-opacity=".35" stroke-width="1.5"/>
+      <circle cx="250" cy="248" r="32" fill="#0a8a63"/>
+      <g fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="translate(234 232) scale(1.33)">
+        <rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 8l10 6 10-6"/></g>
+      <g class="node" transform="translate(0 208)"><rect width="170" height="80" rx="12"/>
+        <text x="20" y="34">laptop/api</text><text class="k" x="20" y="58">Claude Code</text></g>
+      <g class="node" transform="translate(310 40)"><rect width="188" height="80" rx="12"/>
+        <text x="20" y="34">desktop/web</text><text class="k" x="20" y="58">Codex</text></g>
+      <g class="node" transform="translate(310 376)"><rect width="188" height="80" rx="12"/>
+        <text x="20" y="34">nas/papers</text><text class="k" x="20" y="58">Claude Code</text></g>
+      <g class="msg" transform="translate(0 132)"><rect width="196" height="40" rx="20"/>
+        <text x="18" y="26">send desktop/web</text></g>
+      <path d="M85 172 L 85 208" stroke="#3ddc9e" stroke-opacity=".5" stroke-width="1.5" stroke-dasharray="3 5"/>
+    </svg>
+  </div>
+</body></html>

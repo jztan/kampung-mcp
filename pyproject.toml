@@ -1,0 +1,39 @@
+[project]
+name = "kampung-workspace"
+version = "0"
+requires-python = ">=3.12"
+dependencies = ["kampung-server", "kampung-mcp"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+kampung-server = { workspace = true }
+kampung-mcp = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "black>=26",
+    "flake8>=7",
+    "mypy>=1.10",
+    "pre-commit>=3.5",
+    "httpx>=0.27",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["packages/server/tests", "packages/client/tests", "scripts/tests"]
+asyncio_mode = "auto"
+markers = ["docker: drives the real image and compose stack (KAMPUNG_DOCKER_TESTS=1)"]
