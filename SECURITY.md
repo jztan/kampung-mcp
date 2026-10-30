@@ -52,7 +52,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
 | Wrong keys per client address (IPv6: per /64) | 20 within a minute, then 429 for wrong keys until they age out |
-| Ended sessions kept | 30 days |
+| Ended sessions kept | 30 days, then deleted up to 1,000 per cleanup pass |
 | Live sessions | 32 per mailbox, 256 per machine |
 | Mailboxes per machine | 1,000 |
 | Session `cwd` | 1,024 printable characters |

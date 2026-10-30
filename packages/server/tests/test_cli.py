@@ -107,7 +107,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_cli_migrates_fresh_db(env: Path) -> None:
     cli.main(["key", "list"])
     conn = db.connect(env)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
 
 
 def test_serve_trusts_forwarded_ips_only_from_the_setting(

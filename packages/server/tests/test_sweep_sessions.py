@@ -1,10 +1,13 @@
 import sqlite3
 
+import pytest
+
 from server_testlib import FakeClock, MakeSession
 from kampung_server.limits import ENDED_SESSION_RETENTION
 from kampung_server.mail import inbox, send
 from kampung_server.models import load_session
 from kampung_server.sessions import end
+from kampung_server import sweep as sweep_module
 from kampung_server.sweep import sweep
 
 
@@ -85,3 +88,40 @@ def test_sessions_mail_was_sent_to_or_read_by_are_kept(
     sweep(conn, clock.now())
     assert load_session(conn, target.id) is not None
     assert load_session(conn, reader.id) is not None
+
+
+def test_each_sweep_deletes_a_bounded_batch(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sweep_module, "SESSION_DELETE_BATCH", 2)
+    sessions = [make_session("laptop", "api") for _ in range(6)]
+    for s in sessions:
+        end(conn, s.id, clock.now())
+    clock.advance(days=ENDED_SESSION_RETENTION.days + 1)
+    sweep(conn, clock.now())
+    assert len(_ids(conn)) == 4  # two of the five deletable rows go per sweep
+    sweep(conn, clock.now())
+    sweep(conn, clock.now())
+    assert _ids(conn) == [sessions[-1].id]
+
+
+def test_sweep_queries_use_indexes(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    # The sweep runs inside the write lock before every inbox and peek, so a
+    # full scan of sessions or messages there stalls every other writer.
+    make_session("laptop", "api")
+    statements: list[str] = []
+    conn.set_trace_callback(statements.append)
+    sweep(conn, clock.now())
+    conn.set_trace_callback(None)
+    scans = [
+        (sql, row["detail"])
+        for sql in statements
+        for row in conn.execute(f"EXPLAIN QUERY PLAN {sql}")
+        if row["detail"].startswith("SCAN") and "INDEX" not in row["detail"]
+    ]
+    assert scans == []

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import db
 from .clock import ts
-from .limits import ENDED_SESSION_RETENTION, TARGET_FALLBACK
+from .limits import ENDED_SESSION_RETENTION, SESSION_DELETE_BATCH, TARGET_FALLBACK
 
 
 def sweep(conn: sqlite3.Connection, now: datetime) -> None:
@@ -32,14 +32,17 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
     # Drop sessions that ended long ago, freeing their suffixes. Mail still
     # pointing at one keeps it. The newest row always stays: SQLite hands out
     # max(id) + 1, so keeping it means an old session file can never meet a
-    # new session under its id.
+    # new session under its id. A batch at a time, so a backlog cannot hold
+    # the write lock for long; the next sweep takes the next batch.
     conn.execute(
-        "DELETE FROM sessions WHERE ended_at IS NOT NULL AND ended_at < ? "
-        "AND id < (SELECT max(id) FROM sessions) "
-        "AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.from_session_id = "
-        "sessions.id OR m.to_session_id = sessions.id "
-        "OR m.delivered_to = sessions.id)",
-        (ts(now - ENDED_SESSION_RETENTION),),
+        "DELETE FROM sessions WHERE id IN (SELECT id FROM sessions s "
+        "WHERE s.ended_at IS NOT NULL AND s.ended_at < ? "
+        "AND s.id < (SELECT max(id) FROM sessions) "
+        "AND NOT EXISTS (SELECT 1 FROM messages WHERE from_session_id = s.id) "
+        "AND NOT EXISTS (SELECT 1 FROM messages WHERE to_session_id = s.id) "
+        "AND NOT EXISTS (SELECT 1 FROM messages WHERE delivered_to = s.id) "
+        "LIMIT ?)",
+        (ts(now - ENDED_SESSION_RETENTION), SESSION_DELETE_BATCH),
     )
 
 

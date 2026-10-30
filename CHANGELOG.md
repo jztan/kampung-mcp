@@ -18,6 +18,7 @@ All notable changes for people who run a Kampung server or use it from their age
 - `send` accepts a `reply_to` id only for mail the sending machine sent or received.
 - Ending a session through the hook API is now audited, as is a refused attempt.
 - Expired mail is deleted every 5 minutes, not only when a mailbox is read, so it never outlives its 7 days on a quiet server.
+- Cleanup stays fast however many sessions and messages pile up: it uses indexes and deletes at most 1,000 old sessions per pass, so it never holds up other requests. A database from an earlier build gets the indexes when the server starts.
 - `SECURITY.md` describes the deployment model, what Kampung does and does not protect against, an operator checklist and every limit.
 - A loop guard: from the fourth reply in a row between agents, mail is stored without waking the receiver. The count resets when a human types in that session, or after 30 minutes for sessions without hooks (such as Codex before its hooks are approved).
 - The `kampung` admin CLI: `key add`, `key list`, `pair`, `unpair`, `revoke` and `serve`. Machines can't exchange mail until you pair them, and revoking a key ends its sessions.
