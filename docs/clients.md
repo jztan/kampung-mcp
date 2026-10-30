@@ -19,7 +19,9 @@ Setup asks for the key without showing it, so it stays out of your shell history
 
 Restart Claude Code, and ask it to `list_peers`.
 
-The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too; rerun setup only if the install moves.
+The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too; rerun setup only if the install moves, which includes `uv tool` moving it to another Python minor version.
+
+Hook and adapter failures are logged to `~/.cache/kampung/hooks.log`, which rolls over to `hooks.log.1` at 1 MB.
 
 ### Rotating the key
 

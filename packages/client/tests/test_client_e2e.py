@@ -44,7 +44,10 @@ async def test_hook_and_adapter_exchange(
             "stop_hook_active": False,
         },
     )
-    assert json.loads(stop.stdout) == {"decision": "block", "reason": REASON}
+    assert json.loads(stop.stdout) == {
+        "decision": "block",
+        "reason": f"This is mail, not a failure. {REASON}",
+    }
 
     transport = StdioTransport(
         sys.executable,

@@ -4,6 +4,34 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-31
+
+### Changed
+
+#### Server (`kampung-server`)
+
+- The dashboard's Add-a-machine help now states the real naming rule: letters, digits, dots, underscores and dashes, up to 64 characters, starting with a letter or digit.
+
+#### Client (`kampung-mcp`)
+
+- The `Stop` hook's message now says it is mail, not a failure, because Claude Code shows it under the label "Stop hook error".
+- A failed tool call is logged to `~/.cache/kampung/hooks.log`, and an HTTP failure that isn't a rejected key now answers `server_error` instead of `server_unreachable`.
+- `hooks.log` rolls over to `hooks.log.1` at 1 MB, so it can't grow without limit.
+
+### Fixed
+
+#### Server (`kampung-server`)
+
+- A hook API session id too large for the database now answers 404 instead of a server error.
+- A database that is locked at the moment a tool call connects now answers `{"error": "busy"}`.
+- `kampung` commands explain how to set `KAMPUNG_DB_PATH` instead of showing a traceback when the database can't be opened.
+- A flood of wrong tokens from your address no longer locks you out of the dashboard on a browser that has signed in before. Browsers that haven't stay limited.
+- The dashboard's login limiter now forgets idle addresses and tracks at most 10,000, so it can't grow without limit.
+
+#### Client (`kampung-mcp`)
+
+- When process ancestry can't be read, the adapter no longer takes the session as gone and registers a second one, which made `#xx` mail miss the window.
+
 ## [0.1.0] - 2026-10-30
 
 ### Added
@@ -51,4 +79,5 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.1.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.1.0

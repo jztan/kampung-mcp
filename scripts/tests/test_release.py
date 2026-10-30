@@ -86,6 +86,29 @@ def test_the_real_changelog_can_be_stamped() -> None:
     release.stamp_changelog(text, "9.9.9", "2026-10-30")
 
 
+def test_client_readme_links_and_images_become_absolute() -> None:
+    out = release.render_client_readme(
+        '[a](./docs/x.md) [b](SECURITY.md) [c](docs/y.md#z) <img src="docs/i.png">'
+    )
+    assert f"[a]({release.BLOB_URL}docs/x.md)" in out
+    assert f"[b]({release.BLOB_URL}SECURITY.md)" in out
+    assert f"[c]({release.BLOB_URL}docs/y.md#z)" in out
+    assert f'<img src="{release.RAW_URL}docs/i.png">' in out
+
+
+def test_client_readme_leaves_anchors_and_full_urls_alone() -> None:
+    text = "[a](#license) [b](https://example.com/docs/x.md)"
+    assert release.render_client_readme(text) == text
+
+
+def test_sync_writes_the_client_readme(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("[a](docs/x.md)\n", encoding="utf-8")
+    target = tmp_path / release.CLIENT_README
+    target.parent.mkdir(parents=True)
+    release.sync_client_readme(tmp_path, dry_run=False)
+    assert target.read_text(encoding="utf-8") == (f"[a]({release.BLOB_URL}docs/x.md)\n")
+
+
 def test_contributors_are_kept_verbatim_with_wrapped_lines() -> None:
     section = (
         "### Fixed\n\n- A bug.\n\n### Contributors\n\n"

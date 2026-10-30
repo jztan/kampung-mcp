@@ -53,3 +53,8 @@ docs/design.md
 
 # Release notes drafts (scripts/release.py)
 release_notes_v*.md
+.mcpregistry_registry_token
+.mcpregistry_github_token
+
+# Demo recorder (scripts/demo-recorder)
+node_modules/

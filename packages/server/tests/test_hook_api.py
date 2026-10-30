@@ -253,3 +253,12 @@ def test_a_valid_key_gets_through_a_throttled_address(
         client.post("/mcp", json={}, headers=bearer(f"kmp_bad{i}"))
     assert client.post("/mcp", json={}, headers=bearer("kmp_more")).status_code == 429
     _register(client, machines["laptop"][1])
+
+
+@pytest.mark.parametrize("raw", ["9" * 19, "9" * 20, "9" * 5000, "-1"])
+def test_session_id_out_of_range_is_404(
+    client: TestClient, machines: Machines, raw: str
+) -> None:
+    headers = bearer(machines["laptop"][1])
+    assert client.get(f"/v1/sessions/{raw}/peek", headers=headers).status_code == 404
+    assert client.post(f"/v1/sessions/{raw}/end", headers=headers).status_code == 404

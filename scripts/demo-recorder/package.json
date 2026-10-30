@@ -1,0 +1,12 @@
+{
+  "name": "kampung-demo-recorder",
+  "private": true,
+  "type": "module",
+  "description": "Records docs/images/demo.gif from the replay on the landing page (pages/index.html).",
+  "scripts": {
+    "record": "node record.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

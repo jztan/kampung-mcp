@@ -14,6 +14,7 @@ from fastmcp.server.dependencies import get_access_token, get_http_headers
 from . import mail, sessions
 from .deps import ServerDeps
 from .errors import KampungError
+from .ids import parse_session_id
 from .models import Machine, Session, machine_from_row
 
 SESSION_HEADER = "x-kampung-session"
@@ -30,24 +31,17 @@ Result = dict[str, Any]
 BUSY = KampungError("busy", "The server is busy. Try again in a moment.")
 
 
-def session_id_from_header(raw: str) -> int | None:
-    """The session id from its header, or None. ASCII digits only: str.isdigit
-    also accepts characters like "\u00b2" that int() then rejects. At most 18
-    digits, so the id fits SQLite's 64-bit integer."""
-    valid = raw.isascii() and raw.isdigit() and len(raw) <= 18
-    return int(raw) if valid else None
-
-
 def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
     def call(work: Callable[..., Result], needs_session: bool = True) -> Result:
-        conn = deps.connect()
+        conn: sqlite3.Connection | None = None
         try:
+            conn = deps.connect()
             now = deps.clock()
             machine = _machine(conn)
             if not needs_session:
                 return work(conn, machine, None, now)
             raw = get_http_headers(include={SESSION_HEADER}).get(SESSION_HEADER, "")
-            session_id = session_id_from_header(raw)
+            session_id = parse_session_id(raw)
             if session_id is None:
                 raise KampungError(
                     "missing_session", "Run Kampung through its adapter."
@@ -63,7 +57,8 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
                 raise
             return BUSY.to_dict()
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     def _machine(conn: sqlite3.Connection) -> Machine:
         token = get_access_token()

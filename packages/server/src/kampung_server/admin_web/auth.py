@@ -8,6 +8,7 @@ import hmac
 import math
 import secrets
 import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ from datetime import datetime, timedelta
 SESSION_TTL = timedelta(hours=12)
 LOGIN_WINDOW = timedelta(minutes=15)
 LOGIN_FAILURES = 5
+MAX_CLIENTS = 10_000
 
 
 @dataclass
@@ -37,25 +39,42 @@ class AdminAuth:
         self._token = token
         self._clock = clock
         self._sessions: dict[str, AdminSession] = {}
-        self._failures: dict[str, list[datetime]] = {}
+        # Least recently failed first, so idle clients are dropped from the front.
+        self._failures: OrderedDict[str, list[datetime]] = OrderedDict()
         self._lock = threading.Lock()
 
-    def login(self, client: str, token: str) -> AdminSession | None:
+    def device_proof(self) -> str:
+        """What a browser keeps after signing in, to pass the limit next time.
+        Derived from the token, so changing the token forgets every browser."""
+        return hmac.new(self._token.encode(), b"admin-device", "sha256").hexdigest()
+
+    def login(
+        self, client: str, token: str, device: str | None = None
+    ) -> AdminSession | None:
         """A new session for the right token, None for a wrong one.
 
         Raises TooManyAttempts once a client has failed too often, even if
-        this attempt has the right token."""
+        this attempt has the right token. A browser that shows `device_proof`
+        is neither limited nor counted: a flood from the owner's address must
+        not lock out the owner, and it still needs the token."""
         now = self._clock()
+        known = device is not None and hmac.compare_digest(
+            device.encode(), self.device_proof().encode()
+        )
         with self._lock:
+            self._drop_idle(now)
             recent = [
                 t for t in self._failures.get(client, []) if t > now - LOGIN_WINDOW
             ]
-            self._failures[client] = recent
-            if len(recent) >= LOGIN_FAILURES:
+            if not known and len(recent) >= LOGIN_FAILURES:
                 wait = recent[0] + LOGIN_WINDOW - now
                 raise TooManyAttempts(max(1, math.ceil(wait.total_seconds() / 60)))
             if not hmac.compare_digest(token.encode(), self._token.encode()):
-                recent.append(now)
+                if not known:
+                    self._failures[client] = [*recent, now]
+                    self._failures.move_to_end(client)
+                    while len(self._failures) > MAX_CLIENTS:
+                        self._failures.popitem(last=False)
                 return None
             session = AdminSession(
                 id=secrets.token_urlsafe(32),
@@ -64,6 +83,15 @@ class AdminAuth:
             )
             self._sessions[session.id] = session
             return session
+
+    def tracked(self) -> int:
+        return len(self._failures)
+
+    def _drop_idle(self, now: datetime) -> None:
+        for client, times in list(self._failures.items()):
+            if times[-1] > now - LOGIN_WINDOW:
+                break
+            del self._failures[client]
 
     def get(self, session_id: str | None) -> AdminSession | None:
         if not session_id:

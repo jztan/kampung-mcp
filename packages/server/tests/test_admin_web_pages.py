@@ -46,6 +46,16 @@ def test_overview_shows_counts_and_activity(web: TestClient, seeded: Seeded) -> 
     assert "admin:cli" in page  # recent activity
 
 
+def test_add_machine_help_matches_validate_name(
+    web: TestClient, seeded: Seeded
+) -> None:
+    login(web)
+    page = web.get("/admin/machines").text
+    assert "Letters, digits, dots, underscores and dashes" in page
+    assert "up to 64 characters" in page
+    assert "starting with a letter or digit" in page
+
+
 def test_machines_page(web: TestClient, seeded: Seeded) -> None:
     login(web)
     page = web.get("/admin/machines").text

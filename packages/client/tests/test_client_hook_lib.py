@@ -308,3 +308,35 @@ def test_ps_failure_is_not_a_dead_process(
             hook._ps_lookup(12345)
     else:
         assert hook._ps_lookup(12345) is None
+
+
+def test_log_rotates_past_its_size_cap(home: Path) -> None:
+    log = home / ".cache" / "kampung" / "hooks.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("x" * hook.LOG_MAX_BYTES)
+    hook._log("Stop", ValueError("newest"))
+    assert log.read_text().endswith("Stop: ValueError: newest\n")
+    assert log.stat().st_size < 1024
+    assert log.with_name("hooks.log.1").stat().st_size == hook.LOG_MAX_BYTES
+
+
+def test_log_below_its_cap_is_not_rotated(home: Path) -> None:
+    hook._log("Stop", ValueError("first"))
+    hook._log("Stop", ValueError("second"))
+    log = home / ".cache" / "kampung" / "hooks.log"
+    assert len(log.read_text().splitlines()) == 2
+    assert not log.with_name("hooks.log.1").exists()
+
+
+def test_log_is_written_when_rotation_fails(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def denied(*args: object) -> None:
+        raise PermissionError("in use")  # Windows, another hook has it open
+
+    log = home / ".cache" / "kampung" / "hooks.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("x" * hook.LOG_MAX_BYTES)
+    monkeypatch.setattr(hook.os, "replace", denied)
+    hook._log("Stop", ValueError("kept"))
+    assert log.read_text().endswith("kept\n")

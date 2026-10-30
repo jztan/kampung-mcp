@@ -12,6 +12,7 @@ from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession
 
 COOKIE = "kampung_admin"
+DEVICE_COOKIE = "kampung_admin_device"
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 SECTIONS = {
     "/admin/machines",

@@ -22,6 +22,7 @@ from client_testlib import (
 from kampung_client import hook
 
 REASON = "1 Kampung message(s) waiting. Call the kampung inbox tool to read them."
+BLOCK_REASON = f"This is mail, not a failure. {REASON}"
 
 
 @pytest.fixture
@@ -61,7 +62,7 @@ def test_stop_blocks_when_wakeable(home: Path, server: LiveServer, repo: Path) -
     peer_send(server, "laptop/api", "hello")
     r = run_hook(home, event("Stop", stop_hook_active=False))
     assert r.returncode == 0
-    assert json.loads(r.stdout) == {"decision": "block", "reason": REASON}
+    assert json.loads(r.stdout) == {"decision": "block", "reason": BLOCK_REASON}
 
 
 def test_stop_never_blocks_twice(home: Path, server: LiveServer, repo: Path) -> None:
@@ -420,7 +421,7 @@ def test_codex_stop_blocks_once(home: Path, server: LiveServer, repo: Path) -> N
     codex_start(home, repo)
     peer_send(server, "laptop/api", "hello")
     r = codex(home, event("Stop", "cx-1", stop_hook_active=False))
-    assert json.loads(r.stdout) == {"decision": "block", "reason": REASON}
+    assert json.loads(r.stdout) == {"decision": "block", "reason": BLOCK_REASON}
     again = codex(home, event("Stop", "cx-1", stop_hook_active=True))
     assert again.returncode == 0 and again.stdout == ""
 

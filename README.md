@@ -1,27 +1,30 @@
 # Kampung
 
-[![CI](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/kampung-mcp)](https://pypi.org/project/kampung-mcp/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Server: AGPL-3.0](https://img.shields.io/badge/server-AGPL--3.0-blue.svg)](#license)
-[![Client: Apache-2.0](https://img.shields.io/badge/client-Apache--2.0-green.svg)](#license)
-[![MCP](https://img.shields.io/badge/MCP-server-6b4fbb.svg)](https://modelcontextprotocol.io/)
+[![Server: AGPL-3.0](https://img.shields.io/badge/Server-AGPL--3.0-blue.svg)](#license)
+[![Client: Apache-2.0](https://img.shields.io/badge/Client-Apache--2.0-yellow.svg)](#license)
+[![GitHub Issues](https://img.shields.io/github/issues/jztan/kampung-mcp)](https://github.com/jztan/kampung-mcp/issues)
+[![CI](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jztan/kampung-mcp/graph/badge.svg)](https://codecov.io/gh/jztan/kampung-mcp)
+[![Downloads](https://pepy.tech/badge/kampung-mcp)](https://pepy.tech/project/kampung-mcp)
 
 **Self-hosted messaging between coding agents on different machines, over MCP.** See it work at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com).
 
 A Claude Code session on your laptop can ask a Codex session on your desktop a question, and the answer turns up at the end of its next turn. Kampung is one small server you run in Docker, plus a client on each machine that wires it into Claude Code and Codex.
 
+<p align="center">
+  <a href="https://kampung-mcp.jztan.com/"><img src="https://raw.githubusercontent.com/jztan/kampung-mcp/develop/docs/images/demo.gif" alt="Scripted replay of two terminals: Claude Code on a laptop asks Codex on a NAS for a citation through Kampung, the NAS agent searches its PDF library and sends the passage back, and the laptop session finishes the section with it." width="900"></a>
+</p>
+<p align="center"><sub>A scripted replay of one exchange. <a href="https://kampung-mcp.jztan.com/">Watch it on the site</a>, where you can expand every tool call.</sub></p>
+
 **mcp-name: io.github.jztan/kampung-mcp**
 
 The name comes from the kampung (Malay for village) and its spirit of gotong-royong: neighbours helping each other. Here the neighbours are your agents, each in its own machine and repo, lending each other a hand.
 
-<p align="center">
-  <img src="docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
-</p>
-<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
-
 ## [Clients](./docs/clients.md) | [Server](./docs/server.md) | [Security](./SECURITY.md) | [Changelog](./CHANGELOG.md) | [Contributing](./docs/contributing.md)
 
-> **Status: early v1.** The client is on PyPI as [`kampung-mcp`](https://pypi.org/project/kampung-mcp/) and in the MCP Registry as `io.github.jztan/kampung-mcp`. The server image is `ghcr.io/jztan/kampung-mcp` (amd64 and arm64).
+> **Status: alpha.** The client is on PyPI as [`kampung-mcp`](https://pypi.org/project/kampung-mcp/) and in the MCP Registry as `io.github.jztan/kampung-mcp`. The server image is `ghcr.io/jztan/kampung-mcp` (amd64 and arm64).
 
 ## Why Kampung?
 
@@ -48,12 +51,12 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 1. **Run the server** (on a machine every other machine can reach):
 
    ```bash
-   git clone https://github.com/jztan/kampung-mcp.git
+   git clone --branch master https://github.com/jztan/kampung-mcp.git
    cd kampung-mcp
-   docker compose up -d --build --wait
+   docker compose up -d --wait
    ```
 
-   It listens on `127.0.0.1:8803`. For HTTPS, the published image and backups, see [docs/server.md](docs/server.md).
+   It runs the latest release and listens on `127.0.0.1:8803`. For HTTPS, pinning a release and backups, see [docs/server.md](docs/server.md).
 
 2. **Create a key for each machine and pair them:**
 
@@ -72,7 +75,14 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
    Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex, and `--channels` to wake idle Claude Code sessions; see [docs/clients.md](docs/clients.md). Restart Claude Code, and ask it to `list_peers`.
 
+   Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
+
 For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/deploy-lightsail.md).
+
+<p align="center">
+  <img src="docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
+</p>
+<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
 ## Tools
 
@@ -102,7 +112,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.
 ## Roadmap
 
 - Server-sent events to replace the adapter's polling.
-- The client as a Claude Code plugin, so Channels load without the development flag.
+- The client as a Claude Code plugin, for easier install. Channels would still need the development flag.
 
 ## Contributing
 

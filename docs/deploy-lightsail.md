@@ -1,6 +1,6 @@
 # Deploy on Amazon Lightsail
 
-A runbook for one Kampung server on an Amazon Lightsail instance, reached over public HTTPS from a short list of networks. It uses AWS, the repo, and Let's Encrypt for the free HTTPS certificate: no other hosted service.
+A runbook for one Kampung server on an Amazon Lightsail instance, reached over public HTTPS from a short list of networks. It runs on AWS, with a free HTTPS certificate from Let's Encrypt. The code comes from GitHub, the server image from the GitHub Container Registry and the client from PyPI; none of those needs an account.
 
 Plan for about an hour and about $5.40 a month: the $5 Lightsail plan plus about 30 to 40 cents of snapshots. You need:
 
@@ -17,6 +17,7 @@ flowchart LR
         win["Windows<br/>Claude Code<br/>kampung-mcp"]
     end
     le["Let's Encrypt"]
+    ghcr["GitHub Container Registry<br/>server image"]
 
     subgraph aws["AWS Cloud (your region)"]
         fw["Lightsail firewall<br/>443: your networks only<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
@@ -33,6 +34,7 @@ flowchart LR
     mac -- "HTTPS + machine key" --> ip
     win -- "HTTPS + machine key" --> ip
     le -. "HTTP-01 check" .-> ip
+    ghcr -. "docker compose pull" .-> kampung
     ip --> fw --> caddy --> kampung --> db
     db -. "daily copy" .-> snap
     inst -. "health" .-> alarm
@@ -42,7 +44,7 @@ flowchart LR
     classDef existing fill:#f2f2f2,color:#424242,stroke:#9e9e9e
     class fw,ip,snap,alarm awsnew
     class caddy,kampung,db appnew
-    class mac,win,le existing
+    class mac,win,le,ghcr existing
     style aws fill:#ffffff,stroke:#FF9900,stroke-width:2px,stroke-dasharray:6 4
     style inst fill:#fff8ef,stroke:#FF9900
     style clients fill:#fafafa,stroke:#bdbdbd
@@ -57,7 +59,7 @@ In the [Lightsail console](https://lightsail.aws.amazon.com/), choose **Create i
 - **Region:** the one closest to where you work. Kampung's hooks give up after 2 seconds, so latency matters more than price.
 - **Platform and blueprint:** Linux/Unix, **OS Only**, **Ubuntu 24.04 LTS**.
 - **SSH key pair:** create one or upload your own public key. Give it a name of its own, such as `kampung-key`: in a test run, a key pair called `kampung` made Lightsail reject an instance called `kampung` ("Some names are already in use").
-- **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Ubuntu reports about 410 MB of it as usable and uses about 200 MB itself, which leaves room for Kampung (about 100 MB) and Caddy (about 50 MB), with idle pages moving to swap. Building the image needs more: in a test run it pushed about 210 MB into the swap file from step 6, so don't skip that step. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
+- **Plan:** **Nano, 0.5 GB with public IPv4** ($5/month). Ubuntu reports about 410 MB of it as usable and uses about 200 MB itself, which leaves room for Kampung (about 100 MB) and Caddy (about 50 MB), with idle pages moving to swap, so don't skip the swap file in step 6. Skip the IPv6-only plans: they can't take a static IP, and many networks still can't reach IPv6.
 - **Name:** for example `kampung`.
 
 Ubuntu installs security updates on its own (`unattended-upgrades` is on by default).
@@ -112,7 +114,7 @@ Connect with SSH (`ssh -i <key> ubuntu@<static IP>`) or the browser SSH in the c
 
 If you attached a disk in step 4, format and mount it first (add it to `/etc/fstab` with `nofail`), and write `{"data-root": "<mount point>/docker"}` to `/etc/docker/daemon.json` *before* installing Docker, so Docker keeps its volumes, including the database, on that disk from the start.
 
-Give the 0.5 GB plan a 2 GB swap file, so building the image can't run out of memory:
+Give the 0.5 GB plan a 2 GB swap file, so it can't run out of memory:
 
 ```bash
 sudo fallocate -l 2G /swapfile
@@ -138,54 +140,32 @@ docker compose version
 
 ## 7. Get the code
 
-If the repository is public, clone it over HTTPS and skip to step 8:
+The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run; the default branch, `develop`, holds unreleased work:
 
 ```bash
-git clone https://github.com/jztan/kampung-mcp.git
+git clone --branch v0.1.0 https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
 ```
 
-While it is private, give the instance a read-only deploy key instead:
-
-```bash
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/kampung_deploy
-cat ~/.ssh/kampung_deploy.pub
-```
-
-On GitHub: **Settings → Deploy keys → Add deploy key**, paste it, leave **Allow write access** off. Or, from a machine where `gh` is signed in, save the key to a file and run this as one line (it adds a read-only key unless you pass `--allow-write`):
-
-```bash
-gh repo deploy-key add kampung_deploy.pub --repo jztan/kampung-mcp --title "kampung-server"
-```
-
-Then, on the instance:
-
-```bash
-cat >> ~/.ssh/config <<'EOF'
-Host github.com
-  IdentityFile ~/.ssh/kampung_deploy
-EOF
-git clone git@github.com:jztan/kampung-mcp.git    # answer yes to GitHub's host key
-cd kampung-mcp
-```
+Git says you're in a "detached HEAD" state. That's normal for a release tag.
 
 ## 8. Configure
 
 ```bash
 cp .env.example .env
 chmod 600 .env
-nano .env    # set KAMPUNG_DOMAIN=kampung.example.com
+nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.1.0
 ```
 
-Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
+Keep `KAMPUNG_IMAGE_TAG` on the version you cloned, so the image matches the Compose file. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
 
 ## 9. Start it
 
 ```bash
-docker compose --profile tls up -d --build --wait    # about 80 s on the Nano plan
+docker compose --profile tls up -d --wait
 ```
 
-To skip the build, run a published release instead: set `KAMPUNG_IMAGE_TAG` in `.env` to a version, then `docker compose pull` before `up` (without `--build`). Pulling needs far less memory than building; keep the swap file anyway.
+Compose pulls the images on the first start, which takes about a minute on the Nano plan. Don't add `--build` here: the Nano plan is too small to build on comfortably, and the published image is the same code.
 
 ```bash
 docker compose logs -f caddy    # wait for "certificate obtained successfully", then Ctrl-C
@@ -194,7 +174,7 @@ docker compose logs -f caddy    # wait for "certificate obtained successfully", 
 From one of your allowed networks:
 
 ```bash
-curl -m 5 https://kampung.example.com/health    # {"version":"0.1.0"}
+curl -m 5 https://kampung.example.com/health    # {"version":"..."}, the version you set
 ```
 
 From anywhere else, the same command should time out: the firewall drops it. The instance itself is a handy "anywhere else": run the same `curl -m 5` there, and it should time out after 5 seconds (without `-m`, curl waits about two minutes), because the request arrives from the instance's own address, which isn't on the list.
@@ -235,14 +215,14 @@ docker compose exec kampung kampung pair mac windows
 
 With more than two machines, pair every two that should talk (three machines need three `pair` commands). Each key is printed once. Copy it straight into the machine it belongs to; don't paste it into chat, tickets or notes.
 
-On each machine, install [uv](https://docs.astral.sh/uv/getting-started/installation/), get the repo (same as step 7: HTTPS once it's public; while it's private, the machine needs its own GitHub access), then:
+On each machine, install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```bash
-uv sync
-uv run kampung-mcp setup --server https://kampung.example.com
+uv tool install kampung-mcp
+kampung-mcp setup --server https://kampung.example.com
 ```
 
-Setup asks for the key without showing it. Restart Claude Code and ask it to `list_peers`. For Codex, add `--agent codex` (or `--agent both`) and approve the hooks once in Codex with `/hooks`; [Connecting Claude Code and Codex](clients.md#codex) has the details.
+If the shell can't find `kampung-mcp`, run `uv tool update-shell` and open a new terminal. Setup asks for the key without showing it. Restart Claude Code and ask it to `list_peers`. For Codex, add `--agent codex` (or `--agent both`) and approve the hooks once in Codex with `/hooks`; [Connecting Claude Code and Codex](clients.md#codex) has the details.
 
 **If setup or the first tool call fails with a certificate error**, the network in between is inspecting TLS with its own certificate authority. Set `SSL_CERT_FILE` to a bundle that includes it; the hooks and the adapter both honour it. Set it where Claude Code starts from, so its child processes inherit it: your shell profile on macOS, or `setx SSL_CERT_FILE C:\path\to\bundle.pem` on Windows (then open a new terminal).
 
@@ -270,11 +250,12 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 | Task | How |
 |---|---|
-| Upgrade | `cd ~/kampung-mcp && git pull && docker compose --profile tls up -d --build --wait`, or with a published release: set the new `KAMPUNG_IMAGE_TAG`, then `docker compose pull && docker compose --profile tls up -d --wait` |
+| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait` |
+| Upgrade a client | `uv tool upgrade kampung-mcp`, then restart Claude Code and Codex |
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | A machine is lost | `docker compose exec kampung kampung revoke <name>` (ends its sessions too) |
-| A key leaked | `docker compose exec kampung kampung key rotate <name>`, then `uv run kampung-mcp set-key` on that machine and paste the new key. The name, mailboxes and pairings stay; the old key stops working and its sessions end |
+| A key leaked | `docker compose exec kampung kampung key rotate <name>`, then `kampung-mcp set-key` on that machine and paste the new key. The name, mailboxes and pairings stay; the old key stops working and its sessions end |
 | Restore | Copy an automatic snapshot to a manual one first (deleting an instance deletes its automatic snapshots). Create a new instance from it, then **redo steps 3, 4 and 12**: firewall rules, automatic snapshots and the alarm don't carry over, and a new instance starts with SSH open to everyone. Move the static IP to it, check `/health`, then delete the old instance |
 | Logs | `docker compose logs --tail 100 kampung` (capped at 3 x 10 MB per service) |
 | Tear down | Delete the instance (its automatic snapshots go with it), then the static IP, which is billed while unattached |
