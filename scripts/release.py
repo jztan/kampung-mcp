@@ -8,6 +8,7 @@ Usage:
 Examples:
     uv run python scripts/release.py minor           # 0.1.0 -> 0.2.0
     uv run python scripts/release.py patch --dry-run # preview, save a notes draft
+    uv run python scripts/release.py --version 0.1.0 # an exact version
 
 A release ships three things from one version tag:
     - the client `kampung-mcp` to PyPI, and its MCP Registry entry;
@@ -143,6 +144,21 @@ def calculate_new_version(current: str, bump_type: str) -> str:
     if bump_type == "minor":
         return f"{major}.{minor + 1}.0"
     return f"{major}.{minor}.{patch + 1}"
+
+
+def explicit_version(current: str, wanted: str, tags: set[str]) -> str:
+    """Check a version named with --version.
+
+    It may equal the current version (a first release ships it as is) but
+    never go backwards, and it must not have a tag already."""
+    parts = wanted.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        raise ValueError(f"--version must look like 1.2.3, not {wanted!r}")
+    if tuple(map(int, parts)) < tuple(map(int, current.split("."))):
+        raise ValueError(f"--version {wanted} is lower than the current {current}")
+    if f"v{wanted}" in tags:
+        raise ValueError(f"v{wanted} is already tagged")
+    return wanted
 
 
 def bump_versions(project_root: Path, new_version: str, dry_run: bool) -> None:
@@ -844,6 +860,11 @@ Release notes, edited outside the terminal:
 """,
     )
     parser.add_argument("bump_type", choices=["patch", "minor", "major"], nargs="?")
+    parser.add_argument(
+        "--version",
+        dest="version",
+        help="release exactly this version, e.g. 0.1.0 for the first release",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--hotfix", action="store_true", help="finish the current hotfix/* branch"
@@ -852,12 +873,14 @@ Release notes, edited outside the terminal:
         "--notes-file", type=Path, help="publish this approved notes file"
     )
     args = parser.parse_args()
+    if args.version and (args.bump_type or args.hotfix):
+        parser.error("--version replaces the bump type; pass one or the other")
     if args.hotfix:
         bump_type = "patch"
-    elif args.bump_type is None:
-        parser.error("bump_type is required unless --hotfix is set")
+    elif args.bump_type is None and not args.version:
+        parser.error("pass patch, minor or major, or --version X.Y.Z")
     else:
-        bump_type = args.bump_type
+        bump_type = args.bump_type or "explicit"
 
     config = ReleaseConfig(
         bump_type=bump_type,
@@ -873,7 +896,11 @@ Release notes, edited outside the terminal:
     preflight_checks(config)
     try:
         current = get_current_version(config.project_root)
-        new_version = calculate_new_version(current, config.bump_type)
+        if args.version:
+            tags = set(run_command(["git", "tag", "--list"]).stdout.split())
+            new_version = explicit_version(current, args.version, tags)
+        else:
+            new_version = calculate_new_version(current, config.bump_type)
         changelog = (config.project_root / "CHANGELOG.md").read_text(encoding="utf-8")
         stamp_changelog(changelog, new_version, date.today().isoformat())
         body, acknowledgements = split_contributors(unreleased_body(changelog) or "")

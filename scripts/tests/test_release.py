@@ -123,3 +123,27 @@ def test_parse_title() -> None:
         "body",
     )
     assert release.parse_title("no title", "v1.0.0") == ("v1.0.0", "no title")
+
+
+@pytest.mark.parametrize(
+    "current,wanted,ok",
+    [
+        ("0.1.0", "0.1.0", True),  # the first release ships the version as is
+        ("0.1.0", "0.2.0", True),
+        ("0.1.0", "1.0.0", True),
+        ("0.2.0", "0.1.0", False),  # never backwards
+        ("0.1.0", "0.1", False),
+        ("0.1.0", "v0.1.0", False),
+    ],
+)
+def test_explicit_version(current: str, wanted: str, ok: bool) -> None:
+    if ok:
+        assert release.explicit_version(current, wanted, set()) == wanted
+    else:
+        with pytest.raises(ValueError):
+            release.explicit_version(current, wanted, set())
+
+
+def test_explicit_version_refuses_an_existing_tag() -> None:
+    with pytest.raises(ValueError, match="already"):
+        release.explicit_version("0.1.0", "0.1.0", {"v0.1.0"})
