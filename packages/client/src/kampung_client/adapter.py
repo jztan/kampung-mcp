@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 from typing import Any
 
@@ -131,6 +132,10 @@ class SessionResolver:
     Codex mode (`agent == "codex"`) never matches by ancestry: every Codex
     hook and adapter is a child of one shared daemon. It binds by the session
     id each tool call carries instead (see `bind`).
+
+    Tool calls and the Channels poller call it from different threads, so the
+    public methods hold one lock: two parallel calls must not each register a
+    fallback session.
     """
 
     def __init__(
@@ -144,6 +149,7 @@ class SessionResolver:
         self._data: dict[str, object] | None = None
         self.codex = agent == "codex"
         self.bound: str | None = None  # Codex session id of the last bind
+        self._lock = threading.RLock()  # refresh calls bind
 
     def _ancestors(self) -> list[Ancestor]:
         if self._chain is None:
@@ -205,19 +211,20 @@ class SessionResolver:
         """Codex: use the hook session for this id, registering it if the hooks
         have not (not yet trusted, or SessionStart failed). Without an id, fall
         back to a session of its own, as before Codex had hooks."""
-        if agent_session_id is None:
-            if self._data is None:
-                self._data = self._self_register()
-            return self._data
-        self.bound = agent_session_id
-        found = hook.read_session_file(agent_session_id)
-        if found is None or found.get("hooks") is not True:
-            found = hook.register(
-                self.agent, self.cwd, True, agent_session_id, ancestry=False
-            )
-            hook.write_session_file(agent_session_id, found)
-        self._data = found
-        return found
+        with self._lock:
+            if agent_session_id is None:
+                if self._data is None:
+                    self._data = self._self_register()
+                return self._data
+            self.bound = agent_session_id
+            found = hook.read_session_file(agent_session_id)
+            if found is None or found.get("hooks") is not True:
+                found = hook.register(
+                    self.agent, self.cwd, True, agent_session_id, ancestry=False
+                )
+                hook.write_session_file(agent_session_id, found)
+            self._data = found
+            return found
 
     def target(self) -> dict[str, object] | None:
         """The session to watch for push, without ever registering or reviving.
@@ -225,18 +232,20 @@ class SessionResolver:
         The hook file for this window wins; otherwise whatever a tool call has
         already settled on. Registration stays with hooks and tool calls.
         """
-        return self._pick() or self._data
+        with self._lock:
+            return self._pick() or self._data
 
     def current(self) -> dict[str, object]:
-        if self._data is not None and self._data.get("hooks") is True:
+        with self._lock:
+            if self._data is not None and self._data.get("hooks") is True:
+                return self._data
+            found = self._pick()
+            if found is not None:  # a hook session beats any fallback
+                self._data = found
+            elif self._data is None:
+                found = self._wait_pick()
+                self._data = found if found is not None else self._self_register()
             return self._data
-        found = self._pick()
-        if found is not None:  # a hook session beats any fallback
-            self._data = found
-        elif self._data is None:
-            found = self._wait_pick()
-            self._data = found if found is not None else self._self_register()
-        return self._data
 
     def refresh(self) -> dict[str, object]:
         """After `session_ended`/`unknown_session`: keep one session per window.
@@ -244,26 +253,27 @@ class SessionResolver:
         A newer hook file (after `/clear`) is adopted; the same hook session is
         revived; only with no hook file at all does the adapter register its own.
         """
-        old = self._data.get("session") if self._data else None
-        if self.codex:
-            if self.bound is None:
+        with self._lock:
+            old = self._data.get("session") if self._data else None
+            if self.codex:
+                if self.bound is None:
+                    self._data = self._self_register()
+                    return self._data
+                found = hook.read_session_file(self.bound)
+                if found is not None and found.get("session") == old:
+                    self._data = self._revive(found)
+                    return self._data
+                return self.bind(self.bound)
+            found = self._wait_pick()
+            if found is None:
                 self._data = self._self_register()
-                return self._data
-            found = hook.read_session_file(self.bound)
-            if found is not None and found.get("session") == old:
+            elif found.get("session") != old:
+                self._data = found
+            elif found.get("agent_session_id"):
                 self._data = self._revive(found)
-                return self._data
-            return self.bind(self.bound)
-        found = self._wait_pick()
-        if found is None:
-            self._data = self._self_register()
-        elif found.get("session") != old:
-            self._data = found
-        elif found.get("agent_session_id"):
-            self._data = self._revive(found)
-        else:
-            self._data = self._self_register()
-        return self._data
+            else:
+                self._data = self._self_register()
+            return self._data
 
 
 def _diagnose() -> dict[str, Any]:
