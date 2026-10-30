@@ -36,6 +36,7 @@ def register(mcp: FastMCP, deps: ServerDeps) -> None:
 def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
     css = (files(__package__) / "static" / "admin.css").read_text()
     js = (files(__package__) / "static" / "admin.js").read_text()
+    logo = (files(__package__) / "static" / "logo.svg").read_text()
 
     @mcp.custom_route("/admin/static/admin.css", methods=["GET"])
     async def stylesheet(request: Request) -> Response:
@@ -44,6 +45,10 @@ def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
     @mcp.custom_route("/admin/static/admin.js", methods=["GET"])
     async def script(request: Request) -> Response:
         return secure(Response(js, media_type="text/javascript"))
+
+    @mcp.custom_route("/admin/static/logo.svg", methods=["GET"])
+    async def logo_image(request: Request) -> Response:
+        return secure(Response(logo, media_type="image/svg+xml"))
 
     @mcp.custom_route("/admin/login", methods=["GET", "POST"])
     async def login(request: Request) -> Response:

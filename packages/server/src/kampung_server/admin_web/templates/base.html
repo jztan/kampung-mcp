@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} · Kampung admin</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="/admin/static/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/admin/static/admin.css">
 {% if auto_refresh %}<script src="/admin/static/admin.js" defer></script>
 {% endif %}
@@ -12,7 +12,7 @@
 <body{% if auto_refresh %} data-auto-refresh="15"{% endif %}>
 <div class="app">
   <nav class="nav" aria-label="Admin">
-    <div class="brand"><span class="brand-mark">K</span><span>Kampung<small>admin · v{{ version }}</small></span></div>
+    <div class="brand"><img class="brand-mark" src="/admin/static/logo.svg" alt=""><span>Kampung<small>admin · v{{ version }}</small></span></div>
     <ul>
       {% set items = [
         ("/admin", "Overview", None),

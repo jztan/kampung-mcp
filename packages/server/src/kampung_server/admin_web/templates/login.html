@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in · Kampung admin</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="/admin/static/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/admin/static/admin.css">
 </head>
 <body>
 <div class="login">
   <form class="login-card" method="post" action="/admin/login">
-    <div class="brand plain"><span class="brand-mark">K</span><span>Kampung<small>admin · v{{ version }}</small></span></div>
+    <div class="brand plain"><img class="brand-mark" src="/admin/static/logo.svg" alt=""><span>Kampung<small>admin · v{{ version }}</small></span></div>
     <h1>Sign in to the admin dashboard</h1>
     {% if error %}<p class="error-text" role="alert">{{ error }}</p>{% endif %}
     <label class="f" for="token">Admin token
