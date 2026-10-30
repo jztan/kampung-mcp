@@ -12,6 +12,7 @@ import pytest
 
 from client_testlib import (
     LiveServer,
+    dead_pid,
     git_repo,
     nearest_kept,
     scripted_server,
@@ -86,7 +87,7 @@ def test_list_session_files_skips_garbage(home: Path) -> None:
 def test_sweep_removes_dead_ancestor_files(home: Path) -> None:
     live = [list(a) for a in hook.ancestors()]
     hook.write_session_file("live", {"ancestors": live})
-    hook.write_session_file("dead", {"ancestors": [[999999, "x"]]})
+    hook.write_session_file("dead", {"ancestors": [[dead_pid(), "x"]]})
     hook.write_session_file("reused", {"ancestors": [[live[0][0], "not-its-start"]]})
     assert hook.sweep_stale_files() == 2
     assert hook.read_session_file("live") is not None
@@ -244,7 +245,7 @@ def test_sweep_keeps_codex_files_and_ages_them_out(home: Path) -> None:
         "cx-old", {"agent": "codex", "ancestors": [], "written_at": now - 8 * 86400}
     )
     hook.write_session_file(
-        "cc-dead", {"agent": "claude-code", "ancestors": [[999999, "x"]]}
+        "cc-dead", {"agent": "claude-code", "ancestors": [[dead_pid(), "x"]]}
     )
     assert hook.sweep_stale_files() == 2
     assert hook.read_session_file("cx-new") is not None
@@ -285,3 +286,25 @@ def test_ps_timeout_is_a_failed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
         hook._ps_lookup(12345)
     assert hook._process(12345) is None
     assert hook.ancestors(12345) == []
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stderr", "fails"),
+    [
+        (1, "", False),  # no such process, on macOS and procps alike
+        (-9, "", True),  # ps killed
+        (1, "ps: Operation not permitted\n", True),  # sandbox denied it
+    ],
+)
+def test_ps_failure_is_not_a_dead_process(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, stderr: str, fails: bool
+) -> None:
+    def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, returncode, "", stderr)
+
+    monkeypatch.setattr(hook.subprocess, "run", run)
+    if fails:
+        with pytest.raises(hook.LookupFailed):
+            hook._ps_lookup(12345)
+    else:
+        assert hook._ps_lookup(12345) is None

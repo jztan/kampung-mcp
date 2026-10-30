@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from client_testlib import LiveServer, set_home
+from client_testlib import LiveServer, dead_pid, set_home
 from kampung_client import cli, hook
 from kampung_client import setup
 from kampung_client.setup import SetupError, manual_command, run_setup
@@ -347,7 +347,7 @@ def test_manual_command_windows_escapes_single_quotes() -> None:
 
 
 def test_setup_sweeps_stale_files(home: Path, server: LiveServer) -> None:
-    hook.write_session_file("dead", {"ancestors": [[999999, "x"]]})
+    hook.write_session_file("dead", {"ancestors": [[dead_pid(), "x"]]})
     run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
     assert hook.read_session_file("dead") is None
 

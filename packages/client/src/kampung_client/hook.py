@@ -163,7 +163,7 @@ class LookupFailed(Exception):
 
 def _ps_lookup(pid: int) -> ProcessInfo | None:
     try:
-        out = subprocess.run(
+        result = subprocess.run(
             ["ps", "-o", "ppid=,lstart=,comm=", "-p", str(pid)],
             capture_output=True,
             text=True,
@@ -171,9 +171,14 @@ def _ps_lookup(pid: int) -> ProcessInfo | None:
             # Hooks and the adapter may run with different locales, and
             # lstart is locale-formatted; pin it so start times compare equal.
             env={**os.environ, "LC_ALL": "C"},
-        ).stdout.split()
+        )
     except (OSError, subprocess.SubprocessError) as e:
         raise LookupFailed(pid) from e
+    # No such process is exit 1 with nothing on stderr (macOS and procps);
+    # anything else (killed, denied by a sandbox) says nothing about the pid.
+    if result.returncode != 0 and (result.returncode != 1 or result.stderr):
+        raise LookupFailed(pid)
+    out = result.stdout.split()
     # lstart is five words in the C locale; comm is a path (login shells
     # start with "-") and may contain spaces.
     if len(out) < 7:
