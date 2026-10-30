@@ -21,7 +21,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 
 ## [Changelog](./CHANGELOG.md) | [Quick start](#quick-start) | [Tools](#tools) | [Security](#security-model)
 
-> **Status: early v1.** The server, Docker deployment, admin dashboard and client run today from a checkout. Packages on PyPI and a published image come later.
+> **Status: early v1.** The client is on PyPI as [`kampung-mcp`](https://pypi.org/project/kampung-mcp/) and in the MCP Registry as `io.github.jztan/kampung-mcp`. The server image is `ghcr.io/jztan/kampung-mcp` (amd64 and arm64).
 
 ## Why Kampung?
 
@@ -73,11 +73,11 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
    docker compose exec kampung kampung pair laptop desktop
    ```
 
-3. **Connect each machine** with its own key (from a checkout, with [uv](https://docs.astral.sh/uv/)):
+3. **Connect each machine** with its own key (with [uv](https://docs.astral.sh/uv/)):
 
    ```bash
-   uv sync
-   uv run kampung-mcp setup --server https://kampung.example.com
+   uv tool install kampung-mcp
+   kampung-mcp setup --server https://kampung.example.com
    ```
 
    Setup asks for the key without showing it, so it stays out of your shell history. To script it, pipe the key in with `--key -` or set `KAMPUNG_KEY`. Restart Claude Code, and ask it to `list_peers`.
@@ -105,11 +105,28 @@ For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/depl
 
 Without Docker, run it from the checkout with Python 3.12 or newer: `uv sync`, set `KAMPUNG_DB_PATH` to where the database should live, then `uv run kampung key add ...` and `uv run kampung serve` (port 8000). Put it behind your own TLS proxy, with `flush_interval -1` or its equivalent so streamed responses are not buffered.
 
+### Upgrading
+
+- Published image: set the new `KAMPUNG_IMAGE_TAG` in `.env`, then `docker compose pull && docker compose up -d --wait`.
+- From a checkout: `git pull && docker compose up -d --build --wait`.
+- Client: `uv tool upgrade kampung-mcp` on each machine.
+
+To back up the database, stop the server and copy the whole data directory (it runs in WAL mode, so recent writes may sit in a `-wal` file next to `kampung.db`):
+
+```bash
+docker compose stop kampung
+docker compose cp kampung:/data ./kampung-backup
+docker compose start kampung
+```
+
 ### Claude Code
 
 ```bash
-uv run kampung-mcp setup --server https://kampung.example.com
+uv tool install kampung-mcp
+kampung-mcp setup --server https://kampung.example.com
 ```
+
+From a checkout instead: `uv sync`, then `uv run kampung-mcp setup ...`.
 
 Setup checks the server and the key, then:
 
@@ -117,16 +134,16 @@ Setup checks the server and the key, then:
 - adds five hooks to `~/.claude/settings.json`, keeping your other settings and backing up the original once to `settings.json.kampung-backup`;
 - registers the `kampung` MCP server with `claude mcp add --scope user`.
 
-After `kampung key rotate` on the server, `uv run kampung-mcp set-key` saves the new key on the machine (it asks for it without echoing, or reads `--key -`), checks it against the server first, and leaves the hooks and MCP registration as they are. Restart Claude Code afterwards.
+After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new key on the machine (it asks for it without echoing, or reads `--key -`), checks it against the server first, and leaves the hooks and MCP registration as they are. Restart Claude Code afterwards.
 
 Every request carries the machine key, so the server URL must be `https://`. Plain `http://` is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`); the hooks and the adapter refuse anything else, even in a hand-edited `config.json`. For a network you trust, such as Tailscale, `--allow-insecure-http` saves `"allow_insecure_http": true` and prints a warning each time setup or the adapter uses it. Tailscale addresses aren't allowed by default because `100.64.0.0/10` is also the range ISPs use for carrier-grade NAT, so off Tailscale the key could reach a host inside your ISP.
 
-The hooks run from that checkout (or `uv tool install` environment) with the Python interpreter setup ran under, so keep it in place. A `git pull` or upgrade updates the hooks too; rerun setup only if the checkout moves.
+The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too; rerun setup only if the install moves.
 
 ### Wake idle sessions with Channels (experimental)
 
 ```bash
-uv run kampung-mcp setup --server https://kampung.example.com --channels
+kampung-mcp setup --server https://kampung.example.com --channels
 claude --dangerously-load-development-channels server:kampung
 ```
 
@@ -135,7 +152,7 @@ Claude Code asks you to confirm the development channel each time it starts, and
 ### Codex
 
 ```bash
-uv run kampung-mcp setup --server https://kampung.example.com --agent codex
+kampung-mcp setup --server https://kampung.example.com --agent codex
 ```
 
 Setup adds the same five hooks to `~/.codex/hooks.json` (keeping your own hooks, backing up the original once) and registers the `kampung` MCP server with `codex mcp add`. Codex runs a hook only after you approve it, so open Codex once and approve the Kampung hooks with `/hooks`. Until then Codex reads mail only when it calls `inbox`.
