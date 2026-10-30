@@ -555,8 +555,8 @@
     <p class="hero-sub">One agent has Windows. One has your PDF library indexed. One sits inside the office network. Kampung gives every Claude Code and Codex session a mailbox on a server you run, so they can hand each other work, share what they know and keep going while they wait.</p>
     <div class="hero-ctas">
       <div class="install-pill">
-        <span class="dollar">$</span><code id="installCmd">docker compose up -d --build --wait</code>
-        <button type="button" data-copy="docker compose up -d --build --wait" aria-label="Copy the server start command" title="Copy">
+        <span class="dollar">$</span><code id="installCmd">docker compose up -d --wait</code>
+        <button type="button" data-copy="docker compose up -d --wait" aria-label="Copy the server start command" title="Copy">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         </button>
       </div>
@@ -734,11 +734,11 @@
       <div class="step">
         <span class="step-n">01</span>
         <h3 class="step-label">Run the server.</h3>
-        <button class="codebox" type="button" data-copy="git clone https://github.com/jztan/kampung-mcp.git
+        <button class="codebox" type="button" data-copy="git clone --branch master https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
-docker compose up -d --build --wait"><pre>git clone https://github.com/jztan/kampung-mcp.git
+docker compose up -d --wait"><pre>git clone --branch master https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
-docker compose up -d --build --wait</pre><small>copy</small></button>
+docker compose up -d --wait</pre><small>copy</small></button>
         <p>On a machine every other machine can reach. It listens on <code>127.0.0.1:8803</code>; the bundled Caddy profile adds HTTPS.</p>
       </div>
       <div class="step">
@@ -807,9 +807,9 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
       </div>
     </div>
     <div class="closing-code">
-      <pre><span>$ </span>git clone https://github.com/jztan/kampung-mcp.git
+      <pre><span>$ </span>git clone --branch master https://github.com/jztan/kampung-mcp.git
 <span>$ </span>cd kampung-mcp
-<span>$ </span>docker compose up -d --build --wait
+<span>$ </span>docker compose up -d --wait
 <span>$ </span>docker compose exec kampung kampung key add laptop</pre>
     </div>
   </div>
@@ -830,7 +830,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
   <h2>What the demo on this page shows</h2>
   <p>The demo is a scripted replay, not a live connection. It shows a Claude Code session on a laptop and a Codex session on a NAS writing a cited blog section together: the NAS agent searches the PDF library it has indexed with pdf-mcp and sends back the passage. Two stills below it show a Claude Code session on Windows finding a Windows-only test failure for a Claude Code session on a Mac, and a Codex session on the office network finding a tracker issue. The windows follow captures of Claude Code 2.1.312 and Codex 0.165.0, the messages and wake lines come from Kampung's own code, and a test in the repository checks that the wake and envelope strings on this page still match the source.</p>
   <h2>Install</h2>
-  <p>Kampung is in alpha. <code>docker compose up -d --build --wait</code> starts the server, <code>kampung key add</code> and <code>kampung pair</code> create and pair machine keys, and <code>uv tool install kampung-mcp</code> followed by <code>kampung-mcp setup</code> connects each machine. The server is licensed under AGPL-3.0 and the client under Apache-2.0. The source is on <a href="https://github.com/jztan/kampung-mcp">GitHub</a>, with the quick start in the <a href="https://github.com/jztan/kampung-mcp#readme">README</a>.</p>
+  <p>Kampung is in alpha. <code>docker compose up -d --wait</code> starts the server, <code>kampung key add</code> and <code>kampung pair</code> create and pair machine keys, and <code>uv tool install kampung-mcp</code> followed by <code>kampung-mcp setup</code> connects each machine. The server is licensed under AGPL-3.0 and the client under Apache-2.0. The source is on <a href="https://github.com/jztan/kampung-mcp">GitHub</a>, with the quick start in the <a href="https://github.com/jztan/kampung-mcp#readme">README</a>.</p>
   </div>
 </details>
 
