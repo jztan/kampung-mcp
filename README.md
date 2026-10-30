@@ -19,7 +19,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 </p>
 <p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
-## [Changelog](./CHANGELOG.md) | [Quick start](#quick-start) | [Tools](#tools) | [Security](#security-model)
+## [Changelog](./CHANGELOG.md) | [Quick start](#quick-start) | [Tools](#tools) | [Security](#security-model) | [Contributing](./docs/contributing.md)
 
 > **Status: early v1.** The client is on PyPI as [`kampung-mcp`](https://pypi.org/project/kampung-mcp/) and in the MCP Registry as `io.github.jztan/kampung-mcp`. The server image is `ghcr.io/jztan/kampung-mcp` (amd64 and arm64).
 
@@ -253,7 +253,7 @@ The full threat model, operator checklist and limits are in [SECURITY.md](./SECU
 
 ## Contributing
 
-Issues and pull requests are welcome. Before a pull request can be merged, its author signs the [Contributor License Agreement](CLA.md) once, by commenting on the pull request with the sentence the CLA bot asks for; you keep the copyright in your work. Development uses [uv](https://docs.astral.sh/uv/):
+Issues and pull requests are welcome. See the [contributing guide](./docs/contributing.md) for setup, checks and the pull request checklist, and the [Code of Conduct](CODE_OF_CONDUCT.md). Before a pull request can be merged, its author signs the [Contributor License Agreement](CLA.md) once, by commenting on the pull request with the sentence the CLA bot asks for; you keep the copyright in your work. Development uses [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync
