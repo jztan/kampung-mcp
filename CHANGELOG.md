@@ -44,4 +44,4 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Site
 
-- A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays an agent on a Mac and an agent on Windows fixing a bug together, with stills of two more exchanges (a PDF library on a NAS, a tracker behind the office network), the quick start and the security model.
+- A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
