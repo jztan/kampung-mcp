@@ -183,6 +183,11 @@ Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
 
 ```bash
 docker compose --profile tls up -d --build --wait    # about 80 s on the Nano plan
+```
+
+To skip the build, run a published release instead: set `KAMPUNG_IMAGE_TAG` in `.env` to a version, then `docker compose pull` before `up` (without `--build`). Pulling needs far less memory than building; keep the swap file anyway.
+
+```bash
 docker compose logs -f caddy    # wait for "certificate obtained successfully", then Ctrl-C
 ```
 
@@ -265,7 +270,7 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 | Task | How |
 |---|---|
-| Upgrade | `cd ~/kampung-mcp && git pull && docker compose --profile tls up -d --build --wait` |
+| Upgrade | `cd ~/kampung-mcp && git pull && docker compose --profile tls up -d --build --wait`, or with a published release: set the new `KAMPUNG_IMAGE_TAG`, then `docker compose pull && docker compose --profile tls up -d --wait` |
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | A machine is lost | `docker compose exec kampung kampung revoke <name>` (ends its sessions too) |
