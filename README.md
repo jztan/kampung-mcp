@@ -242,6 +242,8 @@ uv run pytest
 KAMPUNG_DOCKER_TESTS=1 uv run pytest -m docker    # builds the image and drives compose
 ```
 
+To cut a release from `develop`, run `uv run python scripts/release.py minor` (or `patch`, `major`); add `--dry-run` first to preview it and save a release-notes draft you can edit. A version tag publishes the client to PyPI and the MCP Registry and the server image to GHCR.
+
 ## License
 
 Kampung is split into two packages with separate licenses:

@@ -2,13 +2,33 @@
 name = "kampung-mcp"
 version = "0.1.0"
 description = "Kampung client: the hooks and MCP adapter that connect Claude Code and Codex to a Kampung server."
+readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
+authors = [{ name = "Kevin Tan" }]
+keywords = ["mcp", "claude-code", "codex", "agents", "messaging"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+]
 dependencies = [
     # FastMCP 4 locks stdio to the 2026-07-28 protocol, which Claude Code
     # does not accept Channels from yet; 3.x speaks only the handshake era.
     "fastmcp>=3.4.9,<4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jztan/kampung-mcp"
+Repository = "https://github.com/jztan/kampung-mcp"
+Issues = "https://github.com/jztan/kampung-mcp/issues"
+Changelog = "https://github.com/jztan/kampung-mcp/blob/master/CHANGELOG.md"
 
 [project.scripts]
 kampung-mcp = "kampung_client.cli:main"

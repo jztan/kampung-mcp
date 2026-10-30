@@ -50,3 +50,7 @@ docs/superpowers/
 
 # Design notes stay local (not published)
 docs/design.md
+
+# Release notes drafts (scripts/release.py)
+release_notes_v*.md
+.release-audit.txt
