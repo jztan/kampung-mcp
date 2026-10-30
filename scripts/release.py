@@ -19,7 +19,8 @@ Gitflow:
     1. Start from develop
     2. Pre-flight: clean tree, formatting, lint, types, tests, dependency audit
     3. Create release/vX.Y.Z and bump every version (both packages, both
-       __version__ strings, server.json, uv.lock) and stamp the CHANGELOG
+       __version__ strings, server.json, uv.lock), stamp the CHANGELOG and
+       regenerate the client README that PyPI shows
     4. Draft and approve release notes with `claude -p` (persisted for
        recovery). `--dry-run` saves the draft to release_notes_vX.Y.Z.md for
        editing in any app; the real run publishes that file as approved
@@ -62,6 +63,12 @@ VERSION_MODULES = (
 )
 SERVER_JSON = "server.json"
 VERSIONED_FILES = (*PYPROJECTS, *VERSION_MODULES, SERVER_JSON, "CHANGELOG.md")
+# The page PyPI shows. A package cannot read a file outside its own folder (a
+# symlink breaks the sdist), so each release regenerates it from the root README.
+CLIENT_README = "packages/client/README.md"
+BLOB_URL = f"https://github.com/{GITHUB_REPO}/blob/master/"
+RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/master/"
+RELATIVE_PATH = r"(?:\./)?((?:docs/|[A-Z_]+\.md)[^)\"]*)"
 
 
 @dataclass
@@ -203,6 +210,24 @@ def _sub_file(path: Path, pattern: str, new_version: str, dry_run: bool) -> None
     else:
         path.write_text(new_text, encoding="utf-8")
         print(f"  ✓ Updated {path}")
+
+
+def render_client_readme(readme: str) -> str:
+    """Return the root README with relative links made absolute for PyPI."""
+    readme = re.sub(rf'src="{RELATIVE_PATH}"', rf'src="{RAW_URL}\1"', readme)
+    return re.sub(rf"\]\({RELATIVE_PATH}\)", rf"]({BLOB_URL}\1)", readme)
+
+
+def sync_client_readme(project_root: Path, dry_run: bool) -> None:
+    """Regenerate the README that ships to PyPI from the root README."""
+    if dry_run:
+        print(f"  [DRY-RUN] Would regenerate {CLIENT_README}")
+        return
+    readme = (project_root / "README.md").read_text(encoding="utf-8")
+    (project_root / CLIENT_README).write_text(
+        render_client_readme(readme), encoding="utf-8"
+    )
+    print(f"  ✓ Updated {CLIENT_README}")
 
 
 def update_changelog(project_root: Path, new_version: str, dry_run: bool) -> None:
@@ -615,7 +640,10 @@ def preflight_checks(config: ReleaseConfig) -> None:
 
 def commit_version_bump(config: ReleaseConfig, new_version: str) -> None:
     print("\n=== Commit Version Bump ===\n")
-    run_command(["git", "add", *VERSIONED_FILES, "uv.lock"], dry_run=config.dry_run)
+    run_command(
+        ["git", "add", *VERSIONED_FILES, CLIENT_README, "uv.lock"],
+        dry_run=config.dry_run,
+    )
     run_command(
         ["git", "commit", "-m", f"chore: bump version to v{new_version}"],
         dry_run=config.dry_run,
@@ -919,6 +947,7 @@ Release notes, edited outside the terminal:
     print(f"\n=== Version Bump: {current} -> {new_version} ===\n")
     bump_versions(config.project_root, new_version, config.dry_run)
     update_changelog(config.project_root, new_version, config.dry_run)
+    sync_client_readme(config.project_root, config.dry_run)
     run_command(["uv", "lock"], dry_run=config.dry_run)
     commit_version_bump(config, new_version)
 
