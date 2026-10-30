@@ -44,6 +44,14 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="send the key over plain http to any host (trusted networks only)",
     )
+    set_key = sub.add_parser(
+        "set-key", help="save a new key for this machine (after kampung key rotate)"
+    )
+    set_key.add_argument(
+        "--key",
+        help="the new key; '-' reads it from stdin. Without it, KAMPUNG_KEY is "
+        "used, or you are asked for it.",
+    )
     return p
 
 
@@ -92,6 +100,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 1
         print("\n".join(lines))
+    elif args.command == "set-key":
+        from . import setup
+
+        key = _setup_key(args.key)
+        if not key:
+            print("error: no key.", file=sys.stderr)
+            return 1
+        try:
+            print("\n".join(setup.set_key(key)))
+        except setup.SetupError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
     return 0
 
 
