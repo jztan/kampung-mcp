@@ -80,6 +80,9 @@ def test_an_empty_unreleased_section_stops_the_release() -> None:
 
 def test_the_real_changelog_can_be_stamped() -> None:
     text = (ROOT / "CHANGELOG.md").read_text()
+    body = release.unreleased_body(text) or ""
+    if all(not line.strip() or line.startswith("#") for line in body.split("\n")):
+        pytest.skip("nothing unreleased: a release commit has just stamped it")
     release.stamp_changelog(text, "9.9.9", "2026-10-30")
 
 

@@ -4,6 +4,8 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-30
+
 ### Added
 
 #### Server (`kampung-server`)
@@ -48,3 +50,5 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Site
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
+
+[0.1.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.1.0
