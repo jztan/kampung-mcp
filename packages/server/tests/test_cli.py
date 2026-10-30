@@ -16,14 +16,32 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return path
 
 
-def test_key_add_prints_key_once(capsys: pytest.CaptureFixture[str]) -> None:
+def test_key_add_prints_only_the_key_on_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # So `kampung key add x | kampung-mcp setup --key -` passes it on unseen.
     assert cli.main(["key", "add", "laptop"]) == 0
-    out = capsys.readouterr().out
-    assert "Machine laptop created. Key (shown once): kmp_" in out
+    out, err = capsys.readouterr()
+    assert out.startswith("kmp_") and len(out.splitlines()) == 1
+    assert "Machine laptop created. Its key is shown once" in err
+
+
+def test_key_rotate_prints_only_the_new_key_on_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli.main(["key", "add", "laptop"])
+    old = capsys.readouterr().out.strip()
+    assert cli.main(["key", "rotate", "laptop"]) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("kmp_") and out.strip() != old
+    assert len(out.splitlines()) == 1
+    assert "New key for laptop" in err and "sessions are ended" in err
+    assert cli.main(["key", "rotate", "nope"]) == 1
 
 
 def test_key_add_duplicate_exit_1(capsys: pytest.CaptureFixture[str]) -> None:
     cli.main(["key", "add", "laptop"])
+    capsys.readouterr()
     assert cli.main(["key", "add", "laptop"]) == 1
     assert capsys.readouterr().err.startswith("error: name_taken: ")
 

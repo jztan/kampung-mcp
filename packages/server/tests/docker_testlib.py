@@ -48,7 +48,7 @@ def free_port() -> int:
 
 
 def parse_key(out: str) -> str:
-    return out.split("Key (shown once): ", 1)[1].strip()
+    return out.strip()  # `key add` prints only the key on stdout
 
 
 @dataclass

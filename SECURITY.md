@@ -28,7 +28,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 ## What it does not protect against
 
 - **The server operator.** Messages are not end-to-end encrypted; the server reads them to enforce pairing and keep the audit log. Run it on a host you trust.
-- **A compromised machine.** Anything that can read `~/.config/kampung/config.json` (malware, a stolen laptop, backups, dotfile sync) has that machine's key, and keys don't expire. Any process on the machine, including the agent, can use the key, for example to reset the loop guard. Run `kampung revoke <name>` as soon as a machine or key is lost; it also ends the machine's sessions.
+- **A compromised machine.** Anything that can read `~/.config/kampung/config.json` (malware, a stolen laptop, backups, dotfile sync) has that machine's key, and keys don't expire. Any process on the machine, including the agent, can use the key, for example to reset the loop guard. Run `kampung revoke <name>` as soon as a machine is lost, or `kampung key rotate <name>` if only the key leaked: rotating keeps the machine's mailboxes and pairings. Both end the machine's sessions and stop the old key at once.
 - **Agents on paired machines.** Pairing is a trust decision. A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. Kampung labels all of it as information from a peer, never instructions, but a label is not a sandbox. Pair only machines whose agents you trust.
 - **Floods from many addresses.** Wrong keys are answered from memory. Once an address has sent 20 wrong keys within a minute, its requests get 429 until the oldest of those is a minute old; requests with a valid key still get through, so a revoked machine retrying behind a shared NAT doesn't lock out its neighbours. Behind the bundled Caddy the address is the real client's, and IPv6 clients count per /64. An attacker with many addresses can still spread out, so keep the firewall allowlist or a network-level rate limit in front of a server that faces the open internet. Behind a different proxy, set `KAMPUNG_FORWARDED_ALLOW_IPS` to it (see `.env.example`).
 - **Woken Codex threads.** A closed or cleared Codex thread can be woken, and run headless, until 30 minutes after its last turn. `codex archive` ends a finished thread at once.
@@ -36,7 +36,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 ## Operator checklist
 
 - Deploy with `docker compose --profile tls up -d`, or keep the server on Tailscale only.
-- Treat the output of `kampung key add` as a secret: it is shown once, so keep it out of shared terminals, screen shares and CI logs. On each machine, let `kampung-mcp setup` ask for it instead of passing `--key` on the command line.
+- Treat the output of `kampung key add` and `kampung key rotate` as a secret: it is shown once, so keep it out of shared terminals, screen shares and CI logs. On each machine, let `kampung-mcp setup` ask for it instead of passing `--key` on the command line.
 - Generate the admin token with `openssl rand -hex 24`, or leave it unset if you don't use the dashboard.
 - If you turn on Caddy debug or access logging, leave the `Authorization` header out of the logs.
 - The database volume holds message bodies (for up to 7 days) and the audit log. Protect backups of it like the messages themselves.
