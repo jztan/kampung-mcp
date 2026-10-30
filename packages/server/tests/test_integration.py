@@ -1,4 +1,5 @@
 import socket
+import sqlite3
 import threading
 import time
 from collections.abc import AsyncIterator, Iterator
@@ -9,16 +10,17 @@ import httpx
 import pytest
 import uvicorn
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 from fastmcp.client.transports import StreamableHttpTransport
 
-from kampung_server import db
+from kampung_server import db, mail
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
 from kampung_server.clock import utcnow
 from kampung_server.deps import ServerDeps
 from kampung_server.ratelimit import RateLimiter
 from kampung_server.mail import PEERS_KIND
-from kampung_server.tools import SERVER_INSTRUCTIONS
+from kampung_server.tools import SERVER_INSTRUCTIONS, session_id_from_header
 
 
 class Server:
@@ -116,6 +118,47 @@ async def test_missing_session_header(server: Server) -> None:
     async with client_for(server, server.keys["laptop"], "abc") as c:
         r = await c.call_tool("inbox", {})
         assert r.data["error"] == "missing_session"
+
+
+def test_session_header_parser() -> None:
+    assert session_id_from_header("42") == 42
+    for raw in ("", "abc", "\u00b2", "\u0661\u0662", "-1", " 4", "9" * 19, "9" * 5000):
+        assert session_id_from_header(raw) is None
+
+
+async def test_locked_database_is_busy(
+    server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = register(server, "laptop", "api")
+
+    def locked(*args: object, **kwargs: object) -> None:
+        e = sqlite3.OperationalError("database is locked")
+        e.sqlite_errorcode = sqlite3.SQLITE_BUSY
+        raise e
+
+    monkeypatch.setattr(mail, "inbox", locked)
+    async with client_for(server, server.keys["laptop"], a) as c:
+        r = await c.call_tool("inbox", {})
+        assert r.data == {
+            "error": "busy",
+            "hint": "The server is busy. Try again in a moment.",
+        }
+
+
+async def test_other_database_errors_are_not_busy(
+    server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = register(server, "laptop", "api")
+
+    def readonly(*args: object, **kwargs: object) -> None:
+        e = sqlite3.OperationalError("attempt to write a readonly database")
+        e.sqlite_errorcode = sqlite3.SQLITE_READONLY
+        raise e
+
+    monkeypatch.setattr(mail, "inbox", readonly)
+    async with client_for(server, server.keys["laptop"], a) as c:
+        with pytest.raises(ToolError, match="readonly"):
+            await c.call_tool("inbox", {})
 
 
 async def test_no_key_is_rejected(server: Server) -> None:

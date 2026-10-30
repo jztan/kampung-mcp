@@ -53,6 +53,14 @@ def test_pair_self_rejected(admin: AdminService) -> None:
     assert _code(admin.pair, "laptop", "laptop", "admin:cli") == "same_machine"
 
 
+def test_pair_revoked_rejected(admin: AdminService) -> None:
+    admin.add_machine("laptop", "admin:cli")
+    admin.add_machine("desktop", "admin:cli")
+    admin.revoke("desktop", "admin:cli")
+    assert _code(admin.pair, "laptop", "desktop", "admin:cli") == "already_revoked"
+    assert admin.list_pairs() == []
+
+
 def test_pair_unknown(admin: AdminService) -> None:
     admin.add_machine("laptop", "admin:cli")
     assert _code(admin.pair, "laptop", "nope", "admin:cli") == "unknown_machine"

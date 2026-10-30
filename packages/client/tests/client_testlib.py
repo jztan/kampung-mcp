@@ -35,6 +35,13 @@ def set_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
         monkeypatch.setenv(name, value)
 
 
+def dead_pid() -> int:
+    """A pid that existed and has exited: what a stale session file records."""
+    child = subprocess.Popen([sys.executable, "-c", ""])
+    child.wait()
+    return child.pid
+
+
 def nearest_kept(pid: int) -> int:
     """`pid`, or on Windows its nearest ancestor that the chain keeps.
 

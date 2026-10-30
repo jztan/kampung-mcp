@@ -2,6 +2,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from client_testlib import LiveServer, db_query, hook_chain
 from kampung_client import hook
 from kampung_client.adapter import SessionResolver, codex_session_id, pick_session
@@ -288,3 +290,33 @@ def test_codex_session_id_parsing() -> None:
         {"x-codex-turn-metadata": {"session_id": ""}},
     ):
         assert codex_session_id(bad) is None
+
+
+def test_parallel_current_registers_once(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registered: list[int] = []
+
+    def slow_register(*args: object, **kwargs: object) -> dict[str, object]:
+        time.sleep(0.05)
+        registered.append(1)
+        return {"session": len(registered), "hooks": False}
+
+    monkeypatch.setattr(hook, "list_session_files", lambda: [])
+    monkeypatch.setattr(hook, "register", slow_register)
+    monkeypatch.setattr(hook, "write_session_file", lambda *a: None)
+    resolver = SessionResolver("claude-code", "/w/api", wait=0)
+    barrier = threading.Barrier(8)
+    results: list[dict[str, object]] = []
+
+    def call() -> None:
+        barrier.wait()
+        results.append(resolver.current())
+
+    threads = [threading.Thread(target=call) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert registered == [1]
+    assert all(r is results[0] for r in results) and len(results) == 8

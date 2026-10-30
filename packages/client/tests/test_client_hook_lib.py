@@ -12,6 +12,7 @@ import pytest
 
 from client_testlib import (
     LiveServer,
+    dead_pid,
     git_repo,
     nearest_kept,
     scripted_server,
@@ -86,7 +87,7 @@ def test_list_session_files_skips_garbage(home: Path) -> None:
 def test_sweep_removes_dead_ancestor_files(home: Path) -> None:
     live = [list(a) for a in hook.ancestors()]
     hook.write_session_file("live", {"ancestors": live})
-    hook.write_session_file("dead", {"ancestors": [[999999, "x"]]})
+    hook.write_session_file("dead", {"ancestors": [[dead_pid(), "x"]]})
     hook.write_session_file("reused", {"ancestors": [[live[0][0], "not-its-start"]]})
     assert hook.sweep_stale_files() == 2
     assert hook.read_session_file("live") is not None
@@ -244,7 +245,7 @@ def test_sweep_keeps_codex_files_and_ages_them_out(home: Path) -> None:
         "cx-old", {"agent": "codex", "ancestors": [], "written_at": now - 8 * 86400}
     )
     hook.write_session_file(
-        "cc-dead", {"agent": "claude-code", "ancestors": [[999999, "x"]]}
+        "cc-dead", {"agent": "claude-code", "ancestors": [[dead_pid(), "x"]]}
     )
     assert hook.sweep_stale_files() == 2
     assert hook.read_session_file("cx-new") is not None
@@ -261,3 +262,49 @@ def test_stale_turn_mark_counts_as_idle(home: Path) -> None:
     assert not hook.turn_active("cx-1")
     hook.end_turn("cx-1")
     hook.end_turn("cx-1")  # already gone: no error
+
+
+def test_sweep_keeps_file_when_lookup_fails(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hook.write_session_file("busy", {"ancestors": [[12345, "t"]]})
+
+    def fail(pid: int) -> None:
+        raise hook.LookupFailed(pid)
+
+    monkeypatch.setattr(hook, "_lookup", fail)
+    assert hook.sweep_stale_files() == 0
+    assert hook.read_session_file("busy") is not None
+
+
+def test_ps_timeout_is_a_failed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    def timeout(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired("ps", 2)
+
+    monkeypatch.setattr(hook.subprocess, "run", timeout)
+    with pytest.raises(hook.LookupFailed):
+        hook._ps_lookup(12345)
+    assert hook._process(12345) is None
+    assert hook.ancestors(12345) == []
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stderr", "fails"),
+    [
+        (1, "", False),  # no such process, on macOS and procps alike
+        (-9, "", True),  # ps killed
+        (1, "ps: Operation not permitted\n", True),  # sandbox denied it
+    ],
+)
+def test_ps_failure_is_not_a_dead_process(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, stderr: str, fails: bool
+) -> None:
+    def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, returncode, "", stderr)
+
+    monkeypatch.setattr(hook.subprocess, "run", run)
+    if fails:
+        with pytest.raises(hook.LookupFailed):
+            hook._ps_lookup(12345)
+    else:
+        assert hook._ps_lookup(12345) is None

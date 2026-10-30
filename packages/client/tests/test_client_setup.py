@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from client_testlib import LiveServer, set_home
+from client_testlib import LiveServer, dead_pid, set_home
 from kampung_client import cli, hook
 from kampung_client import setup
 from kampung_client.setup import SetupError, manual_command, run_setup
@@ -347,7 +347,7 @@ def test_manual_command_windows_escapes_single_quotes() -> None:
 
 
 def test_setup_sweeps_stale_files(home: Path, server: LiveServer) -> None:
-    hook.write_session_file("dead", {"ancestors": [[999999, "x"]]})
+    hook.write_session_file("dead", {"ancestors": [[dead_pid(), "x"]]})
     run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
     assert hook.read_session_file("dead") is None
 
@@ -456,3 +456,41 @@ def test_cli_setup_channels_flag(
         == 0
     )
     assert rec.calls[-1][-2:] == ["claude-code", "--channels"]
+
+
+def test_setup_keeps_foreign_hook_in_shared_entry(
+    home: Path, server: LiveServer
+) -> None:
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(hook.__file__)} || true"
+    other = {"type": "command", "command": "other.sh"}
+    ours = {"type": "command", "command": command, "timeout": 5}
+    shared = {"matcher": "*", "hooks": [other, ours]}
+    (home / ".claude").mkdir()
+    (home / ".claude" / "settings.json").write_text(
+        json.dumps({"hooks": {"Stop": [shared]}})
+    )
+    for _ in range(2):
+        run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert settings(home)["hooks"]["Stop"] == [
+        {"matcher": "*", "hooks": [other]},
+        {"hooks": [ours]},
+    ]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges")
+def test_setup_keeps_settings_symlink(home: Path, server: LiveServer) -> None:
+    dotfiles = home / "dotfiles" / "settings.json"
+    dotfiles.parent.mkdir()
+    dotfiles.write_text(json.dumps({"model": "x"}))
+    (home / ".claude").mkdir()
+    link = home / ".claude" / "settings.json"
+    link.symlink_to(dotfiles)
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert link.is_symlink()
+    data = json.loads(dotfiles.read_text())
+    assert data["model"] == "x" and "Stop" in data["hooks"]
+
+
+def test_setup_leaves_no_tmp_files(home: Path, server: LiveServer) -> None:
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert [p.name for p in (home / ".claude").iterdir() if "tmp" in p.name] == []
