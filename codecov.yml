@@ -1,0 +1,10 @@
+# Coverage is reported, never a gate: the checks stay informational.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+comment: false

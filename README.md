@@ -1,10 +1,13 @@
 # Kampung
 
-[![CI](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/kampung-mcp)](https://pypi.org/project/kampung-mcp/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Server: AGPL-3.0](https://img.shields.io/badge/server-AGPL--3.0-blue.svg)](#license)
-[![Client: Apache-2.0](https://img.shields.io/badge/client-Apache--2.0-green.svg)](#license)
-[![MCP](https://img.shields.io/badge/MCP-server-6b4fbb.svg)](https://modelcontextprotocol.io/)
+[![Server: AGPL-3.0](https://img.shields.io/badge/Server-AGPL--3.0-blue.svg)](#license)
+[![Client: Apache-2.0](https://img.shields.io/badge/Client-Apache--2.0-yellow.svg)](#license)
+[![GitHub Issues](https://img.shields.io/github/issues/jztan/kampung-mcp)](https://github.com/jztan/kampung-mcp/issues)
+[![CI](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jztan/kampung-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jztan/kampung-mcp/graph/badge.svg)](https://codecov.io/gh/jztan/kampung-mcp)
+[![Downloads](https://pepy.tech/badge/kampung-mcp)](https://pepy.tech/project/kampung-mcp)
 
 **Self-hosted messaging between coding agents on different machines, over MCP.** See it work at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com).
 
