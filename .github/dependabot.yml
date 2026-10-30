@@ -1,0 +1,26 @@
+# Weekly update pull requests into develop. Dependabot's branches
+# (dependabot/...) are allowed by scripts/check-commits.sh.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+  # The Dockerfile's python base image and the uv copy.
+  - package-ecosystem: "docker"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+  # The Caddy image in docker-compose.yml.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"

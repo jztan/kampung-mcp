@@ -7,7 +7,7 @@
 #     built on its own native runner;
 #   - the client package `kampung-mcp` to PyPI (trusted publishing, no token).
 # The image is built under a staging tag, smoke-tested on both architectures,
-# and only promoted to the version tags after PyPI has the client, so a failed
+# scanned for vulnerabilities, and only promoted to the version tags after PyPI has the client, so a failed
 # run never leaves a half-published release that users would pick up.
 name: Release
 
@@ -48,6 +48,7 @@ jobs:
       - run: uv run black --check .
       - run: uv run flake8 packages scripts
       - run: uv run mypy packages/server/src packages/client/src
+      - run: bash scripts/audit.sh
       - run: uv run pytest -q
 
   build-image:
@@ -176,8 +177,41 @@ jobs:
         if: failure()
         run: docker logs smoke || true
 
+  scan-image:
+    # Operating-system and Python packages inside the image. Blocks on high or
+    # critical findings that have a fix available; an unfixed one cannot be
+    # acted on by rebuilding, so it is reported but does not stop a release.
+    needs: assemble
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker pull "${IMAGE}:sha-${GITHUB_SHA}"
+      - name: No fixable high or critical vulnerabilities
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 --no-progress --skip-version-check \
+            "${IMAGE}:sha-${GITHUB_SHA}"
+      - name: Unfixed high or critical findings, for the record
+        if: always()
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 \
+            image --scanners vuln --severity HIGH,CRITICAL \
+            --no-progress --skip-version-check "${IMAGE}:sha-${GITHUB_SHA}"
+
   publish:
-    needs: [test-before-publish, smoke]
+    needs: [test-before-publish, smoke, scan-image]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     environment: pypi
@@ -197,7 +231,7 @@ jobs:
           skip-existing: true  # a re-run after a partial upload is safe
 
   promote-image:
-    needs: [assemble, smoke, publish]
+    needs: [assemble, smoke, scan-image, publish]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
