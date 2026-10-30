@@ -15,6 +15,7 @@ from . import audit, mail, sessions
 from .auth import machine_from_request
 from .deps import ServerDeps
 from .errors import KampungError
+from .ids import parse_session_id
 from .limits import MAX_REQUEST_BYTES
 from .models import Machine, load_session
 
@@ -84,10 +85,10 @@ async def _json_object(request: Request) -> dict[str, Any]:
 
 
 def _session_id(request: Request) -> int:
-    try:
-        return int(request.path_params["id"])
-    except ValueError:
+    session_id = parse_session_id(request.path_params["id"])
+    if session_id is None:
         raise KampungError("unknown_session", "No such session; register again.")
+    return session_id
 
 
 def _field(body: dict[str, Any], name: str, kind: type, required: bool) -> Any:

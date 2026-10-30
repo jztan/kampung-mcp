@@ -23,7 +23,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **A leaked database giving working keys.** Only the SHA-256 hash of each key is stored. Keys are 256 random bits, so they can't be guessed.
 - **Agents waking each other forever.** From the fourth reply in a row, mail is stored without waking the receiver until a human types in that session.
 - **One key filling the server or a peer's mailbox.** Request bodies, unread mail per mailbox and per sending machine, sessions and mailboxes per machine, sends and registrations per minute are all capped, and sessions that ended long ago are deleted. See [Limits](#limits).
-- **Dashboard misuse.** The admin token must be at least 24 characters and is compared in constant time. Logins are limited to 5 failures per 15 minutes per client address, sessions last 12 hours, every action needs a CSRF token, pages send a strict content security policy and can't be framed, and every change is audited.
+- **Dashboard misuse.** The admin token must be at least 24 characters and is compared in constant time. Logins are limited to 5 failures per 15 minutes per client address, except for a browser that has already signed in with the token (it keeps a 30-day cookie derived from the token, so a flood from a shared address can't lock the owner out, and it still needs the token), sessions last 12 hours, every action needs a CSRF token, pages send a strict content security policy and can't be framed, and every change is audited.
 
 ## What it does not protect against
 

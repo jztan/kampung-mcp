@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -177,8 +179,20 @@ def test_without_ancestry_other_cwd_agent_or_adapter_files_are_skipped() -> None
 
 def test_without_ancestry_a_dead_window_does_not_count() -> None:
     live = f("1", hook_chain())
-    dead = f("2", [[999999, "x"]])
+    gone = subprocess.Popen([sys.executable, "-c", ""])
+    gone.wait()
+    dead = f("2", [[gone.pid, "x"]])
     assert pick_session([], "/x", [live, dead])["session"] == "1"
+
+
+def test_without_ancestry_a_failed_lookup_is_not_a_dead_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(pid: int) -> None:
+        raise hook.LookupFailed(pid)
+
+    monkeypatch.setattr(hook, "_lookup", broken)
+    assert pick_session([], "/x", [f("1", [[4242, "x"]])])["session"] == "1"
 
 
 def test_with_ancestry_the_fallback_is_not_used() -> None:

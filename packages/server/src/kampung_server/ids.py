@@ -1,9 +1,17 @@
-"""Message ids and session suffixes."""
+"""Message ids, session ids and session suffixes."""
 
 import secrets
 from datetime import datetime
 
 from .errors import KampungError
+
+
+def parse_session_id(raw: str) -> int | None:
+    """The session id in a header or URL path, or None. ASCII digits only:
+    str.isdigit also accepts characters like "²" that int() then rejects.
+    At most 18 digits, so the id fits SQLite's 64-bit integer."""
+    valid = raw.isascii() and raw.isdigit() and len(raw) <= 18
+    return int(raw) if valid else None
 
 
 def new_message_id(now: datetime) -> str:

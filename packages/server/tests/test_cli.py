@@ -138,3 +138,29 @@ def test_serve_trusts_forwarded_ips_only_from_the_setting(
     deps = SimpleNamespace(db_path=Path("unused.db"), clock=None)
     app.serve(deps, "0.0.0.0", 8000, forwarded_allow_ips="*")  # type: ignore[arg-type]
     assert seen["proxy_headers"] is True and seen["forwarded_allow_ips"] == "*"
+
+
+def test_missing_database_folder_gets_a_hint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing = tmp_path / "nope" / "kampung.db"
+    monkeypatch.setenv("KAMPUNG_DB_PATH", str(missing))
+    assert cli.main(["key", "list"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"error: cannot open the database at {missing}")
+    assert "KAMPUNG_DB_PATH" in err
+
+
+def test_a_locked_database_is_not_blamed_on_the_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def locked(path: object) -> None:
+        e = sqlite3.OperationalError("database is locked")
+        e.sqlite_errorcode = sqlite3.SQLITE_BUSY
+        raise e
+
+    monkeypatch.setattr(db, "connect", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        cli.main(["key", "list"])

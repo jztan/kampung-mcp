@@ -11,9 +11,10 @@ from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession, TooManyAttempts
 from .actions import register_actions
 from .views import register_pages
-from .web import COOKIE, Web, cookie_secure, secure
+from .web import COOKIE, DEVICE_COOKIE, Web, cookie_secure, secure
 
 MIN_TOKEN_LENGTH = 24
+DEVICE_COOKIE_AGE = 30 * 86400
 
 
 def register(mcp: FastMCP, deps: ServerDeps) -> None:
@@ -57,7 +58,9 @@ def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
         form = await request.form()
         client = request.client.host if request.client else "unknown"
         try:
-            session = web.auth.login(client, str(form.get("token", "")))
+            session = web.auth.login(
+                client, str(form.get("token", "")), request.cookies.get(DEVICE_COOKIE)
+            )
         except TooManyAttempts as e:
             return web.render(
                 request,
@@ -75,6 +78,17 @@ def _register_auth_routes(mcp: FastMCP, web: Web) -> None:
             session.id,
             max_age=43200,
             path="/admin",
+            secure=cookie_secure(request),
+            httponly=True,
+            samesite="strict",
+        )
+        # Outlives the session and survives logout, so the login limit can
+        # tell this browser from a flood at the same address.
+        response.set_cookie(
+            DEVICE_COOKIE,
+            web.auth.device_proof(),
+            max_age=DEVICE_COOKIE_AGE,
+            path="/admin/login",
             secure=cookie_secure(request),
             httponly=True,
             samesite="strict",

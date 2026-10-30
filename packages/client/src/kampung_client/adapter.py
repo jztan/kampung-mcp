@@ -35,6 +35,7 @@ UNREACHABLE = {
     "error": "server_unreachable",
     "hint": "The Kampung server did not answer; check config.json and the server.",
 }
+_LOG_HINT = "~/.cache/kampung/hooks.log"
 _STALE = ("session_ended", "unknown_session")
 CHANNEL_POLL = 2.0  # seconds between peeks while Channels push is on
 CHANNEL_MAX_BACKOFF = 30.0  # seconds between peeks while the server is failing
@@ -66,7 +67,10 @@ def _alive(f: dict[str, object]) -> bool:
     first = ancestors[0]
     if not isinstance(first, list) or len(first) != 2:
         return True
-    live = hook._process(int(first[0]))
+    try:
+        live = hook._lookup(int(first[0]))
+    except hook.LookupFailed:
+        return True  # unknown is not dead
     return live is not None and live[1] == first[1]
 
 
@@ -277,12 +281,21 @@ class SessionResolver:
 
 
 def _diagnose() -> dict[str, Any]:
-    """After a failed connection: was it the key, or the server?"""
+    """After a failed tool call: was it the key, the server, or the call?"""
     try:
-        status, _ = hook.api("GET", "/v1/sessions/0/peek")
+        status, body = hook.api("GET", "/v1/sessions/0/peek")
+    except hook.HttpStatusError as e:
+        status, body = e.status, {}
     except hook.HookError:
         return dict(UNREACHABLE)
-    return dict(UNAUTHORIZED if status == 401 else UNREACHABLE)
+    if status == 401:
+        return dict(UNAUTHORIZED)
+    # Session 0 never exists, so this is the answer a healthy server gives.
+    if body.get("error") == "unknown_session":
+        cause = "The Kampung server accepted this machine key, but the call failed"
+    else:
+        cause = f"The Kampung server answered HTTP {status}"
+    return {"error": "server_error", "hint": f"{cause}; see {_LOG_HINT}."}
 
 
 def build_adapter(
@@ -325,7 +338,8 @@ def build_adapter(
                     result = await client.call_tool(tool, args)
             except hook.InsecureServerError as e:
                 return {"error": "insecure_server_url", "hint": str(e)}
-            except Exception:  # noqa: BLE001 - any failure becomes an inline error
+            except Exception as e:  # noqa: BLE001 - any failure becomes an inline error
+                hook._log(f"adapter {tool}", e)
                 return await asyncio.to_thread(_diagnose)
             data = result.data
             if not isinstance(data, dict):

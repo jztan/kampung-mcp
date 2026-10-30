@@ -1,6 +1,7 @@
 """The `kampung` command line: machine keys, pairing, revocation, and serve."""
 
 import argparse
+import sqlite3
 import sys
 
 from . import app, db
@@ -43,9 +44,22 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = Settings.from_env()
-    conn = db.connect(settings.db_path)
-    db.migrate(conn)
-    conn.close()
+    try:
+        conn = db.connect(settings.db_path)
+        db.migrate(conn)
+        conn.close()
+    except sqlite3.OperationalError as e:
+        if e.sqlite_errorcode & 0xFF not in (
+            sqlite3.SQLITE_CANTOPEN,
+            sqlite3.SQLITE_READONLY,
+        ):
+            raise
+        print(
+            f"error: cannot open the database at {settings.db_path} ({e}). Create "
+            "its folder, or set KAMPUNG_DB_PATH to a writable path.",
+            file=sys.stderr,
+        )
+        return 1
     admin = AdminService(lambda: db.connect(settings.db_path), utcnow)
     try:
         if args.command == "key" and args.key_command == "add":

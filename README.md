@@ -75,6 +75,8 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
    Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex, and `--channels` to wake idle Claude Code sessions; see [docs/clients.md](docs/clients.md). Restart Claude Code, and ask it to `list_peers`.
 
+   Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
+
 For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/deploy-lightsail.md).
 
 <p align="center">
@@ -110,7 +112,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.
 ## Roadmap
 
 - Server-sent events to replace the adapter's polling.
-- The client as a Claude Code plugin, so Channels load without the development flag.
+- The client as a Claude Code plugin, for easier install. Channels would still need the development flag.
 
 ## Contributing
 
