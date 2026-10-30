@@ -5,6 +5,13 @@ import pytest
 from starlette.testclient import TestClient
 
 from admin_web_testlib import TOKEN, csrf_of, login
+from kampung_server.admin_web.auth import (
+    LOGIN_FAILURES,
+    MAX_CLIENTS,
+    AdminAuth,
+    TooManyAttempts,
+)
+from kampung_server.admin_web.web import DEVICE_COOKIE
 from kampung_server.app import create_app
 from kampung_server.deps import ServerDeps
 from kampung_server.models import Machine
@@ -112,6 +119,89 @@ def test_login_rate_limited(web: TestClient) -> None:
     r = web.post("/admin/login", data={"token": TOKEN})
     assert r.status_code == 429
     assert "Too many attempts" in r.text
+
+
+def flood(web: TestClient) -> None:
+    for _ in range(LOGIN_FAILURES):
+        web.post("/admin/login", data={"token": "x"})
+
+
+def test_flood_does_not_lock_out_a_browser_that_signed_in_before(
+    web: TestClient,
+) -> None:
+    csrf = login(web)
+    web.post("/admin/logout", data={"csrf": csrf})
+    flood(web)
+    r = web.post("/admin/login", data={"token": TOKEN}, follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_recognized_browser_still_needs_the_token(web: TestClient) -> None:
+    csrf = login(web)
+    web.post("/admin/logout", data={"csrf": csrf})
+    flood(web)
+    r = web.post("/admin/login", data={"token": "x"}, follow_redirects=False)
+    assert r.status_code == 401
+
+
+def test_flood_still_locks_out_a_new_browser(web: TestClient) -> None:
+    login(web)
+    web.cookies.clear()
+    flood(web)
+    assert web.post("/admin/login", data={"token": TOKEN}).status_code == 429
+
+
+def test_forged_device_cookie_does_not_skip_the_limit(web: TestClient) -> None:
+    flood(web)
+    web.cookies.set(DEVICE_COOKIE, "forged", domain="testserver", path="/admin/login")
+    assert web.post("/admin/login", data={"token": TOKEN}).status_code == 429
+
+
+def test_device_cookie_is_strict_and_only_sent_to_login(web: TestClient) -> None:
+    r = web.post("/admin/login", data={"token": TOKEN}, follow_redirects=False)
+    cookie = next(
+        c for c in r.headers.get_list("set-cookie") if c.startswith(DEVICE_COOKIE)
+    ).lower()
+    for part in ("httponly", "secure", "samesite=strict", "path=/admin/login"):
+        assert part in cookie
+    assert TOKEN not in cookie
+
+
+def test_device_proof_changes_with_the_token(clock: FakeClock) -> None:
+    first = AdminAuth("a" * 24, clock.now).device_proof()
+    assert first != AdminAuth("b" * 24, clock.now).device_proof()
+
+
+def test_idle_clients_are_forgotten(clock: FakeClock) -> None:
+    auth = AdminAuth(TOKEN, clock.now)
+    assert auth.login("1.1.1.1", "x") is None
+    assert auth.tracked() == 1
+    clock.advance(minutes=15, seconds=1)
+    assert auth.login("2.2.2.2", "x") is None
+    assert auth.tracked() == 1
+
+
+def test_a_right_token_tracks_nothing(clock: FakeClock) -> None:
+    auth = AdminAuth(TOKEN, clock.now)
+    assert auth.login("1.1.1.1", TOKEN) is not None
+    assert auth.tracked() == 0
+
+
+def test_tracked_clients_are_capped(clock: FakeClock) -> None:
+    auth = AdminAuth(TOKEN, clock.now)
+    for i in range(MAX_CLIENTS + 5):
+        auth.login(f"client-{i}", "x")
+    assert auth.tracked() == MAX_CLIENTS
+
+
+def test_lockout_still_ages_out(clock: FakeClock) -> None:
+    auth = AdminAuth(TOKEN, clock.now)
+    for _ in range(LOGIN_FAILURES):
+        auth.login("1.1.1.1", "x")
+    with pytest.raises(TooManyAttempts):
+        auth.login("1.1.1.1", TOKEN)
+    clock.advance(minutes=15, seconds=1)
+    assert auth.login("1.1.1.1", TOKEN) is not None
 
 
 def test_logout_ends_session(web: TestClient) -> None:
