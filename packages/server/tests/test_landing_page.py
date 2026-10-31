@@ -20,6 +20,10 @@ def test_page_quotes_the_stop_reason_for_one_message(page: str) -> None:
     assert hook.STOP_REASON.format(n=1) in page
 
 
+def test_page_quotes_the_stop_block_reason(page: str) -> None:
+    assert hook.STOP_BLOCK_REASON.format(n=1) in page
+
+
 def test_page_quotes_the_codex_wake_prefix(page: str) -> None:
     assert f'"{hook.WAKE_PREFIX}"' in page
 
