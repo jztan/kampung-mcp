@@ -65,6 +65,7 @@ Freeze the three MCP tools and `/v1` once these hold:
 
 ## Not scheduled
 
+- **Claude app connector:** planned after v0.4, if real use shows the phone needs to read and leave mail. Decide before v1.0, because it would change the frozen tool set.
 - **On demand only:** Postgres, OIDC, a broker for multiple replicas, live dashboard updates, session summaries for `list_peers`.
 - **Remove `claim_task`:** it contradicts the task-board non-goal and the rejected claim and ack design.
 - **Keep the FastMCP 3 pin:** Claude Code still does not register a channel server on protocol revision 2026-07-28.
