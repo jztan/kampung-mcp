@@ -48,9 +48,16 @@
 </script>
 <!-- Google tag (gtag.js) -->
 <script>
-  if (new URLSearchParams(window.location.search).get('ga_optout') === 'true') {
-    window['ga-disable-__GA_MEASUREMENT_ID__'] = true;
-  }
+  (function () {
+    var param = new URLSearchParams(window.location.search).get('ga_optout');
+    var optedOut = param === 'true';
+    try {
+      if (param === 'true') localStorage.setItem('ga_optout', 'true');
+      if (param === 'false') localStorage.removeItem('ga_optout');
+      optedOut = localStorage.getItem('ga_optout') === 'true';
+    } catch (e) {}
+    if (optedOut) window['ga-disable-__GA_MEASUREMENT_ID__'] = true;
+  })();
 </script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=__GA_MEASUREMENT_ID__"></script>
 <script>
