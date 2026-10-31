@@ -31,6 +31,8 @@ Run it from the checkout with Python 3.12 or newer: `uv sync`, set `KAMPUNG_DB_P
 
 ## Upgrading
 
+Back up first (see [Backup](#backup)). The database migrates forward on start, and an older image won't undo that.
+
 - Published image: `git pull`, set the new `KAMPUNG_IMAGE_TAG` in `.env` if you pinned one, then `docker compose pull && docker compose up -d --wait`.
 - From a checkout: `git pull && docker compose up -d --build --wait`.
 - Client: `uv tool upgrade kampung-mcp` on each machine.
