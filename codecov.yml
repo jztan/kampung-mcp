@@ -1,5 +1,6 @@
 # Coverage is reported, never a gate: the checks stay informational.
 coverage:
+  range: 70..90
   status:
     project:
       default:
