@@ -6,6 +6,7 @@ import stat
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -244,6 +245,7 @@ async def test_waker_backs_off_while_server_is_down(
 ) -> None:
     import asyncio
 
+    from kampung_client import adapter
     from kampung_client.adapter import CodexWaker, SessionResolver
 
     resolver = SessionResolver("codex", "/w/api", wait=0)
@@ -261,7 +263,11 @@ async def test_waker_backs_off_while_server_is_down(
         if len(delays) >= 4:
             raise asyncio.CancelledError
 
-    monkeypatch.setattr("kampung_client.adapter.asyncio.sleep", fake_sleep)
+    # Only the adapter's view: patching asyncio.sleep itself would also catch
+    # any other task sleeping during this test.
+    fake_asyncio = SimpleNamespace(**vars(asyncio))
+    fake_asyncio.sleep = fake_sleep
+    monkeypatch.setattr(adapter, "asyncio", fake_asyncio)
     with pytest.raises(asyncio.CancelledError):
         await CodexWaker(resolver, "/bin/false").poll()
     assert delays == [4.0, 8.0, 16.0, 30.0]
