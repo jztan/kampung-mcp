@@ -40,5 +40,10 @@ asyncio_mode = "auto"
 markers = ["docker: drives the real image and compose stack (KAMPUNG_DOCKER_TESTS=1)"]
 
 [tool.coverage.run]
-source = ["kampung_server", "kampung_client"]
+# Paths, not package names: hooks run hook.py as a script, which a package
+# name does not match.
+source = ["packages/server/src", "packages/client/src"]
 branch = true
+relative_files = true
+patch = ["subprocess"]
+parallel = true

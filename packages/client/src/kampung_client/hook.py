@@ -317,6 +317,9 @@ def repo_name(cwd: str) -> str:
     try:
         top = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            # The adapter's stdin belongs to the MCP server. A child inheriting
+            # it hangs at startup on Windows, past the timeout below.
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=2,

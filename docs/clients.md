@@ -23,6 +23,18 @@ The hooks run from the `uv tool` environment (or the checkout) with the Python i
 
 Hook and adapter failures are logged to `~/.cache/kampung/hooks.log`, which rolls over to `hooks.log.1` at 1 MB.
 
+### Checking a machine
+
+Hooks fail silently so that Kampung never gets in your agent's way, so a broken setup can look like nobody is writing to you. To find out, run:
+
+```bash
+kampung-mcp doctor
+```
+
+It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
+
+It can't see whether Codex has approved the hooks (`/hooks`), or whether this machine is paired with another: the dashboard's machines page shows that, and `list_peers` shows who an agent can reach.
+
 ### Rotating the key
 
 After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new key on the machine (it asks for it without echoing, or reads `--key -`), checks it against the server first, and leaves the hooks and MCP registration as they are. Restart Claude Code afterwards.

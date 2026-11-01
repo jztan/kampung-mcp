@@ -77,6 +77,18 @@ def hook_command(hook_path: str) -> str:
     return f"{shlex.quote(sys.executable)} {shlex.quote(hook_path)} || true"
 
 
+def powershell_hook_command(hook_path: str) -> str:
+    """The same in-place hook for Windows, where Claude Code may have no bash.
+
+    PowerShell 5.1 cannot parse `||`, and `exit 0` does its job here.
+    """
+    return f"& {_ps_quote(sys.executable)} {_ps_quote(hook_path)}; exit 0"
+
+
+def _ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def codex_hook_command(hook_path: str) -> str:
     """The same in-place hook, told it runs for Codex.
 
@@ -127,6 +139,14 @@ def _load_hooks_file(path: Path) -> dict[str, Any]:
 
 
 def _merge_claude_hooks(data: dict[str, Any]) -> Path:
+    if _windows():
+        return _merge_hooks(
+            _claude_settings_path(),
+            data,
+            powershell_hook_command(hook.__file__),
+            HOOK_TIMEOUT,
+            shell="powershell",
+        )
     return _merge_hooks(
         _claude_settings_path(), data, hook_command(hook.__file__), HOOK_TIMEOUT
     )
@@ -148,6 +168,7 @@ def _merge_hooks(
     command: str,
     timeout: int,
     timeouts: dict[str, int] | None = None,
+    shell: str | None = None,
 ) -> Path:
     """Replace our entry for every event, keep everyone else's, back up once."""
     if path.exists():
@@ -157,7 +178,14 @@ def _merge_hooks(
     hooks = data.setdefault("hooks", {})
     for event in EVENTS:
         seconds = (timeouts or {}).get(event, timeout)
-        entry = {"hooks": [{"type": "command", "command": command, "timeout": seconds}]}
+        item: dict[str, Any] = {
+            "type": "command",
+            "command": command,
+            "timeout": seconds,
+        }
+        if shell is not None:
+            item["shell"] = shell
+        entry = {"hooks": [item]}
         stripped = (_strip_ours(e) for e in hooks.get(event, []))
         hooks[event] = [e for e in stripped if e is not None] + [entry]
     path.parent.mkdir(parents=True, exist_ok=True)

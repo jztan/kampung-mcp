@@ -78,7 +78,8 @@ The per-session stdio adapter and the hooks for Claude Code and Codex.
 | `adapter.py` | The stdio MCP adapter: adds the machine key and session identity, forwards to the server, Channels push |
 | `hook.py` | The hook script for Claude Code and Codex. **Standard library only** (a test enforces this) |
 | `setup.py` | `kampung-mcp setup`: writes the config and hook entries |
-| `cli.py` | The `kampung-mcp` command: run the adapter or set up a machine |
+| `doctor.py` | `kampung-mcp doctor`: read-only checks of a machine's setup |
+| `cli.py` | The `kampung-mcp` command: run the adapter, or set up or check a machine |
 
 ## Development workflow
 

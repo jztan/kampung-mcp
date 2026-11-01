@@ -6,7 +6,7 @@ import sys
 import time
 import os
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -57,6 +57,24 @@ def test_repo_name_uses_git_toplevel(tmp_path: Path) -> None:
     repo = git_repo(tmp_path, "api")
     (repo / "sub").mkdir()
     assert hook.repo_name(str(repo / "sub")) == "api"
+
+
+def test_repo_name_gives_git_no_stdin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The MCP server reads the adapter's stdin. On Windows a child that inherits
+    # it hangs at startup, and the timeout never returns, so Codex's first tool
+    # call hung for good.
+    real = subprocess.run
+    seen: dict[str, object] = {}
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(hook.subprocess, "run", spy)
+    hook.repo_name(str(tmp_path))
+    assert seen["stdin"] == subprocess.DEVNULL
 
 
 def test_session_file_round_trip_and_delete(home: Path) -> None:
@@ -146,7 +164,7 @@ def test_register_with_awkward_dir_name(server: LiveServer, tmp_path: Path) -> N
 def test_ancestor_start_times_ignore_locale(monkeypatch: pytest.MonkeyPatch) -> None:
     # Hooks and the adapter can run with different locales; start times must
     # still compare equal, so `ps` always runs in the C locale.
-    pattern = r"^[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \d{4}$"
+    pattern = r"^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d\d:\d\d:\d\d \d{4}$"
     monkeypatch.setenv("LANG", "en_SG.UTF-8")
     monkeypatch.setenv("LC_ALL", "en_SG.UTF-8")
     with_locale = hook.ancestors()

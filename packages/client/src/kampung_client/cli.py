@@ -1,4 +1,4 @@
-"""The `kampung-mcp` command line: run the adapter, or set up a machine."""
+"""The `kampung-mcp` command line: run the adapter, or set up or check a machine."""
 
 import argparse
 import os
@@ -52,6 +52,7 @@ def _parser() -> argparse.ArgumentParser:
         help="the new key; '-' reads it from stdin. Without it, KAMPUNG_KEY is "
         "used, or you are asked for it.",
     )
+    sub.add_parser("doctor", help="check that this machine's Kampung setup works")
     return p
 
 
@@ -112,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
         except setup.SetupError as e:
             print(f"error: {e}", file=sys.stderr)
             return 1
+    elif args.command == "doctor":
+        from . import doctor
+
+        return doctor.main()
     return 0
 
 

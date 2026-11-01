@@ -35,7 +35,10 @@ def settings(home: Path) -> dict:  # type: ignore[type-arg]
     return json.loads((home / ".claude" / "settings.json").read_text())
 
 
-def test_setup_writes_private_config_and_hook(home: Path, server: LiveServer) -> None:
+def test_setup_writes_private_config_and_hook(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
     (home / ".config").mkdir(exist_ok=True)
     run_setup(server.url + "/", server.keys["laptop"], ["claude-code"], Recorder())
     cfg = home / ".config" / "kampung" / "config.json"
@@ -64,7 +67,10 @@ def test_setup_rejects_unreachable_server(home: Path) -> None:
         run_setup("http://127.0.0.1:9", "kmp_x", ["claude-code"], Recorder())
 
 
-def test_setup_merges_claude_hooks_idempotently(home: Path, server: LiveServer) -> None:
+def test_setup_merges_claude_hooks_idempotently(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
     existing = {
         "model": "x",
         "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other.sh"}]}]},
@@ -89,6 +95,7 @@ def test_setup_merges_claude_hooks_idempotently(home: Path, server: LiveServer) 
 def test_setup_quotes_paths_with_spaces(
     tmp_path: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
     spaced = tmp_path / "my home"
     spaced.mkdir()
     set_home(monkeypatch, spaced)
@@ -123,6 +130,33 @@ def test_hook_command_exits_0_when_the_hook_file_is_gone(tmp_path: Path) -> None
     # hook as "block" (a UserPromptSubmit hook would block every prompt).
     cmd = setup.hook_command(str(tmp_path / "gone" / "hook.py"))
     assert subprocess.run(cmd, shell=True, capture_output=True).returncode == 0
+
+
+def test_powershell_hook_command_quotes_for_powershell() -> None:
+    cmd = setup.powershell_hook_command(r"C:\it's\hook.py")
+    assert cmd == f"& '{sys.executable}' 'C:\\it''s\\hook.py'; exit 0"
+
+
+def test_setup_runs_claude_hooks_in_powershell_on_windows(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Without Git Bash, Claude Code runs hooks in PowerShell, where 5.1 cannot
+    # parse `|| true`. Naming the shell works with or without Git Bash.
+    monkeypatch.setattr(setup, "_windows", lambda: True)
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    for event in EVENTS:
+        [only] = settings(home)["hooks"][event]
+        [entry] = only["hooks"]
+        assert entry["shell"] == "powershell"
+        assert entry["command"] == setup.powershell_hook_command(hook.__file__)
+
+
+def test_setup_names_no_shell_elsewhere(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert "shell" not in settings(home)["hooks"]["Stop"][0]["hooks"][0]
 
 
 def test_setup_registers_mcp_with_claude(home: Path, server: LiveServer) -> None:
@@ -459,8 +493,9 @@ def test_cli_setup_channels_flag(
 
 
 def test_setup_keeps_foreign_hook_in_shared_entry(
-    home: Path, server: LiveServer
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
     command = f"{shlex.quote(sys.executable)} {shlex.quote(hook.__file__)} || true"
     other = {"type": "command", "command": "other.sh"}
     ours = {"type": "command", "command": command, "timeout": 5}
