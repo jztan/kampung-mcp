@@ -30,7 +30,7 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 - Done, unreleased: `kampung-mcp doctor` (new). Hooks fail open by design, so every breakage is silent.
 - Done, unreleased: client and server version check (new), as part of `doctor`.
 - Find the flaky test. It failed once and did not come back in 9 full runs, 3 of them under CPU load, so this waits until it fails again with a name.
-- Repeat the ancestor-matching spike on Linux, and confirm how Claude Code spawns hooks there.
+- Done, unreleased: repeat the ancestor-matching spike on Linux, and confirm how Claude Code spawns hooks there.
 - Finish the Windows checks: two windows in one repo, `/clear`, hook quoting without Git Bash, config file ACLs, Codex on Windows.
 - Done, unreleased: write `docs/tool-reference.md`.
 - Done, unreleased: add "back up first" to the upgrade docs.
