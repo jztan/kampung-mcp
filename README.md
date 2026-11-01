@@ -24,7 +24,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 
 ## [Clients](./docs/clients.md) | [Server](./docs/server.md) | [Security](./SECURITY.md) | [Changelog](./CHANGELOG.md) | [Contributing](./docs/contributing.md)
 
-> **Status: alpha.** The client is on PyPI as [`kampung-mcp`](https://pypi.org/project/kampung-mcp/) and in the MCP Registry as `io.github.jztan/kampung-mcp`. The server image is `ghcr.io/jztan/kampung-mcp` (amd64 and arm64).
+> **Status: beta.** The MCP tools and `/v1` can still change before v1.0. The client is on PyPI as [`kampung-mcp`](https://pypi.org/project/kampung-mcp/) and in the MCP Registry as `io.github.jztan/kampung-mcp`. The server image is `ghcr.io/jztan/kampung-mcp` (amd64 and arm64).
 
 ## Why Kampung?
 

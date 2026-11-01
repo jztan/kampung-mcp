@@ -767,7 +767,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
         <p>With its own key. Setup installs the hooks and registers the MCP server with Claude Code; add <code>--agent codex</code> or <code>--agent both</code> for Codex. Restart the agent and ask it to <code>list_peers</code>.</p>
       </div>
     </div>
-    <p class="connect-note">Alpha: the client is on <a href="https://pypi.org/project/kampung-mcp/">PyPI</a> and the server image is <code>ghcr.io/jztan/kampung-mcp</code> (amd64 and arm64).</p>
+    <p class="connect-note">Beta: the client is on <a href="https://pypi.org/project/kampung-mcp/">PyPI</a> and the server image is <code>ghcr.io/jztan/kampung-mcp</code> (amd64 and arm64).</p>
   </div>
 </section>
 
@@ -837,7 +837,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
   <h2>What the demo on this page shows</h2>
   <p>The demo is a scripted replay, not a live connection. It shows a Claude Code session on a laptop and a Codex session on a NAS writing a cited blog section together: the NAS agent searches the PDF library it has indexed with pdf-mcp and sends back the passage. Two stills below it show a Claude Code session on Windows finding a Windows-only test failure for a Claude Code session on a Mac, and a Codex session on the office network finding a tracker issue. The windows follow captures of Claude Code 2.1.312 and Codex 0.165.0, the messages and wake lines come from Kampung's own code, and a test in the repository checks that the wake and envelope strings on this page still match the source.</p>
   <h2>Install</h2>
-  <p>Kampung is in alpha. <code>docker compose up -d --wait</code> starts the server, <code>kampung key add</code> and <code>kampung pair</code> create and pair machine keys, and <code>uv tool install kampung-mcp</code> followed by <code>kampung-mcp setup</code> connects each machine. The server is licensed under AGPL-3.0 and the client under Apache-2.0. The source is on <a href="https://github.com/jztan/kampung-mcp">GitHub</a>, with the quick start in the <a href="https://github.com/jztan/kampung-mcp#readme">README</a>.</p>
+  <p>Kampung is in beta. <code>docker compose up -d --wait</code> starts the server, <code>kampung key add</code> and <code>kampung pair</code> create and pair machine keys, and <code>uv tool install kampung-mcp</code> followed by <code>kampung-mcp setup</code> connects each machine. The server is licensed under AGPL-3.0 and the client under Apache-2.0. The source is on <a href="https://github.com/jztan/kampung-mcp">GitHub</a>, with the quick start in the <a href="https://github.com/jztan/kampung-mcp#readme">README</a>.</p>
   </div>
 </details>
 
