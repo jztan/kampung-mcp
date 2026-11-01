@@ -27,7 +27,7 @@ Gitflow:
     5. Merge to master, push the tag (starts publish-pypi.yml)
     6. Wait for publish-pypi.yml, then for the version on PyPI
     7. Create the GitHub release (only once `uv tool install` works)
-    8. Publish server.json to the MCP Registry
+    8. Check the MCP Registry entry, which publish-pypi.yml publishes over OIDC
     9. Merge back to develop through the ruleset (the merge commit passes the
        commit-policy check on the release branch first), delete the branch
 """
@@ -631,11 +631,6 @@ def preflight_checks(config: ReleaseConfig) -> None:
         print("Error: gh is not signed in; run `gh auth login`.")
         sys.exit(1)
     print("  ✓ gh signed in")
-    if run_command(["which", "mcp-publisher"], check=False).returncode != 0:
-        print("  ⚠ mcp-publisher not found: the MCP Registry step will be skipped")
-        print("    (brew install mcp-publisher)")
-    else:
-        print("  ✓ mcp-publisher available (it signs in at publish time)")
 
 
 def commit_version_bump(config: ReleaseConfig, new_version: str) -> None:
@@ -650,6 +645,22 @@ def commit_version_bump(config: ReleaseConfig, new_version: str) -> None:
     )
     if not config.dry_run:
         print(f"  ✓ Committed v{new_version}")
+
+
+def run_tests_at_new_version(config: ReleaseConfig, new_version: str) -> None:
+    """Some tests depend on the version, and the dry run never bumps it. Fail
+    here, where nothing has been pushed, instead of in publish-pypi.yml."""
+    print(f"\n=== Tests at {new_version} ===\n")
+    if config.dry_run:
+        print("  [DRY-RUN] Would run the tests on the bumped version")
+        return
+    result = run_command(["uv", "run", "pytest", "-q"], check=False)
+    if result.returncode != 0:
+        print(result.stdout[-2000:])
+        print(f"  ✗ Tests fail at {new_version}. Nothing is pushed; fix them on the")
+        print("    release branch, then finish the release by hand.")
+        sys.exit(1)
+    print(f"  ✓ Tests pass at {new_version}")
 
 
 def merge_to_master_and_tag(
@@ -765,31 +776,25 @@ def create_github_release(config: ReleaseConfig, new_version: str) -> None:
     print(f"  ✓ Created the GitHub release {stored_title or tag}")
 
 
-def publish_mcp_registry(config: ReleaseConfig) -> None:
-    """Sign in right before publishing: the registry token is short-lived."""
+def check_mcp_registry(config: ReleaseConfig, new_version: str) -> None:
+    """publish-pypi.yml publishes the entry; a failure there does not stop it."""
     print("\n=== MCP Registry ===\n")
-    if run_command(["which", "mcp-publisher"], check=False).returncode != 0:
-        print("  ⚠ mcp-publisher not found; skipped (brew install mcp-publisher)")
-        return
     if config.dry_run:
-        print(
-            "  [DRY-RUN] Would run: mcp-publisher login github && mcp-publisher publish"
-        )
+        print("  [DRY-RUN] Would check the registry entry from publish-pypi.yml")
         return
     try:
-        login = subprocess.run(["mcp-publisher", "login", "github"], timeout=300)
-    except subprocess.TimeoutExpired:
-        login = subprocess.CompletedProcess([], 1)
-    if login.returncode != 0:
-        print(
-            "  ⚠ mcp-publisher login failed; run it and `mcp-publisher publish` later"
-        )
-        return
-    result = run_command(["mcp-publisher", "publish"], check=False)
-    if result.returncode == 0:
-        print(f"  ✓ Published {REGISTRY_NAME}")
+        with urllib.request.urlopen(REGISTRY_URL, timeout=15) as response:
+            servers = json.load(response).get("servers", [])
+    except (OSError, ValueError) as e:
+        print(f"  ⚠ Could not read the MCP Registry: {e}")
+        servers = None
+    versions = [s.get("server", {}).get("version") for s in servers or []]
+    if new_version in versions:
+        print(f"  ✓ {REGISTRY_NAME} {new_version} is on the MCP Registry")
     else:
-        print(f"  ⚠ MCP Registry publish failed: {result.stderr.strip()}")
+        print(f"  ⚠ {new_version} is not on the MCP Registry. See publish-registry")
+        print("    in publish-pypi.yml, or run from this repo:")
+        print("    mcp-publisher login github && mcp-publisher publish")
 
 
 def merge_back_to_develop(config: ReleaseConfig, branch: str) -> None:
@@ -950,6 +955,7 @@ Release notes, edited outside the terminal:
     sync_client_readme(config.project_root, config.dry_run)
     run_command(["uv", "lock"], dry_run=config.dry_run)
     commit_version_bump(config, new_version)
+    run_tests_at_new_version(config, new_version)
 
     print("\n=== Release Notes ===\n")
     if approved is not None:
@@ -987,7 +993,7 @@ Release notes, edited outside the terminal:
         print("\n  [DRY-RUN] Would wait for publish-pypi.yml and for PyPI")
 
     create_github_release(config, new_version)
-    publish_mcp_registry(config)
+    check_mcp_registry(config, new_version)
     merge_back_to_develop(config, branch)
 
     if not config.dry_run:
