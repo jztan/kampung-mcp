@@ -25,18 +25,18 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 - README: rerun setup if the `uv tool` install moves to another Python minor version.
 - README: correct the Roadmap section's promise that the plugin removes the development flag.
 
-### v0.2: know it's working
+### v0.2: know it's working (released 2026-11-01)
 
-- Done, unreleased: `kampung-mcp doctor` (new). Hooks fail open by design, so every breakage is silent.
-- Done, unreleased: client and server version check (new), as part of `doctor`.
-- Find the flaky test. It failed once and did not come back in 9 full runs, 3 of them under CPU load, so this waits until it fails again with a name.
-- Done, unreleased: repeat the ancestor-matching spike on Linux, and confirm how Claude Code spawns hooks there.
-- Done, unreleased: finish the Windows checks on Windows Server 2025: two windows in one repo, `/clear`, hook quoting without Git Bash, config file ACLs, Codex on Windows.
-- Done, unreleased: write `docs/tool-reference.md`.
-- Done, unreleased: add "back up first" to the upgrade docs.
+- `kampung-mcp doctor` (new). Hooks fail open by design, so every breakage is silent.
+- Client and server version check (new), as part of `doctor`.
+- Repeat the ancestor-matching spike on Linux, and confirm how Claude Code spawns hooks there.
+- Finish the Windows checks on Windows Server 2025: two windows in one repo, `/clear`, hook quoting without Git Bash, config file ACLs, Codex on Windows.
+- Write `docs/tool-reference.md`.
+- Add "back up first" to the upgrade docs.
 
 ### v0.3: wake idle sessions
 
+- Find the flaky test. One full run failed on a test that looks like `test_waker_backs_off_while_server_is_down`, whose process-wide `asyncio.sleep` patch is now narrowed. Close this if it does not come back.
 - `asyncRewake` spike (new), run before the SSE work. The docs describe a background hook that can wake Claude on exit code 2, which might wake an idle session without Channels. Untested, and which events support it is still unconfirmed.
 - SSE `/v1/events` to replace the adapter's `peek` polling.
 - Have `peek` return the newest wakeable id, so a read plus a new arrival between polls still pushes.
