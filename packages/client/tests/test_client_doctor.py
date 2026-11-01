@@ -131,7 +131,7 @@ def test_rejected_key_fails(home: Path, server: LiveServer) -> None:
 @pytest.mark.parametrize(
     "theirs, status",
     [
-        (__version__, doctor.OK),
+        ("0.1.0", doctor.OK),
         ("0.1.99", doctor.OK),  # patch releases stay compatible
         ("9.9.0", doctor.WARN),
         ("", doctor.WARN),
