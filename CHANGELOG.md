@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Changed
+
+#### Client (`kampung-mcp`)
+
+- Kampung is now in beta. The MCP tools and `/v1` can still change before v1.0.
+
 ### Added
 
 #### Client (`kampung-mcp`)
