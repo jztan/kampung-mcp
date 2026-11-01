@@ -63,10 +63,13 @@ jobs:
           KAMPUNG_DOCKER_TESTS: "1"
 
   client-windows:
-    # The client also runs on native Windows (hooks through Git Bash, the
+    # The client also runs on native Windows (hooks through PowerShell, the
     # Win32 process chain instead of ps); the server only ships on Linux.
     runs-on: windows-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write  # Codecov upload over OIDC
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -76,4 +79,10 @@ jobs:
       # Audits the dependencies only installed on Windows, which Linux skips.
       - run: bash scripts/audit.sh
         shell: bash
-      - run: uv run pytest -q packages/client
+      - run: uv run pytest -q --cov --cov-report=xml packages/client
+      # Counts the Windows-only code. A failed upload never fails CI.
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage.xml
+          use_oidc: true
+          fail_ci_if_error: false
