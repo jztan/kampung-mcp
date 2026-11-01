@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Changed
+
+#### Client (`kampung-mcp`)
+
+- The README on PyPI now says beta, matching the release. Nothing else changes from 0.2.0.
+
 ## [0.2.0] - 2026-11-01
 
 ### Changed
