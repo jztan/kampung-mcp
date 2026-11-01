@@ -374,3 +374,17 @@ def test_cli_exits_1_and_prints_the_fix(
     assert cli.main(["doctor"]) == 1
     out = capsys.readouterr().out
     assert "FAIL" in out and "Fix: " in out and "kampung-mcp setup" in out
+
+
+def test_try_hook_reads_the_powershell_form() -> None:
+    command = setup.powershell_hook_command(hook.__file__)
+    assert doctor._try_hook(command) == (doctor.OK, "")
+
+
+def test_try_hook_finds_a_missing_script_in_the_powershell_form(
+    tmp_path: Path,
+) -> None:
+    gone = tmp_path / "gone" / "hook.py"
+    status, detail = doctor._try_hook(setup.powershell_hook_command(str(gone)))
+    assert status == doctor.FAIL
+    assert "gone" in detail

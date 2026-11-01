@@ -125,6 +125,30 @@ def test_hook_command_exits_0_when_the_hook_file_is_gone(tmp_path: Path) -> None
     assert subprocess.run(cmd, shell=True, capture_output=True).returncode == 0
 
 
+def test_powershell_hook_command_quotes_for_powershell() -> None:
+    cmd = setup.powershell_hook_command(r"C:\it's\hook.py")
+    assert cmd == f"& '{sys.executable}' 'C:\\it''s\\hook.py'; exit 0"
+
+
+def test_setup_runs_claude_hooks_in_powershell_on_windows(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Without Git Bash, Claude Code runs hooks in PowerShell, where 5.1 cannot
+    # parse `|| true`. Naming the shell works with or without Git Bash.
+    monkeypatch.setattr(setup, "_windows", lambda: True)
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    for event in EVENTS:
+        [only] = settings(home)["hooks"][event]
+        [entry] = only["hooks"]
+        assert entry["shell"] == "powershell"
+        assert entry["command"] == setup.powershell_hook_command(hook.__file__)
+
+
+def test_setup_names_no_shell_elsewhere(home: Path, server: LiveServer) -> None:
+    run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
+    assert "shell" not in settings(home)["hooks"]["Stop"][0]["hooks"][0]
+
+
 def test_setup_registers_mcp_with_claude(home: Path, server: LiveServer) -> None:
     rec = Recorder()
     run_setup(server.url, server.keys["laptop"], ["claude-code"], rec)
