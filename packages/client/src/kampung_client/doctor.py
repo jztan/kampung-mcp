@@ -34,6 +34,7 @@ LOG_WINDOW = timedelta(hours=24)
 LOG_EXPECTED = "no session file for this session"
 LOG_LINE_MAX = 120
 MCP_BROKEN = re.compile(r"failed to connect|enabled:\s*false", re.IGNORECASE)
+POWERSHELL_HOOK = re.compile(r"& '((?:[^']|'')+)' '((?:[^']|'')+)'; exit 0")
 
 
 @dataclass(frozen=True)
@@ -171,13 +172,18 @@ def _try_hook(command: str) -> tuple[str, str]:
     """(status, detail) of running a hook command with an event it ignores.
 
     `|| true` is cut off first: it is what hides a broken hook from the agent.
+    `; exit 0` does the same in the PowerShell form.
     """
-    try:
-        args = shlex.split(command)
-    except ValueError as e:
-        return FAIL, f"cannot read the hook command: {e}"
-    if "||" in args:
-        args = args[: args.index("||")]
+    powershell = POWERSHELL_HOOK.fullmatch(command)
+    if powershell:
+        args = [part.replace("''", "'") for part in powershell.groups()]
+    else:
+        try:
+            args = shlex.split(command)
+        except ValueError as e:
+            return FAIL, f"cannot read the hook command: {e}"
+        if "||" in args:
+            args = args[: args.index("||")]
     if len(args) < 2:
         return FAIL, f"unexpected hook command: {command}"
     script = Path(args[1])

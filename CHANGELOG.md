@@ -10,6 +10,13 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - `kampung-mcp doctor` checks a machine's setup and says how to fix what it finds: the config, the server, the key, client and server versions, each agent's hooks and MCP registration, and recent failures in `hooks.log`. It exits 1 if a check fails.
 
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- On Windows, Codex no longer hangs on its first Kampung call.
+- On Windows, Claude Code hooks now run without Git Bash. Setup writes them for PowerShell, so rerun `kampung-mcp setup` on Windows machines and keep Claude Code current.
+
 ## [0.1.1] - 2026-10-31
 
 ### Changed
