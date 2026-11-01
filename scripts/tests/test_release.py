@@ -1,4 +1,6 @@
+import io
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -194,3 +196,42 @@ def test_find_remote_by_url(listing: str, want: str) -> None:
 def test_find_remote_refuses_when_none_points_at_the_repo() -> None:
     with pytest.raises(ValueError, match="jztan/kampung-mcp"):
         release.find_remote("origin\tgit@github.com:jztan/other.git (fetch)\n")
+
+
+def test_a_failing_test_at_the_new_version_stops_before_the_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = release.ReleaseConfig("minor", False, tmp_path)
+    failed = subprocess.CompletedProcess([], 1, stdout="1 failed", stderr="")
+    monkeypatch.setattr(release, "run_command", lambda *a, **k: failed)
+    with pytest.raises(SystemExit):
+        release.run_tests_at_new_version(config, "0.3.0")
+
+
+def _registry_answer(monkeypatch: pytest.MonkeyPatch, versions: list[str]) -> None:
+    body = {"servers": [{"server": {"version": v}} for v in versions]}
+    monkeypatch.setattr(
+        release.urllib.request,
+        "urlopen",
+        lambda url, timeout: io.BytesIO(json.dumps(body).encode()),
+    )
+
+
+def test_registry_check_confirms_the_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _registry_answer(monkeypatch, ["0.1.0", "0.3.0"])
+    release.check_mcp_registry(release.ReleaseConfig("minor", False, tmp_path), "0.3.0")
+    assert "is on the MCP Registry" in capsys.readouterr().out
+
+
+def test_registry_check_says_how_to_publish_by_hand(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _registry_answer(monkeypatch, ["0.1.0"])
+    release.check_mcp_registry(release.ReleaseConfig("minor", False, tmp_path), "0.3.0")
+    assert "mcp-publisher publish" in capsys.readouterr().out
