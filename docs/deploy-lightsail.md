@@ -16,14 +16,16 @@ flowchart LR
         mac["macOS<br/>Claude Code, Codex<br/>kampung-mcp"]
         win["Windows<br/>Claude Code<br/>kampung-mcp"]
     end
+    app["Claude app<br/>iPhone or claude.ai<br/>(optional, step 14)"]
+    anth["Anthropic cloud<br/>160.79.104.0/21"]
     le["Let's Encrypt"]
     ghcr["GitHub Container Registry<br/>server image"]
 
     subgraph aws["AWS Cloud (your region)"]
-        fw["Lightsail firewall<br/>443: your networks only<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
+        fw["Lightsail firewall<br/>443: your networks, plus Anthropic's range for the app<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
         ip["Lightsail static IP"]
         subgraph inst["Amazon Lightsail instance (Ubuntu 24.04 LTS)"]
-            caddy["Caddy<br/>TLS, body caps"]
+            caddy["Caddy<br/>TLS, body caps<br/>app sign-in: your networks only"]
             kampung["Kampung server<br/>127.0.0.1:8803"]
             db[("SQLite<br/>kampung-data volume")]
         end
@@ -33,6 +35,8 @@ flowchart LR
 
     mac -- "HTTPS + machine key" --> ip
     win -- "HTTPS + machine key" --> ip
+    app --> anth
+    anth -- "HTTPS + OAuth token" --> ip
     le -. "HTTP-01 check" .-> ip
     ghcr -. "docker compose pull" .-> kampung
     ip --> fw --> caddy --> kampung --> db
@@ -44,7 +48,7 @@ flowchart LR
     classDef existing fill:#f2f2f2,color:#424242,stroke:#9e9e9e
     class fw,ip,snap,alarm awsnew
     class caddy,kampung,db appnew
-    class mac,win,le,ghcr existing
+    class mac,win,le,ghcr,app,anth existing
     style aws fill:#ffffff,stroke:#FF9900,stroke-width:2px,stroke-dasharray:6 4
     style inst fill:#fff8ef,stroke:#FF9900
     style clients fill:#fafafa,stroke:#bdbdbd
