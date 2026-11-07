@@ -36,6 +36,51 @@ Result = dict[str, Any]
 BUSY = KampungError("busy", "The server is busy. Try again in a moment.")
 
 
+# Claude Code moves a text result over 50,000 characters into a file the
+# Claude app cannot open; escaping (newlines, control characters) and a long
+# heading list can push a slice past that, so the rendered result is bounded.
+MAX_RENDERED_CHARS = 45_000
+MAX_HEADINGS = 200
+
+
+def render_read(
+    conn: sqlite3.Connection,
+    session: Session,
+    message_id: str,
+    offset: int,
+    limit: int,
+    now: datetime,
+) -> Result:
+    """read_attachment's result, shrinking the slice until it renders under
+    MAX_RENDERED_CHARS. An image carries its base64 under "image"."""
+    while True:
+        read = attachments.read_attachment(
+            conn, session, message_id, offset, limit, now
+        )
+        meta: Result = {
+            "name": read.name,
+            "type": read.type,
+            "bytes": read.size,
+            "kind": attachments.KIND,
+        }
+        if read.type != attachments.TEXT:
+            meta["image"] = base64.b64encode(read.data).decode()
+            return meta
+        meta.update(
+            offset=read.offset,
+            next_offset=read.next_offset,
+            text=read.data.decode("utf-8"),
+        )
+        if read.headings is not None:
+            meta["headings"] = read.headings[:MAX_HEADINGS]
+            if len(read.headings) > MAX_HEADINGS:
+                meta["headings_truncated"] = True
+        size = len(json.dumps(meta, ensure_ascii=False))
+        if size <= MAX_RENDERED_CHARS or limit <= 1:
+            return meta
+        limit = max(1, min(limit - 1, limit * MAX_RENDERED_CHARS // size - 64))
+
+
 def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
     def call(work: Callable[..., Result], needs_session: bool = True) -> Result:
         conn: sqlite3.Connection | None = None
@@ -153,29 +198,12 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime
         ) -> Result:
             assert s is not None
-            read = attachments.read_attachment(conn, s, message_id, offset, limit, now)
-            meta: Result = {
-                "name": read.name,
-                "type": read.type,
-                "bytes": read.size,
-                "kind": attachments.KIND,
-            }
-            if read.type != attachments.TEXT:
-                meta["image"] = base64.b64encode(read.data).decode()
-                return meta
-            meta.update(
-                offset=read.offset,
-                next_offset=read.next_offset,
-                text=read.data.decode("utf-8"),
-            )
-            if read.headings is not None:
-                meta["headings"] = read.headings
-            return meta
+            return render_read(conn, s, message_id, offset, limit, now)
 
         result = call(work)
         image = result.pop("image", None)
         blocks: list[TextContent | ImageContent] = [
-            TextContent(type="text", text=json.dumps(result))
+            TextContent(type="text", text=json.dumps(result, ensure_ascii=False))
         ]
         if image is not None:
             # The label first, so the reader meets "information only" before

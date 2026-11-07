@@ -65,9 +65,12 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "env secret",
         re.compile(
-            r"(?im)^\s{0,20}(?:export\s{1,5})?[A-Z0-9_]{0,60}"
+            # Upper-case names only, as in .env files, and a literal value:
+            # code that reads a secret (os.getenv("API_KEY"), $VAR, ${VAR})
+            # is not a secret and must be sendable.
+            r"(?m)^\s{0,20}(?:export\s{1,5})?[A-Z0-9_]{0,60}"
             r"(?:PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|PRIVATE_KEY)[A-Z0-9_]{0,60}"
-            r"\s{0,5}=\s{0,5}[\"']?[^\s\"'<>]{8,512}"
+            r"\s{0,5}=\s{0,5}[\"']?[^\s\"'<>()\[\]{}$]{8,512}(?=[\s\"']|$)"
         ),
     ),
     ("Kampung key", re.compile(r"\bkmp_[A-Za-z0-9_-]{40,64}")),

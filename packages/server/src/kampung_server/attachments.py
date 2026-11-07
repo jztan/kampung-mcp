@@ -68,7 +68,10 @@ def parse_attachment(raw: object, connector: bool) -> Attachment:
         text = raw["text"]
         if not isinstance(text, str) or text == "":
             raise _invalid("The attachment text is empty.")
-        data = text.encode("utf-8")
+        try:
+            data = text.encode("utf-8")
+        except UnicodeEncodeError as e:
+            raise _invalid("The attachment text is not valid Unicode.") from e
         if len(data) > MAX_ATTACHMENT_TEXT_BYTES:
             raise KampungError(
                 "attachment_too_large",

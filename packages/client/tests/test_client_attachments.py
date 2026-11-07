@@ -191,3 +191,51 @@ async def test_no_attachment_argument_when_unused(
         await c.call_tool("send", {"to": "desktop/blog", "body": "plain"})
     assert all("attachment" not in a for a in seen)
     assert db_query(server, "SELECT count(*) FROM attachments") == [(0,)]
+
+
+async def test_bomb_image_in_the_outbox_is_an_inline_error(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(body))
+            + kind
+            + body
+            + struct.pack(">I", zlib.crc32(kind + body))
+        )
+
+    bomb = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 20000, 20000, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00"))
+        + chunk(b"IEND", b"")
+    )
+    repo = git_repo(tmp_path, "api")
+    hooked(repo, "cc-1")
+    (repo / "kampung-outbox").mkdir()
+    (repo / "kampung-outbox" / "big.png").write_bytes(bomb)
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        r = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "x", "attachment": "big.png"}
+        )
+    assert r.data["error"] == "attachment_too_large"
+
+
+async def test_session_failure_during_an_attachment_send_is_inline(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    hooked(repo, "cc-1")
+
+    def boom(self: object) -> dict[str, object]:
+        raise OSError("registration failed")
+
+    monkeypatch.setattr(adapter.SessionResolver, "current", boom)
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        r = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "x", "attachment": "a.md"}
+        )
+    assert "error" in r.data

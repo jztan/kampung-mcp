@@ -166,8 +166,14 @@ def _read_windows(outbox: Path, name: str, cap: int) -> OutboxFile:
     _check_file(before, name, cap)
     if os.path.dirname(os.path.realpath(path)) != os.path.realpath(outbox):
         raise _bad(f"{name} is not directly in {outbox}.")
+    outbox_real = os.path.realpath(outbox)
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
     try:
+        # Swapped for a junction between the check and the open? Then the
+        # folder is no longer plain, or no longer resolves to the same place.
+        _check_dir(outbox)
+        if os.path.realpath(outbox) != outbox_real:
+            raise _bad(f"{outbox} changed while {name} was being read.")
         st = os.fstat(fd)
         if (st.st_dev, st.st_ino) != (before.st_dev, before.st_ino):
             raise _bad(f"{name} changed while it was being read.")

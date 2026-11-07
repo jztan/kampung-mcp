@@ -494,3 +494,46 @@ def test_other_machines_and_expired_get_the_same_unknown_message(
     )
     assert stranger.to_dict() == nothing.to_dict() == expired.to_dict()
     assert stranger.code == "unknown_message"
+
+
+def test_lone_surrogate_is_invalid_not_a_crash() -> None:
+    assert _err(_text, "a.md", "ok \ud800 ok").code == "invalid_attachment"
+
+
+@pytest.mark.parametrize("unit", ["中", "\U0001f600", "\n", "\x01"])
+def test_rendered_read_stays_under_45000_characters(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock, unit: str
+) -> None:
+    import json as _json
+
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    mid = _sent(
+        conn,
+        a,
+        clock,
+        "u.txt",
+        unit * 60000 if len(unit.encode()) < 4 else unit * 40000,
+    )
+    inbox(conn, b, 20, clock.now())
+    from kampung_server.tools import render_read
+
+    meta = render_read(conn, b, mid, 0, 32768, clock.now())
+    assert len(_json.dumps(meta, ensure_ascii=False)) <= 45000
+    assert meta["next_offset"] is not None and len(meta["text"]) > 0
+
+
+def test_headings_are_capped(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    import json as _json
+
+    from kampung_server.tools import render_read
+
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    mid = _sent(conn, a, clock, "many.md", "".join(f"# h{i}\n" for i in range(12000)))
+    inbox(conn, b, 20, clock.now())
+    meta = render_read(conn, b, mid, 0, 16384, clock.now())
+    headings = meta["headings"]
+    assert isinstance(headings, list) and len(headings) == 200
+    assert meta["headings_truncated"] is True
+    assert len(_json.dumps(meta, ensure_ascii=False)) <= 45000

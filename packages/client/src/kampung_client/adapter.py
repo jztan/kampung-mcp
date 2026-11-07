@@ -447,8 +447,14 @@ def build_adapter(
         args: dict[str, Any] = {"to": to, "body": body, "reply_to": reply_to}
         if attachment is None:
             return await forward("send", args, ctx)
-        session = await session_for(ctx)
-        box = outbox.outbox_dir(str(session.get("cwd") or resolver.cwd))
+        try:
+            session = await session_for(ctx)
+            box = await asyncio.to_thread(
+                outbox.outbox_dir, str(session.get("cwd") or resolver.cwd)
+            )
+        except Exception as e:  # noqa: BLE001 - inline, like every tool error
+            hook._log("adapter send", e)
+            return await asyncio.to_thread(_diagnose)
         try:
             if not os.path.lexists(box):
                 box.mkdir()

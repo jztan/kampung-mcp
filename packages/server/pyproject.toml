@@ -12,7 +12,7 @@ dependencies = [
     "jinja2>=3.1",
     # Starlette needs it to parse the dashboard's form posts.
     "python-multipart>=0.0.9",
-    "pillow>=11,<13",
+    "pillow>=13,<14",
 ]
 
 [project.scripts]

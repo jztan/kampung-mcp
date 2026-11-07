@@ -91,3 +91,18 @@ def test_256_kb_of_adversarial_input_scans_fast(text: str) -> None:
     start = time.perf_counter()
     scan(text)
     assert time.perf_counter() - start < 0.5
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'API_KEY = os.getenv("API_KEY")',
+        'SECRET_KEY = os.environ["SECRET_KEY"]',
+        "    token = request.headers",
+        "PASSWORD=$DB_PASSWORD_FROM_VAULT",
+        "API_TOKEN=${API_TOKEN_FROM_CI}",
+        "db_password = settings.database_password",
+    ],
+)
+def test_ordinary_code_reading_secrets_passes(line: str) -> None:
+    assert scan(line) is None

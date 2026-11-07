@@ -31,6 +31,9 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
     """The image re-encoded with no metadata, and its media type."""
     try:
         opened = Image.open(io.BytesIO(data), formats=["PNG", "JPEG"])
+    except Image.DecompressionBombError as e:
+        # Pillow refuses a huge header itself, before our own pixel check.
+        raise KampungError("attachment_too_large", "The image is too large.") from e
     except (UnidentifiedImageError, OSError, ValueError) as e:
         raise UNSUPPORTED from e
     width, height = opened.size

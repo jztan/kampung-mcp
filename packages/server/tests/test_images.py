@@ -131,3 +131,9 @@ def test_still_too_large_after_encoding_is_refused(
     with pytest.raises(KampungError) as e:
         normalize_image(_noise_png(200, 200))
     assert e.value.code == "attachment_too_large"
+
+
+def test_header_past_pillows_own_bomb_limit_is_too_large_inline() -> None:
+    with pytest.raises(KampungError) as e:
+        normalize_image(_bomb_png(20000, 20000))
+    assert e.value.code == "attachment_too_large"
