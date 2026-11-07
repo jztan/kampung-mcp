@@ -25,3 +25,17 @@ SESSION_DELETE_BATCH = 1000
 MAX_WAITING_PER_SENDER = 200
 AUTH_FAILURE_LIMIT = 20
 AUTH_FAILURE_WINDOW = timedelta(seconds=60)
+# Claude app connector.
+OAUTH_CONNECT_CODE_TTL = timedelta(minutes=10)
+OAUTH_REQUEST_TTL = timedelta(minutes=10)
+OAUTH_CODE_TTL = timedelta(minutes=5)
+OAUTH_ACCESS_TTL = timedelta(hours=1)
+OAUTH_REFRESH_TTL = timedelta(days=90)
+OAUTH_REFRESH_REUSE = timedelta(seconds=60)
+OAUTH_MAX_REQUESTS = 100
+OAUTH_CONNECT_ATTEMPTS = 5
+CONNECT_FAILURE_LIMIT = 20  # wrong codes per client address
+CONNECT_FAILURE_WINDOW = timedelta(minutes=15)
+MAX_OAUTH_BODY_BYTES = 64 * 1024
+CONNECTOR_WAKE_BUDGET = 10
+CONNECTOR_WAKE_WINDOW = timedelta(minutes=10)

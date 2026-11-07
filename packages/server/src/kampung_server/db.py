@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 
 # schema.sql builds version 1; schema_<n>.sql upgrades version n - 1 to n.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
