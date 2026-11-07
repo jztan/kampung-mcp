@@ -40,7 +40,8 @@ class KnownKeys(Protocol):
     def is_known(self, key: str) -> bool: ...
 
 
-def _client_key(scope: Scope) -> str:
+def client_key(scope: Scope) -> str:
+    """The address an abuse limit keys on: IPv6 grouped by /64."""
     client = scope.get("client")
     host = str(client[0]) if client else "unknown"
     try:
@@ -84,7 +85,7 @@ class AuthFailureThrottle:
         if scope["type"] != "http" or not str(scope["path"]).startswith(GUARDED):
             await self.app(scope, receive, send)
             return
-        ip = _client_key(scope)
+        ip = client_key(scope)
         if self._blocked(ip) and not self._keys.is_known(_bearer(scope)):
             await send(
                 {
