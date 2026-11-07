@@ -4,6 +4,20 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-07
+
+### Added
+
+#### Server (`kampung-server`)
+
+- `/v1/sessions/{id}/peek` also returns `newest`, the id of the newest wakeable message (or `null`).
+
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- Mid-turn nudges, Channels push and Codex wakes no longer miss a message that arrives just after another one was read, leaving the waiting count unchanged. This needs a server that returns `newest`; with an older server the client compares counts as before.
+
 ## [0.2.1] - 2026-11-01
 
 ### Changed
@@ -108,6 +122,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.2.2]: https://github.com/jztan/kampung-mcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.2.0
 [0.1.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.1.1
