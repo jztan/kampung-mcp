@@ -92,6 +92,8 @@ class MessageRow:
     depth: int
     state: str
     size: int
+    # Never the content: the dashboard shows that an attachment exists.
+    attachment_bytes: int | None = None
 
 
 @dataclass
@@ -108,6 +110,9 @@ class MessageDetail:
     delivered_to: str | None
     delivered_at: str | None
     body: str
+    attachment_name: str | None = None
+    attachment_type: str | None = None
+    attachment_bytes: int | None = None
 
 
 # Queued means undelivered and unexpired; no-wake is queued mail the loop guard
@@ -127,6 +132,7 @@ _MSG_FROM = (
     "JOIN mailboxes tmb ON tmb.id = msg.to_mailbox_id "
     "JOIN machines tm ON tm.id = tmb.machine_id "
     "LEFT JOIN sessions ts ON ts.id = msg.to_session_id "
+    "LEFT JOIN attachments att ON att.message_id = msg.id "
 )
 _MSG_SENDER = "fm.name || '/' || fmb.repo || '#' || fs.suffix"
 _MSG_TO = "tm.name || '/' || tmb.repo || COALESCE('#' || ts.suffix, '')"
@@ -281,7 +287,8 @@ def messages(
     where = " AND ".join(conds)
     rows = conn.execute(
         f"SELECT msg.id, msg.sent_at, msg.depth, LENGTH(CAST(msg.body AS BLOB)) "
-        f"AS size, {_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
+        f"AS size, att.bytes AS att_bytes, "
+        f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
         f"{_MSG_STATE} AS state {_MSG_FROM} WHERE {where} "
         f"ORDER BY msg.sent_at DESC, msg.id DESC LIMIT {LIMIT}",
         p,
@@ -296,6 +303,7 @@ def messages(
                 r["depth"],
                 r["state"],
                 r["size"],
+                r["att_bytes"],
             )
             for r in rows
         ],
@@ -307,7 +315,8 @@ def message(
     conn: sqlite3.Connection, now: datetime, message_id: str
 ) -> MessageDetail | None:
     r = conn.execute(
-        f"SELECT msg.*, {_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
+        f"SELECT msg.*, att.name AS att_name, att.type AS att_type, "
+        f"att.bytes AS att_bytes, {_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
         f"{_MSG_STATE} AS state, "
         "(SELECT dm.name || '/' || dmb.repo || '#' || ds.suffix FROM sessions ds "
         " JOIN mailboxes dmb ON dmb.id = ds.mailbox_id "
@@ -331,6 +340,9 @@ def message(
         delivered_to=r["delivered_address"],
         delivered_at=r["delivered_at"],
         body=r["body"],
+        attachment_name=r["att_name"],
+        attachment_type=r["att_type"],
+        attachment_bytes=r["att_bytes"],
     )
 
 

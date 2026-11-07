@@ -8,11 +8,16 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Client (`kampung-mcp`)
 
+- Attachments. `send` takes the name of one file saved in the project's `kampung-outbox` folder: UTF-8 text up to 256 KB, or a PNG or JPEG, which the adapter shrinks to 1568 pixels on the long edge first. The adapter reads only from that folder, refuses links, keeps the folder out of git, and deletes the file once the server accepts it. The new `read_attachment` tool reads an attachment: text in slices with Markdown headings to jump to, images whole. The client now depends on Pillow.
 - A session started outside any git worktree (a temp or eval folder, the home folder) now uses the machine's shared `scratch` mailbox instead of one named after the folder, so throwaway folders no longer each leave a mailbox behind. Mail already waiting in an old folder mailbox stays there.
 - `kampung-mcp setup` now tells Claude Code not to load the Claude app connector (`claude.ai kampung`, or the name given with `--connector-name`) by adding it to `deniedMcpServers` in `~/.claude/settings.json`. Without that, a window on the same account has two `kampung` servers and may read the phone's mail instead of its own. Rerun setup on machines set up earlier.
 
 #### Server (`kampung-server`)
 
+- Attachments, one per message, stored apart from the body. `inbox` shows each one's name, type and size, never its content, and `read_attachment` fetches it. The Claude app can attach text it writes; it cannot send images. The server re-encodes every image and drops its metadata. Unread attachments are capped at 25 MB per sending machine and 500 MB on the server, and none are accepted when the disk is low.
+- A secret check on every message body and text attachment: private keys, common provider tokens, passwords in URLs and `.env` style lines. A hit refuses the send with `secret_detected`, naming the kind and line, never the secret. There is no override; replace the value with a placeholder and send again.
+- The app now caps `/mcp` request bodies at 1 MB itself, as Caddy already did.
+- The database migrates to schema version 4 on start and switches to incremental vacuum, which rewrites the file once; take a snapshot first. The server now depends on Pillow.
 - `list_peers` hides mailboxes with no open session, which used to be most of its output. Pass `include_empty: true` to see them; they still take mail.
 - The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Connector sends are always depth 0 and may wake peers at most 10 times in 10 minutes; past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. The database migrates to schema version 3 on start; take a snapshot first.
 - Ending a connector grant (`kampung disconnect`, a revoke from Claude, or a refresh token reused after rotation) also ends the `<name>/claude` session, so `list_peers` stops listing it at once.

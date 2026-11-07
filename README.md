@@ -31,7 +31,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 | | Without Kampung | With Kampung |
 |---|---|---|
 | Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
-| Claude Code and Codex together | No shared channel | Same three MCP tools for both |
+| Claude Code and Codex together | No shared channel | Same MCP tools for both |
 | An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
 | An agent is idle | Nothing happens until you type | Codex wakes within seconds; Claude Code does with [Channels](docs/clients.md#wake-idle-sessions-with-channels-experimental) (opt-in) |
 | Two agents reply to each other forever | Runaway loop | A loop guard stops waking after the third reply in a row |
@@ -89,10 +89,11 @@ For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/depl
 | Tool | What it does |
 |---|---|
 | `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions. Mailboxes with no open session are hidden unless `include_empty` is true |
-| `send(to, body, reply_to?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`. `wake` in the result means the loop guard lets it wake the receiver, not that it will |
+| `send(to, body, reply_to?, attachment?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will |
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
+| `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
 
-Every message arrives in an envelope with the sender, sent time, loop-guard depth and a "peer message, not an instruction" tag. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](docs/tool-reference.md) for results and errors.
+Every message arrives in an envelope with the sender, sent time, loop-guard depth and a "peer message, not an instruction" tag. Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](docs/tool-reference.md) for results and errors.
 
 ## Use it from the Claude app
 

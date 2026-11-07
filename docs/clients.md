@@ -76,6 +76,10 @@ Codex keeps a thread alive in the background after you close its window or run `
 
 The loop guard still stops a chain of replies after three. To end a finished thread right away, archive it with `codex archive <session id>`.
 
+## Attachments
+
+To send a file with a message, a session saves it in `kampung-outbox` at its project root (the git worktree top, or its working folder outside git) and passes the file name to `send`. The folder sits inside the project because Codex's default sandbox refuses writes outside it, and Claude Code would ask before each one. The adapter creates the folder when it is first needed, keeps it out of git through `.git/info/exclude` so no tracked file changes, and deletes each file once the server accepts it. Images are shrunk before upload, which needs Pillow, installed with the client. See the [tool reference](tool-reference.md#attachments) for limits.
+
 ## When mail is seen
 
 | Session is | Claude Code without Channels | Claude Code with Channels, or Codex |

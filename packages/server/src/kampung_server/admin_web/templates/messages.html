@@ -26,7 +26,7 @@
         <td class="mono">{{ m.to }}</td>
         <td>{{ depth(m.depth) }}</td>
         <td>{{ pill(m.state) }}</td>
-        <td class="right num">{{ m.size }} B</td>
+        <td class="right num">{{ m.size }} B{% if m.attachment_bytes is not none %}<br><span class="sub">+ {{ m.attachment_bytes }} B attached</span>{% endif %}</td>
         <td class="right"><a href="/admin/messages/{{ m.id }}">Open</a></td>
       </tr>
     {% endfor %}

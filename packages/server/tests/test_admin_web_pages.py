@@ -224,3 +224,25 @@ def test_conversations_list_and_thread(
     assert "&lt;b&gt;done&lt;/b&gt;" in thread and "<b>done</b>" not in thread
     unknown = web.get("/admin/conversations?a=nope/x&b=laptop/api").text
     assert "please check the build" not in unknown
+
+
+def test_messages_page_shows_attachment_metadata_only(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    from kampung_server.attachments import parse_attachment
+
+    a = make_session("laptop", "api")
+    make_session("desktop", "api")
+    att = parse_attachment(
+        {"name": "notes_v2.md", "text": "attachment-content-here"}, connector=False
+    )
+    sent = mail.send(conn, a, "desktop/api", "see notes", None, clock.now(), att)
+    login(web)
+    page = web.get("/admin/messages").text
+    assert "+ 23 B attached" in page
+    detail = web.get(f"/admin/messages/{sent.id}").text
+    assert "notes_v2.md" in detail and "23 B" in detail and "text" in detail
+    assert "attachment-content-here" not in detail

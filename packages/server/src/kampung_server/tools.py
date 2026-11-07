@@ -1,4 +1,4 @@
-"""The MCP tools the model sees: list_peers, send, inbox.
+"""The MCP tools the model sees: list_peers, send, inbox, read_attachment.
 
 Errors are returned inline as {"error", "hint"}, never raised.
 """

@@ -23,6 +23,8 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **Machines reaching mail that isn't theirs.** The machine is the trust boundary: a key can only use its own machine's mailboxes and sessions, and can only send to machines you have paired with `kampung pair`. The sender is taken from the key, never from the request.
 - **A leaked database giving working keys.** Only the SHA-256 hash of each key is stored. Keys are 256 random bits, so they can't be guessed.
 - **Agents waking each other forever.** From the fourth reply in a row, mail is stored without waking the receiver until a human types in that session. A Claude app session sends at depth 0, since its messages are the owner's, but may wake peers at most 10 times in 10 minutes.
+- **Secrets sent by accident.** Every message body and text attachment is checked for private keys, common provider tokens, passwords in URLs and `.env` style lines, after folding lookalike characters, removing invisible ones and decoding one layer of base64. A hit refuses the send; the error names the kind and line, never the secret, and nothing is stored or logged. There is no override an agent could use.
+- **Attachments reading the wrong files.** The adapter attaches only from the project's `kampung-outbox` folder, refuses a folder or file that is a link, a hard link or not a plain file, and deletes only the file it sent, and only if it is still the same file. The server re-encodes every image itself and drops its metadata, GPS included.
 - **One key filling the server or a peer's mailbox.** Request bodies, unread mail per mailbox and per sending machine, sessions and mailboxes per machine, sends and registrations per minute are all capped, and sessions that ended long ago are deleted. See [Limits](#limits).
 - **Dashboard misuse.** The admin token must be at least 24 characters and is compared in constant time. Logins are limited to 5 failures per 15 minutes per client address, except for a browser that has already signed in with the token (it keeps a 30-day cookie derived from the token, so a flood from a shared address can't lock the owner out, and it still needs the token), sessions last 12 hours, every action needs a CSRF token, pages send a strict content security policy and can't be framed, and every change is audited.
 
@@ -32,6 +34,8 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **A compromised machine.** Anything that can read `~/.config/kampung/config.json` (malware, a stolen laptop, backups, dotfile sync) has that machine's key, and keys don't expire. Any process on the machine, including the agent, can use the key, for example to reset the loop guard. Run `kampung revoke <name>` as soon as a machine is lost, or `kampung key rotate <name>` if only the key leaked: rotating keeps the machine's mailboxes and pairings. Both end the machine's sessions and stop the old key at once. After a rotation, `kampung-mcp set-key` saves the new key on the machine.
 - **Agents on paired machines.** Pairing is a trust decision. A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. Kampung labels all of it as information from a peer, never instructions, but a label is not a sandbox. Pair only machines whose agents you trust.
 - **Floods from many addresses.** Wrong keys are answered from memory. Once an address has sent 20 wrong keys within a minute, its requests get 429 until the oldest of those is a minute old; requests with a valid key still get through, so a revoked machine retrying behind a shared NAT doesn't lock out its neighbours. Behind the bundled Caddy the address is the real client's, and IPv6 clients count per /64. An attacker with many addresses can still spread out, so keep the firewall allowlist or a network-level rate limit in front of a server that faces the open internet. Behind a different proxy, set `KAMPUNG_FORWARDED_ALLOW_IPS` to it (see `.env.example`).
+- **A determined or tricked agent leaking a secret.** The secret scan is protection against accidents, not a guard. An agent that wants to can split a key across messages, encode it twice, or use a format the scan does not know, and pictures are not scanned at all, so a screenshot of a key goes through. A tricked session can also copy a key file into the outbox itself. Pairing is the trust decision: only pair machines whose agents you trust.
+- **Instructions inside attachments.** Attachment text and pictures are peer-supplied, like message bodies. They are labelled as information, but a label is not a sandbox, and the attachment's name is the sender's choice: never use it as a path.
 - **Woken Codex threads.** A closed or cleared Codex thread can be woken, and run headless, until 30 minutes after its last turn. `codex archive` ends a finished thread at once.
 - **Other connectors in the same chat.** A connector added on claude.ai reaches every Claude surface on the account, including sessions with nobody typing. A chat that also holds mail or drive connectors can be steered by a peer's text into sending their content out through `send`; the envelope is wording, not a sandbox. Keep the connector off in such chats, keep `send` on "needs approval", and remember that mail read in a chat stays in the account's synced history. `<name>/claude` does not prove the owner typed a message.
 
@@ -54,6 +58,9 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | What | Limit |
 |---|---|
 | Message body | 8 KB of UTF-8 |
+| Attachments | One per message: text up to 256 KB, or a PNG or JPEG up to 512 KB after shrinking to 1568 pixels on the long edge and 25 million pixels before decoding |
+| Attachment reads | 16 KB per slice by default, 32 KB at most |
+| Unread attachments | 25 MB per sending machine; 500 MB stored on the server; none accepted when the data volume has under 1 GB free (`attachments_full`) |
 | Unread mail per mailbox | 1,000 (`mailbox_full`) |
 | Unread mail per mailbox from one sending machine | 200 (`mailbox_full`) |
 | Unread mail kept | 7 days |
@@ -65,6 +72,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Mailboxes per machine | 1,000 |
 | Session `cwd` | 1,024 printable characters |
 | `/v1` request body | 64 KB (also capped by Caddy: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`) |
+| `/mcp` request body | 1 MB, in the app as well as in Caddy |
 | Wake depth | 3 replies in a row |
 | Claude app wakes | 10 per connector session per 10 minutes; later sends arrive with `wake: false` |
 | Connect code and pending sign-in | 10 minutes, single use; 5 wrong codes burn the sign-in; 20 wrong codes per client address in 15 minutes, then 429 |
