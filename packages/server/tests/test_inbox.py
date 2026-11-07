@@ -213,6 +213,25 @@ def test_list_peers_paired_only(
     assert [p["mailbox"] for p in only] == ["desktop/blog"]
 
 
+def test_list_peers_hides_mailboxes_without_open_sessions(
+    conn: sqlite3.Connection,
+    machines: dict[str, tuple[Machine, str]],
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    make_session("desktop", "blog")
+    gone = make_session("desktop", "old-eval")
+    end(conn, gone.id, clock.now())
+    me = machines["laptop"][0]
+    assert [p["mailbox"] for p in list_peers(conn, me, clock.now())] == ["desktop/blog"]
+    everything = list_peers(conn, me, clock.now(), include_empty=True)
+    assert [p["mailbox"] for p in everything] == ["desktop/blog", "desktop/old-eval"]
+    assert everything[1]["sessions"] == []
+    # Hidden is not gone: the mailbox still takes mail.
+    sender = make_session("laptop", "api")
+    assert send(conn, sender, "desktop/old-eval", "hi", None, clock.now()).id
+
+
 def test_list_peers_sessions_and_live_flag(
     conn: sqlite3.Connection,
     machines: dict[str, tuple[Machine, str]],

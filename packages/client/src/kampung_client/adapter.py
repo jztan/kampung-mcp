@@ -354,9 +354,18 @@ def build_adapter(
         _add_channel_push(mcp, resolver)
 
     @mcp.tool
-    async def list_peers(ctx: Context, machine: str | None = None) -> dict[str, Any]:
-        """List mailboxes you can message, with their sessions."""
-        return await forward("list_peers", {"machine": machine}, ctx)
+    async def list_peers(
+        ctx: Context, machine: str | None = None, include_empty: bool = False
+    ) -> dict[str, Any]:
+        """List mailboxes you can message, with their sessions. Mailboxes with
+        no open session are hidden unless include_empty is true; they still
+        take mail."""
+        args: dict[str, Any] = {"machine": machine}
+        if include_empty:
+            # Sent only when set, so this adapter still works with a server
+            # that predates the argument.
+            args["include_empty"] = True
+        return await forward("list_peers", args, ctx)
 
     @mcp.tool
     async def send(

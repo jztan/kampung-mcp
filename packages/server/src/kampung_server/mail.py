@@ -331,7 +331,10 @@ def list_peers(
     machine: Machine,
     now: datetime,
     machine_filter: str | None = None,
+    include_empty: bool = False,
 ) -> list[dict[str, object]]:
+    """Mailboxes the machine may message. One with no open session is left
+    out unless include_empty, but it still takes mail."""
     rows = conn.execute(
         "SELECT mb.id, m.name, mb.repo FROM mailboxes mb "
         "JOIN machines m ON m.id = mb.machine_id "
@@ -351,6 +354,8 @@ def list_peers(
                 (row["id"],),
             )
         ]
+        if not sessions and not include_empty:
+            continue
         peers.append(
             {
                 "mailbox": f"{row['name']}/{row['repo']}",

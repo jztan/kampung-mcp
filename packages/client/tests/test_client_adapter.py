@@ -58,6 +58,23 @@ async def test_send_and_inbox_through_two_adapters(
     assert blog["mailbox"] == "desktop/blog"
 
 
+async def test_list_peers_include_empty_reaches_the_server(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+    old = hooked_session(git_repo(tmp_path, "old-eval"), "cc-2")
+    server.admin.end_session(int(str(old["session"])), "admin:cli")
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        default = await c.call_tool("list_peers", {})
+        shown = await c.call_tool("list_peers", {"include_empty": True})
+    assert [p["mailbox"] for p in default.data["peers"]] == ["laptop/api"]
+    assert [p["mailbox"] for p in shown.data["peers"]] == [
+        "laptop/api",
+        "laptop/old-eval",
+    ]
+
+
 async def test_admin_end_keeps_one_session_per_window(
     home: Path, server: LiveServer, tmp_path: Path
 ) -> None:

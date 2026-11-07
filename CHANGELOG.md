@@ -8,10 +8,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Client (`kampung-mcp`)
 
+- A session started outside any git worktree (a temp or eval folder, the home folder) now uses the machine's shared `scratch` mailbox instead of one named after the folder, so throwaway folders no longer each leave a mailbox behind. Mail already waiting in an old folder mailbox stays there.
 - `kampung-mcp setup` now tells Claude Code not to load the Claude app connector (`claude.ai kampung`, or the name given with `--connector-name`) by adding it to `deniedMcpServers` in `~/.claude/settings.json`. Without that, a window on the same account has two `kampung` servers and may read the phone's mail instead of its own. Rerun setup on machines set up earlier.
 
 #### Server (`kampung-server`)
 
+- `list_peers` hides mailboxes with no open session, which used to be most of its output. Pass `include_empty: true` to see them; they still take mail.
 - The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Connector sends are always depth 0 and may wake peers at most 10 times in 10 minutes; past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. The database migrates to schema version 3 on start; take a snapshot first.
 - Ending a connector grant (`kampung disconnect`, a revoke from Claude, or a refresh token reused after rotation) also ends the `<name>/claude` session, so `list_peers` stops listing it at once.
 
