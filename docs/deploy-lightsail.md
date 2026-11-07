@@ -282,7 +282,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://kampung.example.com/oauth/conne
 ```
 
 4. On the instance: `docker compose exec kampung kampung connect phone`, then `docker compose exec kampung kampung pair phone mac` for each machine the phone should talk to. `connect` prints three values: the URL, the client id `kampung-claude`, and a one-time code that works once, within 10 minutes.
-5. From a device on one of your allowed networks (home Wi-Fi counts; mobile data does not), in the Claude app or on claude.ai: **Customize → Connectors → Add custom connector**. Name it, paste the URL, choose **Sign in now**, and under the OAuth client setting choose **Use your own OAuth client** with the client id and the secret left blank. If the phone's dialog hides that setting, add the connector on claude.ai in a browser instead; it belongs to your account and shows on the phone too.
+5. From a device on one of your allowed networks (home Wi-Fi counts; mobile data does not), in the Claude app or on claude.ai: **Customize → Connectors → Add custom connector**. Name it, paste the URL, confirm **Sign in now** and, under the OAuth client setting, **Use your own OAuth client** (Claude detects both from the server), and enter the client id with the secret left blank. If the phone's dialog hides that setting, add the connector on claude.ai in a browser instead; it belongs to your account and shows on the phone too.
 6. Claude opens Kampung's connect page in the browser. It names `claude.ai` as the destination and asks for the code. Enter it; Claude returns to its settings with the connector connected.
 
 Check: the connector lists `list_peers`, `send` and `inbox`. In a new chat with the connector on, ask Claude to list peers: `phone/claude` appears with agent `claude-app`. Then run the phone checklist and write each result down. The results from the first run, on 2026-11-07, are filled in; a later app change could still break any of them:
@@ -300,6 +300,6 @@ Two things seen in that run that look like faults but are not:
 - A chat that reads the inbox after another chat already did gets nothing. Mail is delivered on read, and every chat on the account shares the one mailbox, so the first reader takes it.
 - A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. Turn it off there with `/mcp`, per project.
 
-If the connector never appears, assume the code went to a flow you did not start: run `kampung disconnect phone` and connect again. Any Claude account can reach `/authorize`; the code is the only thing tying a grant to you, so never enter one in a flow you did not start.
+If the connector never appears, assume the code went to a flow you did not start: run `kampung disconnect phone` and connect again. The server itself does not know whose Claude account started a sign-in, and anyone on one of your allowed networks can reach `/authorize`; the code is the only thing tying a grant to you, so never enter one in a flow you did not start.
 
 See [SECURITY.md](../SECURITY.md) for the threat model and the full list of limits.

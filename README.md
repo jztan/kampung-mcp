@@ -103,7 +103,7 @@ docker compose exec kampung kampung connect phone
 docker compose exec kampung kampung pair phone mac
 ```
 
-`connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, choose **Sign in now** and, under the OAuth client setting, **Use your own OAuth client** with that client id and no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read, so the first chat to read the inbox gets it; a Claude Code window on the same account counts too, so leave the connector off there with `/mcp`.
+`connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read, so the first chat to read the inbox gets it; a Claude Code window on the same account counts too, so leave the connector off there with `/mcp`.
 
 `kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21`), so allow that range on port 443; the [deployment runbook](docs/deploy-lightsail.md) has the firewall and the checks.
 
