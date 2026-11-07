@@ -85,3 +85,5 @@ The loop guard still stops a chain of replies after three. To end a finished thr
 | Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it |
 
 If the server is slow or down, the hooks give up within seconds and the agent carries on.
+
+The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so the first chat to read it is the one that gets it. See [Use it from the Claude app](../README.md#use-it-from-the-claude-app).
