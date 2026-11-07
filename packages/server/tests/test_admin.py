@@ -223,3 +223,92 @@ def test_rotate_key_refuses_unknown_and_revoked_machines(
     assert _code(admin.rotate_key, "nope", "admin:cli") == "unknown_machine"
     admin.revoke("laptop", "admin:cli")
     assert _code(admin.rotate_key, "laptop", "admin:cli") == "already_revoked"
+
+
+def test_connect_creates_the_machine_and_a_code(
+    admin: AdminService, conn: sqlite3.Connection, clock: FakeClock
+) -> None:
+    from kampung_server import oauth_store
+    from kampung_server.models import load_machine
+
+    code = admin.connect("phone", "admin:cli")
+    phone = load_machine(conn, "phone")
+    assert phone is not None and len(code) >= 22
+    actions = [r[0] for r in conn.execute("SELECT action FROM audit ORDER BY id")]
+    assert actions[-2:] == ["add_machine", "connect_code"]
+    assert oauth_store.take_connect_code(conn, code, clock.now()) == phone.id
+    # A second connect for a known machine adds no machine.
+    admin.connect("phone", "admin:cli")
+    actions = [r[0] for r in conn.execute("SELECT action FROM audit ORDER BY id")]
+    assert actions[-1] == "connect_code" and actions.count("add_machine") == 1
+
+
+def test_connect_refuses_a_revoked_machine(
+    admin: AdminService, machines: dict[str, object]
+) -> None:
+    admin.revoke("laptop", "admin:cli")
+    with pytest.raises(KampungError) as e:
+        admin.connect("laptop", "admin:cli")
+    assert e.value.code == "already_revoked"
+
+
+def _grant(admin: AdminService, conn: sqlite3.Connection, clock: FakeClock) -> int:
+    from kampung_server import db, oauth_store
+    from kampung_server.models import load_machine
+
+    laptop = load_machine(conn, "laptop")
+    assert laptop is not None
+    with db.transaction(conn):
+        grant = oauth_store.replace_grant(conn, laptop.id, clock.now())
+        oauth_store.save_token(
+            conn, grant, "access", "kpa_1", "{}", clock.now() + timedelta(hours=1)
+        )
+    return laptop.id
+
+
+def test_disconnect_drops_the_grant_and_keeps_mail(
+    admin: AdminService,
+    conn: sqlite3.Connection,
+    machines: dict[str, object],
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    from kampung_server import oauth_store
+    from kampung_server.mail import send
+
+    laptop_id = _grant(admin, conn, clock)
+    phone = make_session(
+        "laptop", repo="claude", agent="claude-app", hooks=False, cwd="Claude app"
+    )
+    make_session("desktop", "blog")
+    send(conn, phone, "desktop/blog", "keep me", None, clock.now())
+    admin.disconnect("laptop", "admin:cli")
+    assert oauth_store.grant_for_machine(conn, laptop_id) is None
+    assert conn.execute("SELECT count(*) FROM messages").fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT revoked_at FROM machines WHERE id = ?", (laptop_id,)
+    ).fetchone()[0] is None
+    with pytest.raises(KampungError) as e:
+        admin.disconnect("laptop", "admin:cli")
+    assert e.value.code == "not_connected"
+    actions = [r[0] for r in conn.execute("SELECT action FROM audit")]
+    assert "disconnect" in actions
+
+
+def test_revoke_and_rotate_drop_the_grant(
+    admin: AdminService,
+    conn: sqlite3.Connection,
+    machines: dict[str, object],
+    clock: FakeClock,
+) -> None:
+    from kampung_server import oauth_store
+
+    laptop_id = _grant(admin, conn, clock)
+    admin.rotate_key("laptop", "admin:cli")
+    assert oauth_store.grant_for_machine(conn, laptop_id) is None
+    _grant(admin, conn, clock)
+    admin.revoke("laptop", "admin:cli")
+    assert oauth_store.grant_for_machine(conn, laptop_id) is None
+
+
+from datetime import timedelta  # noqa: E402

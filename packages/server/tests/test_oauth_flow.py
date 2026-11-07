@@ -19,7 +19,7 @@ import uvicorn
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from kampung_server import db, oauth_store
+from kampung_server import db
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
 from kampung_server.clock import utcnow
@@ -88,15 +88,9 @@ def pkce() -> tuple[str, str]:
 
 
 def connect_code(server: Server, name: str = "phone") -> str:
-    """Until Task 9 adds AdminService.connect, make the machine and code here."""
-    machine, _ = server.admin.add_machine(name, "admin:cli")
+    code = server.admin.connect(name, "admin:cli")
     server.admin.pair(name, "desktop", "admin:cli")
-    conn = db.connect(server.deps.db_path)
-    try:
-        with db.transaction(conn):
-            return oauth_store.new_connect_code(conn, machine.id, server.clock.now())
-    finally:
-        conn.close()
+    return code
 
 
 def start_authorize(server: Server, challenge: str, resource: str | None) -> str:
