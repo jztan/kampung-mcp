@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from server_testlib import FakeClock, MakeSession
-from kampung_server import db
+from kampung_server import db, sessions
 from kampung_server.admin import AdminService
 from kampung_server.clock import ts
 from kampung_server.errors import KampungError
@@ -21,6 +21,7 @@ from kampung_server.limits import (
 )
 from kampung_server.models import Machine, load_session
 from kampung_server.sessions import end, human_turn, is_live, register, resolve
+from kampung_server.sweep import sweep
 
 Machines = dict[str, tuple[Machine, str]]
 
@@ -279,3 +280,31 @@ def test_register_owner_check_inside_transaction(
     assert _code(conn, m, clock, agent_session_id="cc-race") == "not_owner"
     denied = conn.execute("SELECT actor FROM audit WHERE action = 'denied'")
     assert [r[0] for r in denied] == ["machine:laptop"]
+
+
+def test_connector_session_is_created_then_reused(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    laptop = machines["laptop"][0]
+    first = sessions.connector_session(conn, laptop, clock.now())
+    assert first.mailbox == "laptop/claude"
+    assert first.agent == "claude-app" and first.hooks is False
+    assert first.cwd == "Claude app"
+    clock.advance(minutes=5)
+    again = sessions.connector_session(conn, laptop, clock.now())
+    assert again.id == first.id and again.last_seen != first.last_seen
+
+
+def test_connector_session_revives_after_the_sweep_ends_it(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    laptop = machines["laptop"][0]
+    first = sessions.connector_session(conn, laptop, clock.now())
+    clock.advance(hours=25)
+    with db.transaction(conn):
+        sweep(conn, clock.now())
+    assert conn.execute(
+        "SELECT ended_at FROM sessions WHERE id = ?", (first.id,)
+    ).fetchone()[0]
+    again = sessions.connector_session(conn, laptop, clock.now())
+    assert again.id == first.id and again.ended_at is None

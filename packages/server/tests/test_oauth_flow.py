@@ -259,7 +259,6 @@ def test_full_flow_issues_tokens(server: Server) -> None:
     assert tokens["scope"] == "kampung offline_access"
 
 
-@pytest.mark.xfail(strict=True, reason="Task 7: connector sessions")
 async def test_full_flow_then_tools(server: Server) -> None:
     tokens = connect(server)
     desktop = register(server, "desktop", "blog")
@@ -309,7 +308,6 @@ def test_oauth_token_is_refused_on_v1(server: Server) -> None:
     assert r.status_code == 401
 
 
-@pytest.mark.xfail(strict=True, reason="Task 7: connector sessions")
 async def test_session_header_is_ignored_for_connector_tokens(server: Server) -> None:
     tokens = connect(server)
     desktop = register(server, "desktop", "blog")
