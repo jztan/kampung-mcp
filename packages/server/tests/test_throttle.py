@@ -117,3 +117,20 @@ def test_ipv6_clients_are_grouped_by_64() -> None:
     assert call(app, ip="2001:db8:1:2::ffff") == 401
     assert call(app, ip="2001:db8:1:2:abcd::9") == 429
     assert call(app, ip="2001:db8:1:3::1") == 401
+
+
+def test_a_known_oauth_token_is_never_throttled() -> None:
+    from kampung_server.throttle import AnyKnown
+
+    class Tokens:
+        def is_known(self, token: str) -> bool:
+            return token == "kpa_live"
+
+    inner = App(401)
+    app = AuthFailureThrottle(
+        inner, AnyKnown(Keys(), Tokens()), limit=2, window=60, monotonic=Clock()
+    )
+    assert [call(app) for _ in range(3)] == [401, 401, 429]
+    assert call(app, key="kpa_live") == 401  # reaches the app
+    assert call(app, key="good") == 401
+    assert inner.calls == 4

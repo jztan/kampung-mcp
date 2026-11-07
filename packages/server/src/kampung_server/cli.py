@@ -96,7 +96,11 @@ def main(argv: list[str] | None = None) -> int:
             if not admin.list_machines():
                 print(NO_KEYS, file=sys.stderr)
             deps = ServerDeps(
-                settings.db_path, utcnow, RateLimiter(), settings.admin_token
+                settings.db_path,
+                utcnow,
+                RateLimiter(),
+                settings.admin_token,
+                public_url=settings.public_url,
             )
             app.serve(
                 deps,

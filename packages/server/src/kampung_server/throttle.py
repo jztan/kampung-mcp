@@ -40,6 +40,16 @@ class KnownKeys(Protocol):
     def is_known(self, key: str) -> bool: ...
 
 
+class AnyKnown:
+    """A bearer known to any of several indexes: machine keys, OAuth tokens."""
+
+    def __init__(self, *sources: KnownKeys) -> None:
+        self._sources = sources
+
+    def is_known(self, key: str) -> bool:
+        return any(source.is_known(key) for source in self._sources)
+
+
 def client_key(scope: Scope) -> str:
     """The address an abuse limit keys on: IPv6 grouped by /64."""
     client = scope.get("client")
