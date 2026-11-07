@@ -229,6 +229,9 @@ class InboxResult:
 class PeekResult:
     waiting: int
     wakeable: int
+    # The newest wakeable message, so a client can tell new mail from the
+    # same count of different mail. None when nothing wakeable waits.
+    newest: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -286,12 +289,18 @@ def inbox(
 def peek(conn: sqlite3.Connection, session: Session, now: datetime) -> PeekResult:
     with db.transaction(conn):
         sweep(conn, now)
+        params = _params(session, now)
         row = conn.execute(
             "SELECT count(*), coalesce(sum(msg.wake), 0) FROM messages msg "
             f"WHERE {_READABLE}",
-            _params(session, now),
+            params,
         ).fetchone()
-    return PeekResult(row[0], row[1])
+        newest = conn.execute(
+            f"SELECT msg.id FROM messages msg WHERE {_READABLE} AND msg.wake = 1 "
+            "ORDER BY msg.sent_at DESC, msg.id DESC LIMIT 1",
+            params,
+        ).fetchone()
+    return PeekResult(row[0], row[1], newest[0] if newest else None)
 
 
 def list_peers(

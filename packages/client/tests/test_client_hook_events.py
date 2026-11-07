@@ -297,8 +297,27 @@ def test_post_tool_use_nudges_once_per_new_mail(
     assert json.loads(first.stdout) == NUDGE
     # Same mail, later tool call past the throttle window: no repeat.
     state = hook.cache_dir() / "nudge" / "cc-1.json"
-    state.write_text(json.dumps({"checked": 0, "notified": 1}))
+    expire_throttle(state)
     assert run_hook(home, tool_used()).stdout == ""
+
+
+def expire_throttle(state: Path) -> None:
+    """Move the last check out of the throttle window, keeping what was seen."""
+    data = json.loads(state.read_text())
+    state.write_text(json.dumps({**data, "checked": 0}))
+
+
+def test_post_tool_use_nudges_when_one_message_replaces_another(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    # The count stays at 1, so only the newest id shows the mail is new.
+    start(home, repo)
+    peer_send(server, "laptop/api", "first")
+    assert json.loads(run_hook(home, tool_used()).stdout) == NUDGE
+    db_query(server, "UPDATE messages SET delivered_at = sent_at")  # read elsewhere
+    peer_send(server, "laptop/api", "second")
+    expire_throttle(hook.cache_dir() / "nudge" / "cc-1.json")
+    assert json.loads(run_hook(home, tool_used()).stdout) == NUDGE
 
 
 def test_post_tool_use_is_throttled(home: Path, server: LiveServer, repo: Path) -> None:
@@ -319,7 +338,7 @@ def test_post_tool_use_skips_kampung_tools(
         or json.loads((hook.cache_dir() / "nudge" / "cc-1.json").read_text())[
             "notified"
         ]
-        == 0
+        is None
     )
 
 

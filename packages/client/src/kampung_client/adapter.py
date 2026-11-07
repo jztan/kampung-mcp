@@ -401,7 +401,7 @@ class _ChannelPush(Middleware):
             self.task = asyncio.get_running_loop().create_task(self.poll())
 
     async def poll(self) -> None:
-        notified = 0
+        notified: hook.Seen = None
         watching: object = None
         failing = False
         delay = CHANNEL_POLL
@@ -410,14 +410,17 @@ class _ChannelPush(Middleware):
                 found = await asyncio.to_thread(self.resolver.target)
                 if found is not None:
                     if found.get("session") != watching:
-                        watching, notified = found.get("session"), 0
+                        watching, notified = found.get("session"), None
                     status, body = await asyncio.to_thread(
                         hook.api, "GET", f"/v1/sessions/{watching}/peek"
                     )
                     # Never refresh, register or revive from here: an ended
                     # session waits for the hooks (or a tool call) to move on.
-                    wakeable = int(str(body.get("wakeable", 0))) if status == 200 else 0
-                    if wakeable > notified and self.session is not None:
+                    if status != 200:
+                        body = {}
+                    wakeable = int(str(body.get("wakeable", 0)))
+                    rose, seen = hook.new_mail(body, notified)
+                    if rose and self.session is not None:
                         # A nudge, never the mail itself: reading stays in
                         # `inbox`, with its envelope and "not an instruction" tag.
                         await self.session.send_notification(
@@ -426,7 +429,7 @@ class _ChannelPush(Middleware):
                                 params={"content": hook.STOP_REASON.format(n=wakeable)},
                             )
                         )
-                    notified = wakeable
+                    notified = seen
                 failing, delay = False, CHANNEL_POLL
             except Exception as e:  # noqa: BLE001 - keep polling, quietly
                 if not failing:  # once per outage, however the error reads
@@ -477,7 +480,7 @@ class CodexWaker:
             raise _QueueError(f"codex queue exited {proc.returncode}: {detail}")
 
     async def poll(self) -> None:
-        notified = 0
+        notified: hook.Seen = None
         watching: object = None
         failing = False
         delay = CHANNEL_POLL
@@ -487,21 +490,28 @@ class CodexWaker:
                 thread = self.resolver.bound
                 if found is not None and thread is not None:
                     if found.get("session") != watching:
-                        watching, notified = found.get("session"), 0
+                        watching, notified = found.get("session"), None
                     status, body = await asyncio.to_thread(
                         hook.api, "GET", f"/v1/sessions/{watching}/peek"
                     )
                     # An ended session (SessionEnd, admin end) stops answering
                     # 200, so a closed thread goes quiet once Codex ends it.
-                    wakeable = int(str(body.get("wakeable", 0))) if status == 200 else 0
+                    if status != 200:
+                        body = {}
+                    wakeable = int(str(body.get("wakeable", 0)))
+                    rose, seen = hook.new_mail(body, notified)
                     # Mid-turn mail is the nudge's and the Stop hook's job: a
                     # queued wake would run after the turn, to an empty inbox.
-                    # The count may only fall meanwhile, so mail still unread
-                    # when the turn ends counts as a rise.
+                    # So hold what was announced while busy: mail still unread
+                    # when the turn ends then counts as new. A count (older
+                    # servers) may only fall meanwhile.
                     busy = hook.turn_active(thread)
-                    rose = wakeable > notified and not busy
+                    rose = rose and not busy
                     # A failed queue retries on the next rise.
-                    notified = min(notified, wakeable) if busy else wakeable
+                    if not busy:
+                        notified = seen
+                    elif isinstance(notified, int) and isinstance(seen, int):
+                        notified = min(notified, seen)
                     if rose:
                         # A nudge, never the mail itself: reading stays in
                         # `inbox`, with its envelope and "not an instruction" tag.
