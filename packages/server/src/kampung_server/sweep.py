@@ -11,7 +11,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from . import db
+from . import db, oauth_store
 from .clock import ts
 from .limits import ENDED_SESSION_RETENTION, SESSION_DELETE_BATCH, TARGET_FALLBACK
 
@@ -44,6 +44,7 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
         "LIMIT ?)",
         (ts(now - ENDED_SESSION_RETENTION), SESSION_DELETE_BATCH),
     )
+    oauth_store.sweep_oauth(conn, now)
 
 
 def start_sweeper(

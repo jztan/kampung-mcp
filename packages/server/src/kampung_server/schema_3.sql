@@ -9,6 +9,7 @@ CREATE TABLE oauth_connect_codes (
   expires_at  TEXT NOT NULL,
   used_at     TEXT
 );
+CREATE INDEX oauth_connect_codes_expiry ON oauth_connect_codes (expires_at);
 
 -- Authorize requests waiting for a code on the connect page.
 CREATE TABLE oauth_requests (
@@ -17,10 +18,12 @@ CREATE TABLE oauth_requests (
   attempts    INTEGER NOT NULL DEFAULT 0,
   expires_at  TEXT NOT NULL
 );
+CREATE INDEX oauth_requests_expiry ON oauth_requests (expires_at);
 
--- One grant per machine; deleting it deletes its tokens.
+-- One grant per machine; deleting it deletes its tokens. AUTOINCREMENT so a
+-- new grant never takes a deleted one's id.
 CREATE TABLE oauth_grants (
-  id          INTEGER PRIMARY KEY,
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
   machine_id  INTEGER NOT NULL UNIQUE REFERENCES machines(id),
   created_at  TEXT NOT NULL
 );
