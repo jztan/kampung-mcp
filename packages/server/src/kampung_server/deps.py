@@ -25,6 +25,7 @@ class ServerDeps:
     clock: Callable[[], datetime]
     limiter: RateLimiter
     admin_token: str | None = None
+    public_url: str | None = None
     register_limiter: RateLimiter = field(default_factory=_register_limiter)
     keys: KeyIndex = field(init=False)
 
