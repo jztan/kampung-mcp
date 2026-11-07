@@ -45,6 +45,9 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
         (ts(now - ENDED_SESSION_RETENTION), SESSION_DELETE_BATCH),
     )
     oauth_store.sweep_oauth(conn, now)
+    # Hand the pages of deleted mail and attachments back to the file system.
+    # The pragma frees one page per row it returns, so read them all.
+    conn.execute("PRAGMA incremental_vacuum").fetchall()
 
 
 def start_sweeper(

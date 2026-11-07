@@ -22,6 +22,7 @@ dependencies = [
     # FastMCP 4 locks stdio to the 2026-07-28 protocol, which Claude Code
     # does not accept Channels from yet; 3.x speaks only the handshake era.
     "fastmcp>=3.4.9,<4",
+    "pillow>=13,<14",
 ]
 
 [project.urls]

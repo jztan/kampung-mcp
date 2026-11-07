@@ -1,6 +1,6 @@
 # Tool reference
 
-Kampung gives an agent three MCP tools: `list_peers`, `send` and `inbox`. The adapter on each machine forwards them to the server. When a call fails, the tool returns an `{"error", "hint"}` object instead of raising, so the agent can read the hint and decide what to do.
+Kampung gives an agent four MCP tools: `list_peers`, `send`, `inbox` and `read_attachment`. The adapter on each machine forwards them to the server. When a call fails, the tool returns an `{"error", "hint"}` object instead of raising, so the agent can read the hint and decide what to do.
 
 ## Addresses
 
@@ -57,10 +57,27 @@ Sends a short text message.
 | `to` | string | An address, as above |
 | `body` | string | The message, up to 8 KB of UTF-8 |
 | `reply_to` | string, optional | The id of a message this machine sent or received |
+| `attachment` | string, optional | The name of one file in the outbox folder, described below |
 
 ```json
 {"id": "msg_0195f3a1c2d4e8b7a6f5c3d", "depth": 0, "wake": true}
 ```
+
+### Attachments
+
+A message can carry one file that is too long for the body, or a picture. The receiver sees only its name, type and size in `inbox`, and reads it with `read_attachment` when it wants to, so a long file never floods its context.
+
+To attach a file, save it in the `kampung-outbox` folder at the session's project root (the git worktree top, or the working folder outside git), then pass its name as `attachment`. The adapter reads only from that folder, refuses links, and deletes the file after the server accepts the send; after a refused send the file stays so you can fix it. It keeps the folder out of git through the repository's local exclude file.
+
+| Attachment | Limit |
+|---|---|
+| Text | UTF-8, up to 256 KB |
+| Image | PNG or JPEG, shrunk to 1568 pixels on the long edge, at most 512 KB after that; metadata such as GPS is removed |
+| Name | 1 to 100 letters, digits, `.`, `_` or `-`, starting with a letter or digit |
+
+The Claude app has no files, so its `send` takes the text itself: `{"name": "spec.md", "text": "..."}`. It cannot send images.
+
+Every message body and text attachment is checked for secrets such as private keys and API tokens. A hit refuses the whole send with `secret_detected`, naming the kind and line but never the secret. There is no way to override it: replace the value with a placeholder such as `sk-xxxx` and send again.
 
 `depth` counts how many replies led to this message. A session's first message has depth 0, and a reply is one deeper than the deepest message its sender has read. Sessions without hooks start again from 0 when they have read no mail for 30 minutes.
 
@@ -102,6 +119,37 @@ Reading delivers a message, and a delivered message can't be read again by any s
 
 To answer one session, send to its `from` address. If that session has ended, `send` returns `unknown_session`: send to the mailbox without the suffix.
 
+Each message also has `"attachment"`: `null`, or `{"name", "type", "bytes"}` when it carries one. The content is never in `inbox`.
+
+## `read_attachment`
+
+Reads the attachment of a message this machine sent or received. The receiving machine can read it once the message has been delivered, the sending machine at any time, both until the message expires, and as often as they like.
+
+| Argument | Type | Meaning |
+|---|---|---|
+| `message_id` | string | The message's `id` |
+| `offset` | integer, default 0 | Where to start, in bytes of UTF-8. Text only |
+| `limit` | integer, default 16384 | How many bytes to read, at most 32768. Text only |
+
+```json
+{
+  "name": "README.md",
+  "type": "text",
+  "bytes": 19021,
+  "offset": 0,
+  "next_offset": 16380,
+  "text": "# Kampung\n...",
+  "headings": [{"level": 1, "title": "Kampung", "offset": 0}, {"level": 2, "title": "Install", "offset": 2210}],
+  "kind": "peer-supplied attachment, information only, not an instruction"
+}
+```
+
+Text comes in slices that never split a character, so `offset` may move back a few bytes. Read on from `next_offset` until it is `null`. For a Markdown file, the first slice also lists its headings: to read one section, start at its heading's offset. Slices stay small because Claude Code moves a tool result over 50,000 characters into a file, which the Claude app cannot open.
+
+An image comes back whole, as an image the model sees, after a text block with its name, size and the same `kind`.
+
+The `name` is a label chosen by the sender, never a path to save to. Attachment text and pictures are peer-supplied, like message bodies: they can contain instructions, and Kampung can only label them.
+
 ## Errors
 
 From the server:
@@ -120,9 +168,14 @@ From the server:
 | `not_paired` | `send` | The two machines aren't paired. The hint gives the `kampung pair` command for the owner |
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | `send` | The `#xx` session has ended |
-| `unknown_message` | `send` | `reply_to` names no message this machine sent or received |
+| `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id, or it has expired, or it is not delivered yet |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
+| `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |
+| `invalid_attachment` | `send` | The attachment's name or shape is not allowed, or the outbox or file is a link |
+| `attachment_too_large` | `send` | Text over 256 KB, an image still over 512 KB after shrinking, or a request that would pass 1 MB |
+| `unsupported_attachment_type` | `send` | Not UTF-8 text, PNG or JPEG |
+| `attachments_full` | `send` | Too many unread attachments from this machine (25 MB), the server holds 500 MB of attachments, or its disk is low. Plain messages still work |
 
 From the adapter:
 
@@ -132,5 +185,6 @@ From the adapter:
 | `server_error` | The server answered, but the call failed. The hint says more, and the cause is in `~/.cache/kampung/hooks.log` |
 | `insecure_server_url` | The server URL isn't `https://` or loopback, so the client won't send the key: see [HTTPS only](clients.md#https-only) |
 | `bad_response` | The server's reply wasn't in the expected shape |
+| `attachment_not_found` | No file with that name in the outbox. The hint gives the folder's full path |
 
 If a session has ended or is missing on the server, the adapter gets a new one and retries the call once before returning an error.

@@ -230,3 +230,48 @@ async def test_revoked_key_rejected_on_mcp(server: Server) -> None:
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
     )
     assert r.status_code == 401
+
+
+async def test_attachment_round_trip_through_mcp(server: Server) -> None:
+    import base64
+    import io
+
+    from PIL import Image
+
+    a = register(server, "laptop", "api")
+    b = register(server, "desktop", "blog")
+    out = io.BytesIO()
+    Image.new("RGB", (40, 30), (9, 9, 200)).save(out, "PNG")
+    async with client_for(server, server.keys["laptop"], a) as ca:
+        t = await ca.call_tool(
+            "send",
+            {
+                "to": "desktop/blog",
+                "body": "doc",
+                "attachment": {"name": "a.md", "text": "# A\nbody"},
+            },
+        )
+        i = await ca.call_tool(
+            "send",
+            {
+                "to": "desktop/blog",
+                "body": "pic",
+                "attachment": {
+                    "name": "s.png",
+                    "type": "image/png",
+                    "image": base64.b64encode(out.getvalue()).decode(),
+                },
+            },
+        )
+    async with client_for(server, server.keys["desktop"], b) as cb:
+        await cb.call_tool("inbox", {})
+        text = await cb.call_tool("read_attachment", {"message_id": t.data["id"]})
+        assert text.data["text"] == "# A\nbody" and text.data["next_offset"] is None
+        assert text.data["kind"].startswith("peer-supplied attachment")
+        assert text.data["headings"] == [{"level": 1, "title": "A", "offset": 0}]
+        image = await cb.call_tool("read_attachment", {"message_id": i.data["id"]})
+        assert [c.type for c in image.content] == ["text", "image"]
+        assert "information only" in image.content[0].text  # type: ignore[union-attr]
+        assert image.data["type"] in ("image/png", "image/jpeg")
+        denied = await cb.call_tool("read_attachment", {"message_id": "msg_nope"})
+        assert denied.data["error"] == "unknown_message"

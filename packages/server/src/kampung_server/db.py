@@ -7,7 +7,10 @@ from importlib import resources
 from pathlib import Path
 
 # schema.sql builds version 1; schema_<n>.sql upgrades version n - 1 to n.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+# Deleted attachments give space back, and the WAL is trimmed after a
+# checkpoint, so a busy week cannot leave the volume full.
+JOURNAL_SIZE_LIMIT = 64 * 1024 * 1024
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -16,6 +19,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute(f"PRAGMA journal_size_limit={JOURNAL_SIZE_LIMIT}")
     return conn
 
 
@@ -29,6 +33,11 @@ def migrate(conn: sqlite3.Connection) -> None:
             for statement in _statements(_script(target)):
                 conn.execute(statement)
         conn.execute(f"PRAGMA user_version={max(version, SCHEMA_VERSION)}")
+    if conn.execute("PRAGMA auto_vacuum").fetchone()[0] != 2:
+        # Switching an existing file to incremental vacuum needs a VACUUM,
+        # which cannot run inside a transaction. A new file gets it at once.
+        conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+        conn.execute("VACUUM")
 
 
 def _script(version: int) -> str:

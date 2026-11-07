@@ -43,3 +43,16 @@ CONNECT_FAILURE_WINDOW = timedelta(minutes=15)
 MAX_OAUTH_BODY_BYTES = 64 * 1024
 CONNECTOR_WAKE_BUDGET = 10
 CONNECTOR_WAKE_WINDOW = timedelta(minutes=10)
+# Attachments: one per message, stored apart from the body.
+MAX_ATTACHMENT_TEXT_BYTES = 256 * 1024
+MAX_ATTACHMENT_IMAGE_BYTES = 512 * 1024
+IMAGE_LONG_EDGE = 1568  # what Claude keeps of an image anyway
+IMAGE_MAX_PIXELS = 25_000_000  # checked from the header, before decoding
+# Claude Code moves a text result over 50,000 characters into a file the
+# Claude app cannot open, so reads come in slices well under that.
+READ_SLICE_DEFAULT = 16 * 1024
+READ_SLICE_MAX = 32 * 1024
+MAX_UNREAD_ATTACHMENT_BYTES_PER_MACHINE = 25 * 1024 * 1024
+MAX_ATTACHMENT_BYTES_TOTAL = 500 * 1024 * 1024
+MIN_FREE_DISK_BYTES = 1024**3
+MAX_MCP_BODY_BYTES = 1024 * 1024

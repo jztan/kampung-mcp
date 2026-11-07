@@ -62,6 +62,7 @@ def test_envelope_shape(
         "reply_to",
         "kind",
         "body",
+        "attachment",
     ]
     assert env["kind"] == KIND
     assert env["from"] == pair[0].address

@@ -173,10 +173,10 @@ async def test_adapter_failure_with_a_good_key_is_not_called_unreachable(
     assert "protocol mismatch" in _hooks_log(home)
 
 
-async def test_adapter_lists_the_three_tools(home: Path) -> None:
+async def test_adapter_lists_the_four_tools(home: Path) -> None:
     async with Client(build_adapter("claude-code", "/w/api")) as c:
         names = {t.name for t in await c.list_tools()}
-    assert names == {"list_peers", "send", "inbox"}
+    assert names == {"list_peers", "send", "inbox", "read_attachment"}
 
 
 async def test_adapter_instructions_match_server(home: Path) -> None:

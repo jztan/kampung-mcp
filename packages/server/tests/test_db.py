@@ -130,7 +130,7 @@ def test_migrates_from_version_2_to_3(tmp_path: Path) -> None:
         "VALUES ('laptop', x'00', 't')"
     )
     db.migrate(old)
-    assert old.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert old.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     names = {
         r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
@@ -142,3 +142,82 @@ def test_migrates_from_version_2_to_3(tmp_path: Path) -> None:
     } <= names
     assert old.execute("SELECT count(*) FROM machines").fetchone()[0] == 1
     old.close()
+
+
+def _version_3(path: Path) -> sqlite3.Connection:
+    old = db.connect(path)
+    for version in (1, 2, 3):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=3")
+    return old
+
+
+def test_migrates_3_to_4_with_attachments_and_incremental_vacuum(
+    tmp_path: Path,
+) -> None:
+    old = _version_3(tmp_path / "v3.db")
+    old.execute(
+        "INSERT INTO machines (name, key_hash, created_at) "
+        "VALUES ('laptop', x'00', 't')"
+    )
+    db.migrate(old)
+    assert old.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert old.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
+    names = {
+        r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert "attachments" in names
+    assert old.execute("SELECT count(*) FROM machines").fetchone()[0] == 1
+    old.close()
+
+
+def test_connect_limits_the_wal(tmp_path: Path) -> None:
+    c = db.connect(tmp_path / "x.db")
+    assert c.execute("PRAGMA journal_size_limit").fetchone()[0] == 64 * 1024 * 1024
+    c.close()
+
+
+def _message(conn: sqlite3.Connection, message_id: str, expires_at: str) -> None:
+    conn.execute(
+        "INSERT INTO machines (name, key_hash, created_at) VALUES ('m', x'01', 't')"
+    )
+    conn.execute(
+        "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (1, 'r', 't')"
+    )
+    conn.execute(
+        "INSERT INTO sessions (mailbox_id, suffix, agent, cwd, hooks, started_at, "
+        "last_seen) VALUES (1, 'aa', 'other', '/', 0, 't', 't')"
+    )
+    conn.execute(
+        "INSERT INTO messages (id, to_mailbox_id, from_session_id, body, depth, "
+        "wake, sent_at, expires_at) VALUES (?, 1, 1, 'b', 0, 1, 't', ?)",
+        (message_id, expires_at),
+    )
+
+
+def test_attachment_goes_with_its_message(conn: sqlite3.Connection) -> None:
+    _message(conn, "m1", "9999")
+    conn.execute(
+        "INSERT INTO attachments (message_id, name, type, bytes, data) "
+        "VALUES ('m1', 'a.txt', 'text', 1, x'61')"
+    )
+    conn.execute("DELETE FROM messages WHERE id = 'm1'")
+    assert conn.execute("SELECT count(*) FROM attachments").fetchone()[0] == 0
+
+
+def test_sweep_reclaims_space_after_expiry(conn: sqlite3.Connection) -> None:
+    from datetime import datetime, timezone
+
+    from kampung_server.sweep import sweep
+
+    _message(conn, "m1", "2000-01-01T00:00:00.000000Z")
+    conn.execute(
+        "INSERT INTO attachments (message_id, name, type, bytes, data) "
+        "VALUES ('m1', 'a.txt', 'text', 204800, ?)",
+        (b"x" * 204800,),
+    )
+    with db.transaction(conn):
+        sweep(conn, datetime(2026, 1, 1, tzinfo=timezone.utc))
+    assert conn.execute("SELECT count(*) FROM attachments").fetchone()[0] == 0
+    assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
