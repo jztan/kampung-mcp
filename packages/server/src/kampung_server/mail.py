@@ -4,8 +4,9 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime
 
-from . import audit, db
+from . import attachments, audit, db
 from .addressing import parse_address
+from .attachments import Attachment
 from .clock import parse_ts, ts
 from .errors import KampungError
 from .identity import is_paired
@@ -21,6 +22,7 @@ from .limits import (
     NOHOOK_DEPTH_RESET,
     WAKE_DEPTH_LIMIT,
 )
+from .secret_scan import scan
 from .models import (
     SESSION_SELECT,
     Machine,
@@ -75,6 +77,7 @@ def send(
     body: str,
     reply_to: str | None,
     now: datetime,
+    attachment: Attachment | None = None,
 ) -> SendResult:
     actor = f"machine:{sender.machine}"
     if body.strip() == "":
@@ -86,6 +89,7 @@ def send(
             f"Messages are limited to {MAX_BODY_BYTES} bytes of UTF-8; "
             f"this one is {size}.",
         )
+    _scan(body, attachment)
     address = parse_address(to)
     target = load_machine(conn, address.machine)
     if target is None:
@@ -172,7 +176,16 @@ def send(
         if woken >= CONNECTOR_WAKE_BUDGET:
             wake, reason = False, "wake_budget"
     message_id = new_message_id(now)
+    detail: dict[str, object] = {
+        "id": message_id,
+        "to": to,
+        "depth": depth,
+        "wake": wake,
+        "bytes": size,
+    }
     with db.transaction(conn):
+        if attachment is not None:
+            attachments.check_room(conn, sender.machine_id, len(attachment.data), now)
         conn.execute(
             "INSERT INTO messages (id, to_mailbox_id, to_session_id, from_session_id, "
             "body, depth, wake, reply_to, sent_at, expires_at) "
@@ -190,14 +203,48 @@ def send(
                 ts(now + MESSAGE_TTL),
             ),
         )
-        audit.record(
-            conn,
-            now,
-            actor,
-            "send",
-            {"id": message_id, "to": to, "depth": depth, "wake": wake, "bytes": size},
-        )
+        if attachment is not None:
+            attachments.store(conn, message_id, attachment)
+            detail["attachment"] = {
+                "name": attachment.name,
+                "type": attachment.type,
+                "bytes": len(attachment.data),
+            }
+        audit.record(conn, now, actor, "send", detail)
     return SendResult(message_id, depth, wake, reason)
+
+
+def _scan(body: str, attachment: Attachment | None) -> None:
+    """Refuse a send that carries a secret. Body and text attachment are
+    scanned as one text, so a key split across the two is still caught."""
+    text = body
+    seam = ""
+    if attachment is not None and attachment.type == attachments.TEXT:
+        attached = attachment.data.decode("utf-8")
+        text = body + "\n" + attached
+        # Joined with no separator too, around the seam, so a key cut in two
+        # between the body and the attachment does not slip through.
+        seam = body[-512:] + attached[:512]
+    found = scan(text)
+    if found is None and seam and scan(seam) is not None:
+        raise KampungError(
+            "secret_detected",
+            "A secret seems to be split between the body and the attachment. "
+            "Replace it with a placeholder (for example sk-xxxx) and send again.",
+        )
+    if found is None:
+        return
+    body_lines = body.count("\n") + 1
+    where = (
+        f"line {found.line}"
+        if found.line <= body_lines
+        else f"line {found.line - body_lines} of the attachment"
+    )
+    raise KampungError(
+        "secret_detected",
+        f"This looks like a {found.kind} on {where}. Replace it with a "
+        "placeholder (for example sk-xxxx) and send again.",
+    )
 
 
 # Mail one session may read: its mailbox, undelivered, unexpired, and either

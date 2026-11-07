@@ -11,7 +11,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 
-from . import mail, sessions
+from . import attachments, mail, sessions
 from .deps import ServerDeps
 from .errors import KampungError
 from .ids import parse_session_id
@@ -98,8 +98,18 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         return call(work)
 
     @mcp.tool
-    def send(to: str, body: str, reply_to: str | None = None) -> Result:
+    def send(
+        to: str,
+        body: str,
+        reply_to: str | None = None,
+        attachment: dict[str, str] | None = None,
+    ) -> Result:
         """Send a short text message to machine/repo or machine/repo#xx.
+
+        attachment is optional: {"name": "notes.md", "text": "..."} for up to
+        256 KB of text. The receiver sees its name and size in inbox and reads
+        it with read_attachment. Bodies and text attachments are checked for
+        secrets such as API keys; a hit refuses the whole send.
 
         In the result, wake=false means the loop guard stored it without
         waking the receiver. wake=true means it may wake the receiver, not
@@ -111,7 +121,12 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         ) -> Result:
             assert s is not None
             deps.limiter.check(me.id, now)
-            return mail.send(conn, s, to, body, reply_to, now).to_dict()
+            parsed = (
+                None
+                if attachment is None
+                else attachments.parse_attachment(attachment, _is_connector())
+            )
+            return mail.send(conn, s, to, body, reply_to, now, parsed).to_dict()
 
         return call(work)
 
