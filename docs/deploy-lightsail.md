@@ -298,7 +298,7 @@ Check: the connector lists `list_peers`, `send` and `inbox`. In a new chat with 
 Two things seen in that run that look like faults but are not:
 
 - A chat that reads the inbox after another chat already did gets nothing. Mail is delivered on read, and every chat on the account shares the one mailbox, so the first reader takes it.
-- A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. Turn it off there with `/mcp`, per project.
+- A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. Deny it for every project with a `deniedMcpServers` entry in `~/.claude/settings.json`; [Connecting Claude Code and Codex](clients.md#the-hook-says-mail-is-waiting-but-the-inbox-is-empty) has the exact lines and the symptom to recognise.
 
 If the connector never appears, assume the code went to a flow you did not start: run `kampung disconnect phone` and connect again. The server itself does not know whose Claude account started a sign-in, and anyone on one of your allowed networks can reach `/authorize`; the code is the only thing tying a grant to you, so never enter one in a flow you did not start.
 
