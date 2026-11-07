@@ -22,7 +22,9 @@ from .limits import (
     MAX_ATTACHMENT_TEXT_BYTES,
     MAX_UNREAD_ATTACHMENT_BYTES_PER_MACHINE,
     MIN_FREE_DISK_BYTES,
+    READ_SLICE_MAX,
 )
+from .models import Session
 
 TEXT = "text"
 IMAGE_TYPES = ("image/png", "image/jpeg")
@@ -138,4 +140,99 @@ def store(conn: sqlite3.Connection, message_id: str, attachment: Attachment) -> 
             len(attachment.data),
             attachment.data,
         ),
+    )
+
+
+@dataclass(frozen=True)
+class AttachmentRead:
+    name: str
+    type: str
+    size: int
+    data: bytes
+    offset: int
+    next_offset: int | None
+    headings: list[dict[str, object]] | None
+
+
+_HEADING = re.compile(r"(#{1,6}) +(\S.*)")
+_FENCE = re.compile(r" {0,3}(```|~~~)")
+
+
+def headings(data: bytes) -> list[dict[str, object]]:
+    """ATX headings outside fenced code, with the byte offset of each line."""
+    found: list[dict[str, object]] = []
+    in_fence = False
+    offset = 0
+    for raw in data.splitlines(keepends=True):
+        line = raw.decode("utf-8").rstrip("\r\n")
+        if _FENCE.match(line):
+            in_fence = not in_fence
+        elif not in_fence:
+            match = _HEADING.fullmatch(line)
+            if match:
+                title = match.group(2).rstrip().rstrip("#").rstrip()
+                found.append(
+                    {"level": len(match.group(1)), "title": title, "offset": offset}
+                )
+        offset += len(raw)
+    return found
+
+
+def _char_start(data: bytes, index: int) -> int:
+    """`index` moved back to the first byte of the character it falls in."""
+    index = max(0, min(index, len(data)))
+    while index < len(data) and index > 0 and data[index] & 0xC0 == 0x80:
+        index -= 1
+    return index
+
+
+def read_attachment(
+    conn: sqlite3.Connection,
+    session: Session,
+    message_id: str,
+    offset: int,
+    limit: int,
+    now: datetime,
+) -> AttachmentRead:
+    """A slice of a text attachment, or a whole image. Open to the receiving
+    machine once the message is delivered, and to the sending machine."""
+    row = conn.execute(
+        "SELECT a.name, a.type, a.bytes, a.data FROM attachments a "
+        "JOIN messages msg ON msg.id = a.message_id "
+        "JOIN mailboxes tmb ON tmb.id = msg.to_mailbox_id "
+        "JOIN sessions fs ON fs.id = msg.from_session_id "
+        "JOIN mailboxes fmb ON fmb.id = fs.mailbox_id "
+        "WHERE a.message_id = :id AND msg.expires_at > :now AND ("
+        "(tmb.machine_id = :machine AND msg.delivered_at IS NOT NULL) "
+        "OR fmb.machine_id = :machine)",
+        {"id": message_id, "now": ts(now), "machine": session.machine_id},
+    ).fetchone()
+    if row is None:
+        raise KampungError(
+            "unknown_message", "No attachment you can read has that message id."
+        )
+    data = bytes(row["data"])
+    if row["type"] != TEXT:
+        return AttachmentRead(
+            row["name"], row["type"], row["bytes"], data, 0, None, None
+        )
+    limit = max(1, min(limit, READ_SLICE_MAX))
+    start = _char_start(data, offset)
+    end = _char_start(data, start + limit)
+    if end == start and start < len(data):
+        # A slice smaller than one character still returns that character.
+        end = start + 1
+        while end < len(data) and data[end] & 0xC0 == 0x80:
+            end += 1
+    marks = (
+        headings(data) if row["name"].lower().endswith(".md") and start == 0 else None
+    )
+    return AttachmentRead(
+        row["name"],
+        row["type"],
+        row["bytes"],
+        data[start:end],
+        start,
+        end if end < len(data) else None,
+        marks,
     )

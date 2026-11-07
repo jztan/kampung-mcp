@@ -10,6 +10,8 @@ from PIL import Image
 from kampung_server import attachments, db
 from kampung_server.attachments import Attachment, parse_attachment, valid_name
 from kampung_server.errors import KampungError
+from kampung_server.attachments import read_attachment
+from kampung_server.limits import READ_SLICE_DEFAULT
 from kampung_server.mail import inbox, send
 from server_testlib import FakeClock, MakeSession
 
@@ -354,3 +356,141 @@ def test_send_without_attachment_is_unchanged(
     sent = send(conn, a, "desktop/blog", "plain", None, clock.now())
     assert set(sent.to_dict()) == {"id", "depth", "wake"}
     assert conn.execute("SELECT count(*) FROM attachments").fetchone()[0] == 0
+
+
+# Reading
+
+
+def _sent(
+    conn: sqlite3.Connection, a: object, clock: FakeClock, name: str, text: str
+) -> str:
+    return send(
+        conn,
+        a,
+        "desktop/blog",
+        "see file",
+        None,
+        clock.now(),  # type: ignore[arg-type]
+        attachment=_text(name, text),
+    ).id
+
+
+def test_inbox_lists_attachment_metadata_not_content(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    _sent(conn, a, clock, "README.md", "secret-free content")
+    clock.advance(seconds=1)
+    send(conn, a, "desktop/blog", "plain", None, clock.now())
+    first, second = inbox(conn, b, 20, clock.now()).messages
+    assert first["attachment"] == {"name": "README.md", "type": "text", "bytes": 19}
+    assert "secret-free content" not in str(first)
+    assert second["attachment"] is None
+
+
+def _read_all(
+    conn: sqlite3.Connection, s: object, mid: str, now: object, limit: int
+) -> bytes:
+    out, offset = [], 0
+    while True:
+        r = read_attachment(conn, s, mid, offset, limit, now)  # type: ignore[arg-type]
+        out.append(r.data)
+        r.data.decode("utf-8")  # every slice is whole characters
+        if r.next_offset is None:
+            return b"".join(out)
+        assert r.next_offset > offset
+        offset = r.next_offset
+
+
+def test_slices_never_split_a_character_and_rebuild_the_text(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    text = "é😀a" * 5000
+    mid = _sent(conn, a, clock, "u.txt", text)
+    inbox(conn, b, 20, clock.now())
+    assert _read_all(conn, b, mid, clock.now(), 7).decode() == text
+    # An offset in the middle of a character moves back to its start.
+    r = read_attachment(conn, b, mid, 1, 4, clock.now())
+    assert r.offset == 0 and r.data.decode()
+
+
+def test_limit_is_clamped_and_default_is_16_kb(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    mid = _sent(conn, a, clock, "big.txt", "x" * 100_000)
+    inbox(conn, b, 20, clock.now())
+    assert len(read_attachment(conn, b, mid, 0, 10**9, clock.now()).data) == 32768
+    assert len(read_attachment(conn, b, mid, 0, 0, clock.now()).data) == 1
+    assert (
+        len(read_attachment(conn, b, mid, 0, READ_SLICE_DEFAULT, clock.now()).data)
+        == 16384
+    )
+    last = read_attachment(conn, b, mid, 99_990, 100, clock.now())
+    assert len(last.data) == 10 and last.next_offset is None
+
+
+def test_markdown_first_read_lists_headings_with_offsets(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    md = "# Title\nintro\n```\n# not a heading\n```\n## Install\nsteps\n#nospace\n"
+    mid = _sent(conn, a, clock, "README.md", md)
+    inbox(conn, b, 20, clock.now())
+    first = read_attachment(conn, b, mid, 0, 16384, clock.now())
+    assert first.headings == [
+        {"level": 1, "title": "Title", "offset": 0},
+        {"level": 2, "title": "Install", "offset": md.index("## Install")},
+    ]
+    jump = read_attachment(conn, b, mid, md.index("## Install"), 16384, clock.now())
+    assert jump.data.decode().startswith("## Install") and jump.headings is None
+    plain = _sent(conn, a, clock, "notes.txt", "# Title\n")
+    inbox(conn, b, 20, clock.now())
+    assert read_attachment(conn, b, plain, 0, 100, clock.now()).headings is None
+
+
+def test_receiver_reads_only_after_delivery(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    mid = _sent(conn, a, clock, "a.md", "hello")
+    assert (
+        _err(read_attachment, conn, b, mid, 0, 100, clock.now()).code
+        == "unknown_message"
+    )
+    inbox(conn, b, 20, clock.now())
+    for _ in range(2):
+        assert read_attachment(conn, b, mid, 0, 100, clock.now()).data == b"hello"
+
+
+def test_sender_machine_can_read_its_own(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, _ = make_session("laptop"), make_session("desktop", "blog")
+    other_laptop_session = make_session("laptop", "web")
+    mid = _sent(conn, a, clock, "a.md", "hello")
+    assert (
+        read_attachment(conn, other_laptop_session, mid, 0, 100, clock.now()).data
+        == b"hello"
+    )
+
+
+def test_other_machines_and_expired_get_the_same_unknown_message(
+    conn: sqlite3.Connection, admin: object, make_session: MakeSession, clock: FakeClock
+) -> None:
+    from datetime import timedelta
+
+    admin.add_machine("spare", "admin:cli")  # type: ignore[attr-defined]
+    admin.pair("laptop", "spare", "admin:cli")  # type: ignore[attr-defined]
+    a, b = make_session("laptop"), make_session("desktop", "blog")
+    spare = make_session("spare", "x")
+    mid = _sent(conn, a, clock, "a.md", "hello")
+    inbox(conn, b, 20, clock.now())
+    stranger = _err(read_attachment, conn, spare, mid, 0, 100, clock.now())
+    nothing = _err(read_attachment, conn, b, "msg_nope", 0, 100, clock.now())
+    expired = _err(
+        read_attachment, conn, b, mid, 0, 100, clock.now() + timedelta(days=8)
+    )
+    assert stranger.to_dict() == nothing.to_dict() == expired.to_dict()
+    assert stranger.code == "unknown_message"

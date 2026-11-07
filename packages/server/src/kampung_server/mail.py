@@ -260,6 +260,7 @@ _READABLE = (
 
 _ENVELOPE_SELECT = (
     "SELECT msg.id, msg.sent_at, msg.depth, msg.reply_to, msg.body, "
+    "att.name AS att_name, att.type AS att_type, att.bytes AS att_bytes, "
     "fm.name || '/' || fmb.repo || '#' || fs.suffix AS sender, "
     "tm.name || '/' || tmb.repo "
     "|| COALESCE('#' || ts.suffix, '') AS recipient "
@@ -269,7 +270,8 @@ _ENVELOPE_SELECT = (
     "JOIN machines fm ON fm.id = fmb.machine_id "
     "JOIN mailboxes tmb ON tmb.id = msg.to_mailbox_id "
     "JOIN machines tm ON tm.id = tmb.machine_id "
-    "LEFT JOIN sessions ts ON ts.id = msg.to_session_id"
+    "LEFT JOIN sessions ts ON ts.id = msg.to_session_id "
+    "LEFT JOIN attachments att ON att.message_id = msg.id"
 )
 
 
@@ -283,6 +285,16 @@ def envelope(row: sqlite3.Row) -> dict[str, object]:
         "reply_to": row["reply_to"],
         "kind": KIND,
         "body": row["body"],
+        # Never the content: read_attachment fetches it on demand.
+        "attachment": (
+            None
+            if row["att_name"] is None
+            else {
+                "name": row["att_name"],
+                "type": row["att_type"],
+                "bytes": row["att_bytes"],
+            }
+        ),
     }
 
 
