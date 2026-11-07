@@ -137,14 +137,32 @@ def test_expired_not_delivered_or_peeked(
 def test_peek_counts_wakeable_and_does_not_deliver(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
-    send(conn, pair[0], "desktop/blog", "wake", None, clock.now())
+    woke = send(conn, pair[0], "desktop/blog", "wake", None, clock.now()).id
     conn.execute("UPDATE sessions SET max_depth_seen = 3 WHERE id = ?", (pair[0].id,))
     deep = load_session(conn, pair[0].id)
     assert deep is not None
     send(conn, deep, "desktop/blog", "no wake", None, clock.now())
-    assert peek(conn, pair[1], clock.now()) == PeekResult(2, 1)
-    assert peek(conn, pair[1], clock.now()).to_dict() == {"waiting": 2, "wakeable": 1}
+    assert peek(conn, pair[1], clock.now()) == PeekResult(2, 1, woke)
+    assert peek(conn, pair[1], clock.now()).to_dict() == {
+        "waiting": 2,
+        "wakeable": 1,
+        "newest": woke,
+    }
     assert len(inbox(conn, pair[1], 20, clock.now()).messages) == 2
+
+
+def test_peek_newest_changes_when_the_mail_does_but_the_count_does_not(
+    conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
+) -> None:
+    first = send(conn, pair[0], "desktop/blog", "one", None, clock.now()).id
+    assert peek(conn, pair[1], clock.now()) == PeekResult(1, 1, first)
+    assert len(inbox(conn, pair[1], 20, clock.now()).messages) == 1
+    clock.advance(seconds=1)
+    second = send(conn, pair[0], "desktop/blog", "two", None, clock.now()).id
+    assert peek(conn, pair[1], clock.now()) == PeekResult(1, 1, second)
+    clock.advance(seconds=1)
+    third = send(conn, pair[0], "desktop/blog", "three", None, clock.now()).id
+    assert peek(conn, pair[1], clock.now()).newest == third
 
 
 def test_concurrent_inbox_delivers_each_once(

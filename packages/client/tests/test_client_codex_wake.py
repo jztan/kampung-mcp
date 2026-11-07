@@ -331,3 +331,46 @@ def test_waker_wakes_for_mail_that_arrives_late_in_a_wake_turn(
         assert len(wait_for_calls(log, 2, 8)) == 2
     finally:
         mcp.close()
+
+
+async def test_waker_wakes_when_one_message_replaces_another(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from kampung_client import adapter
+    from kampung_client.adapter import CodexWaker, SessionResolver
+
+    resolver = SessionResolver("codex", "/w/api", wait=0)
+    resolver.bound = "cx-1"
+    monkeypatch.setattr(resolver, "target", lambda: {"session": "1"})
+    monkeypatch.setattr(hook, "turn_active", lambda thread: False)
+    peeks = iter(
+        [
+            {"waiting": 1, "wakeable": 1, "newest": "msg_a"},
+            {"waiting": 1, "wakeable": 1, "newest": "msg_a"},
+            {"waiting": 1, "wakeable": 1, "newest": "msg_b"},
+        ]
+    )
+    monkeypatch.setattr(hook, "api", lambda *a, **k: (200, next(peeks)))
+    queued: list[str] = []
+    polls = 0
+
+    async def fake_sleep(seconds: float) -> None:
+        nonlocal polls
+        polls += 1
+        if polls >= 3:
+            raise asyncio.CancelledError
+
+    fake_asyncio = SimpleNamespace(**vars(asyncio))
+    fake_asyncio.sleep = fake_sleep
+    monkeypatch.setattr(adapter, "asyncio", fake_asyncio)
+    waker = CodexWaker(resolver, "/bin/false")
+
+    async def fake_queue(thread: str, wakeable: int) -> None:
+        queued.append(thread)
+
+    monkeypatch.setattr(waker, "_queue", fake_queue)
+    with pytest.raises(asyncio.CancelledError):
+        await waker.poll()
+    assert queued == ["cx-1", "cx-1"]

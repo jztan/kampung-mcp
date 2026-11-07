@@ -69,7 +69,7 @@ def test_register_then_peek(client: TestClient, machines: Machines) -> None:
     assert data["mailbox"] == "laptop/api" and isinstance(data["session"], str)
     assert len(data["suffix"]) == 2
     peek = client.get(f"/v1/sessions/{data['session']}/peek", headers=bearer(key))
-    assert peek.json() == {"waiting": 0, "wakeable": 0}
+    assert peek.json() == {"waiting": 0, "wakeable": 0, "newest": None}
 
 
 def test_other_machines_session_403(client: TestClient, machines: Machines) -> None:

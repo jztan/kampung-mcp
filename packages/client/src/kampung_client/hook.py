@@ -21,7 +21,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, TextIO
+from typing import Any, Callable, TextIO, TypedDict
 
 Ancestor = tuple[int, str]
 
@@ -611,21 +611,48 @@ def on_user_prompt(event: Event, clock: _Clock) -> None:
     _call(event, clock, "POST", "human-turn", revive=True)
 
 
+Seen = str | int | None  # what was last announced: a message id, or a count
+
+
+def new_mail(body: dict[str, object], seen: Seen) -> tuple[bool, Seen]:
+    """Whether a peek shows wakeable mail not announced yet, and what to
+    remember as announced. A server that sends `newest` (the newest wakeable
+    message id) catches one message replacing another between peeks, which
+    leaves the count unchanged; older servers send only the count."""
+    wakeable = int(str(body.get("wakeable", 0)))
+    newest = body.get("newest")
+    if isinstance(newest, str):
+        return wakeable > 0 and newest != seen, newest
+    count = seen if isinstance(seen, int) else 0
+    return wakeable > count, wakeable
+
+
+class NudgeState(TypedDict):
+    checked: float
+    notified: Seen
+
+
 def _nudge_path(event: Event) -> Path:
     return (
         cache_dir() / "nudge" / f"{_NAME_BAD.sub('_', str(event['session_id']))}.json"
     )
 
 
-def _nudge_state(path: Path) -> dict[str, float]:
+def _nudge_state(path: Path) -> NudgeState:
     try:
         data = json.loads(path.read_text())
-        return {"checked": float(data["checked"]), "notified": float(data["notified"])}
+        checked = float(data["checked"])
+        notified = data.get("notified")
     except (OSError, ValueError, KeyError, TypeError):
-        return {"checked": 0.0, "notified": 0.0}
+        return {"checked": 0.0, "notified": None}
+    if isinstance(notified, float) and notified.is_integer():
+        notified = int(notified)  # a count written by an older client
+    if not isinstance(notified, (str, int)) or isinstance(notified, bool):
+        notified = None
+    return {"checked": checked, "notified": notified}
 
 
-def _save_nudge_state(path: Path, state: dict[str, float]) -> None:
+def _save_nudge_state(path: Path, state: NudgeState) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f".tmp{os.getpid()}")
     tmp.write_text(json.dumps(state))
@@ -638,11 +665,11 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     if _agent(event) == "codex":
         mark_turn(str(event["session_id"]))  # keeps a long turn from going stale
     path = _nudge_path(event)
-    state = _nudge_state(path)
     if str(event.get("tool_name", "")).startswith("mcp__kampung__"):
         # The agent is already talking to Kampung; whatever it read is handled.
-        _save_nudge_state(path, {"checked": time.time(), "notified": 0.0})
+        _save_nudge_state(path, {"checked": time.time(), "notified": None})
         return None
+    state = _nudge_state(path)
     now = time.time()
     if 0 <= now - state["checked"] < NUDGE_INTERVAL:
         return None
@@ -651,8 +678,8 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     _save_nudge_state(path, {"checked": now, "notified": state["notified"]})
     body = _call(event, clock, "GET", "peek", revive=False)
     wakeable = int(str(body.get("wakeable", 0)))
-    notify = wakeable > state["notified"]
-    _save_nudge_state(path, {"checked": time.time(), "notified": float(wakeable)})
+    notify, seen = new_mail(body, state["notified"])
+    _save_nudge_state(path, {"checked": time.time(), "notified": seen})
     if not notify:
         return None
     return {

@@ -242,3 +242,44 @@ def test_an_outage_is_logged_once_however_its_error_reads(
     log = hook.cache_dir() / "hooks.log"
     lines = [x for x in log.read_text().splitlines() if f" {poller}:" in x]
     assert len(lines) == 1
+
+
+async def test_push_when_one_message_replaces_another(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Between two polls one message is read and another arrives: the count
+    # stays at 1, and only the newest id shows the mail is new.
+    from types import SimpleNamespace
+
+    resolver = adapter.SessionResolver("claude-code", "/w/api", wait=0)
+    monkeypatch.setattr(resolver, "target", lambda: {"session": "1"})
+    peeks = iter(
+        [
+            {"waiting": 1, "wakeable": 1, "newest": "msg_a"},
+            {"waiting": 1, "wakeable": 1, "newest": "msg_a"},
+            {"waiting": 1, "wakeable": 1, "newest": "msg_b"},
+        ]
+    )
+    monkeypatch.setattr(hook, "api", lambda *a, **k: (200, next(peeks)))
+    pushed: list[object] = []
+
+    class Session:
+        async def send_notification(self, note: object) -> None:
+            pushed.append(note)
+
+    polls = 0
+
+    async def fake_sleep(seconds: float) -> None:
+        nonlocal polls
+        polls += 1
+        if polls >= 3:
+            raise asyncio.CancelledError
+
+    fake_asyncio = SimpleNamespace(**vars(asyncio))
+    fake_asyncio.sleep = fake_sleep
+    monkeypatch.setattr(adapter, "asyncio", fake_asyncio)
+    push = adapter._ChannelPush(resolver)
+    push.session = Session()
+    with pytest.raises(asyncio.CancelledError):
+        await push.poll()
+    assert len(pushed) == 2

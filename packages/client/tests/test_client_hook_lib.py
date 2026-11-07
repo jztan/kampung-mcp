@@ -358,3 +358,25 @@ def test_log_is_written_when_rotation_fails(
     monkeypatch.setattr(hook.os, "replace", denied)
     hook._log("Stop", ValueError("kept"))
     assert log.read_text().endswith("kept\n")
+
+
+@pytest.mark.parametrize(
+    "body, seen, expected",
+    [
+        ({"wakeable": 1, "newest": "msg_b"}, None, (True, "msg_b")),
+        ({"wakeable": 1, "newest": "msg_b"}, "msg_b", (False, "msg_b")),
+        # Same count, different mail: one message replaced another.
+        ({"wakeable": 1, "newest": "msg_b"}, "msg_a", (True, "msg_b")),
+        ({"wakeable": 0, "newest": None}, "msg_a", (False, 0)),
+        # Older servers send only the count.
+        ({"wakeable": 1}, None, (True, 1)),
+        ({"wakeable": 1}, 1, (False, 1)),
+        ({"wakeable": 2}, 1, (True, 2)),
+        ({"wakeable": 1}, "msg_a", (True, 1)),  # server went back to an older one
+        ({}, 3, (False, 0)),
+    ],
+)
+def test_new_mail(
+    body: dict[str, object], seen: hook.Seen, expected: tuple[bool, hook.Seen]
+) -> None:
+    assert hook.new_mail(body, seen) == expected
