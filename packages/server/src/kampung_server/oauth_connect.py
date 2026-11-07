@@ -200,20 +200,31 @@ def register_connect_routes(
             try:
                 if not request_id or not live(conn, request_id):
                     return _plain(400, UNKNOWN)
-                with db.transaction(conn):
-                    machine_id = (
-                        oauth_store.take_connect_code(conn, code, now) if code else None
-                    )
-                    if machine_id is None:
-                        attempts = oauth_store.fail_request(conn, request_id)
-                        if attempts >= OAUTH_CONNECT_ATTEMPTS:
-                            audit.record(
-                                conn,
-                                now,
-                                "oauth",
-                                "connect_burned",
-                                {"request": request_id},
+                # One transaction: a request that died since the check rolls
+                # the code back with it, so the owner can still use it.
+                try:
+                    with db.transaction(conn):
+                        machine_id = (
+                            oauth_store.take_connect_code(conn, code, now)
+                            if code
+                            else None
+                        )
+                        if machine_id is None:
+                            attempts = oauth_store.fail_request(conn, request_id)
+                            if attempts >= OAUTH_CONNECT_ATTEMPTS:
+                                audit.record(
+                                    conn,
+                                    now,
+                                    "oauth",
+                                    "connect_burned",
+                                    {"request": request_id},
+                                )
+                        else:
+                            url = provider.complete_connect(
+                                conn, request_id, machine_id, now
                             )
+                except ValueError:
+                    return _plain(400, UNKNOWN)
             finally:
                 conn.close()
             if machine_id is None:
@@ -222,10 +233,6 @@ def register_connect_routes(
                     return _plain(400, UNKNOWN)
                 message = '<p class="error">Wrong code.</p>'
                 return _respond(401, _page(request_id, message))
-            try:
-                url = provider.complete_connect(request_id, machine_id, now)
-            except ValueError:
-                return _plain(400, UNKNOWN)
             return RedirectResponse(url, status_code=303, headers=SECURITY_HEADERS)
 
         return await run_in_threadpool(work)

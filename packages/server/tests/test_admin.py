@@ -285,6 +285,10 @@ def test_disconnect_drops_the_grant_and_keeps_mail(
     admin.disconnect("laptop", "admin:cli")
     assert oauth_store.grant_for_machine(conn, laptop_id) is None
     assert conn.execute("SELECT count(*) FROM messages").fetchone()[0] == 1
+    ended = conn.execute(
+        "SELECT ended_at FROM sessions WHERE id = ?", (phone.id,)
+    ).fetchone()[0]
+    assert ended is not None
     assert (
         conn.execute(
             "SELECT revoked_at FROM machines WHERE id = ?", (laptop_id,)

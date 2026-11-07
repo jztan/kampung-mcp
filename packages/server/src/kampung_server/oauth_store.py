@@ -16,6 +16,7 @@ from .limits import (
     OAUTH_CONNECT_CODE_TTL,
     OAUTH_MAX_REQUESTS,
     OAUTH_REQUEST_TTL,
+    OAUTH_ROTATED_RETENTION,
 )
 
 KINDS = ("code", "access", "refresh")
@@ -117,13 +118,36 @@ def grant_for_machine(conn: sqlite3.Connection, machine_id: int) -> int | None:
     return int(row[0]) if row else None
 
 
-def delete_grant(conn: sqlite3.Connection, grant_id: int) -> None:
-    conn.execute("DELETE FROM oauth_grants WHERE id = ?", (grant_id,))
+def delete_grant(conn: sqlite3.Connection, grant_id: int, now: datetime) -> None:
+    """Drop the grant and end the connector session that used it."""
+    row = conn.execute(
+        "DELETE FROM oauth_grants WHERE id = ? RETURNING machine_id", (grant_id,)
+    ).fetchone()
+    if row is not None:
+        _end_connector_session(conn, int(row[0]), now)
 
 
-def delete_grant_for_machine(conn: sqlite3.Connection, machine_id: int) -> bool:
+def delete_grant_for_machine(
+    conn: sqlite3.Connection, machine_id: int, now: datetime
+) -> bool:
     cur = conn.execute("DELETE FROM oauth_grants WHERE machine_id = ?", (machine_id,))
+    if cur.rowcount > 0:
+        _end_connector_session(conn, machine_id, now)
     return cur.rowcount > 0
+
+
+def _end_connector_session(
+    conn: sqlite3.Connection, machine_id: int, now: datetime
+) -> None:
+    # The connector session is the one with agent claude-app in the machine's
+    # mailboxes; without a grant nothing can act as it, so it ends now rather
+    # than being listed live for another 30 minutes.
+    conn.execute(
+        "UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL "
+        "AND agent = 'claude-app' "
+        "AND mailbox_id IN (SELECT id FROM mailboxes WHERE machine_id = ?)",
+        (ts(now), machine_id),
+    )
 
 
 def save_token(
@@ -157,11 +181,16 @@ def load_token(
 def take_token(
     conn: sqlite3.Connection, kind: str, token: str, now: datetime
 ) -> tuple[int, str] | None:
-    """Mark a token used, once. None when it was used, expired or unknown."""
+    """Mark a token used, once. None when it was used, expired or unknown.
+
+    A used token stays on record for OAUTH_ROTATED_RETENTION at most, long
+    enough for a reuse to be noticed, by shortening its expiry: the sweep then
+    needs only the expiry index."""
     row = conn.execute(
-        "UPDATE oauth_tokens SET used_at = ? WHERE kind = ? AND token_hash = ? "
-        "AND used_at IS NULL AND expires_at > ? RETURNING grant_id, record_json",
-        (ts(now), kind, hash_key(token), ts(now)),
+        "UPDATE oauth_tokens SET used_at = ?, expires_at = min(expires_at, ?) "
+        "WHERE kind = ? AND token_hash = ? AND used_at IS NULL AND expires_at > ? "
+        "RETURNING grant_id, record_json",
+        (ts(now), ts(now + OAUTH_ROTATED_RETENTION), kind, hash_key(token), ts(now)),
     ).fetchone()
     return (int(row[0]), str(row[1])) if row else None
 
@@ -186,5 +215,16 @@ def live_access_hashes(conn: sqlite3.Connection, now: datetime) -> frozenset[byt
 
 
 def sweep_oauth(conn: sqlite3.Connection, now: datetime) -> None:
-    for table in ("oauth_connect_codes", "oauth_requests", "oauth_tokens"):
+    for table in ("oauth_connect_codes", "oauth_requests"):
         conn.execute(f"DELETE FROM {table} WHERE expires_at <= ?", (ts(now),))
+    # Expired access tokens stay OAUTH_ROTATED_RETENTION longer, so a stale
+    # one still gets the 401 that starts a refresh rather than a throttled 429.
+    conn.execute(
+        "DELETE FROM oauth_tokens WHERE kind IN ('code', 'refresh') "
+        "AND expires_at <= ?",
+        (ts(now),),
+    )
+    conn.execute(
+        "DELETE FROM oauth_tokens WHERE kind = 'access' AND expires_at <= ?",
+        (ts(now - OAUTH_ROTATED_RETENTION),),
+    )

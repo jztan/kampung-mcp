@@ -91,8 +91,8 @@ def test_replace_grant_drops_old_tokens(
     assert oauth_store.grant_for_machine(conn, _laptop(machines)) == g2
     assert oauth_store.load_token(conn, "access", "kpa_1", now) is None
     with db.transaction(conn):
-        assert oauth_store.delete_grant_for_machine(conn, _laptop(machines))
-        assert not oauth_store.delete_grant_for_machine(conn, _laptop(machines))
+        assert oauth_store.delete_grant_for_machine(conn, _laptop(machines), now)
+        assert not oauth_store.delete_grant_for_machine(conn, _laptop(machines), now)
 
 
 def db_hour():  # type: ignore[no-untyped-def]
@@ -149,4 +149,33 @@ def test_sweep_oauth_removes_expired_rows(
         conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
         for t in ("oauth_connect_codes", "oauth_requests", "oauth_tokens")
     ]
-    assert counts == [0, 0, 1]
+    # The expired access token stays known for a while: a 401 that starts a
+    # refresh, not a throttled 429.
+    assert counts == [0, 0, 2]
+
+
+def test_sweep_drops_stale_access_and_rotated_refresh_after_retention(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    from datetime import timedelta
+
+    now = clock.now()
+    with db.transaction(conn):
+        g = oauth_store.replace_grant(conn, _laptop(machines), now)
+        oauth_store.save_token(conn, g, "access", "kpa_1", "{}", now + db_hour())
+        oauth_store.save_token(
+            conn, g, "refresh", "kpr_1", "{}", now + timedelta(days=90)
+        )
+        oauth_store.take_token(conn, "refresh", "kpr_1", now)
+        oauth_store.save_token(
+            conn, g, "refresh", "kpr_2", "{}", now + timedelta(days=90)
+        )
+    clock.advance(days=6)
+    with db.transaction(conn):
+        oauth_store.sweep_oauth(conn, clock.now())
+    assert conn.execute("SELECT count(*) FROM oauth_tokens").fetchone()[0] == 3
+    clock.advance(days=2)
+    with db.transaction(conn):
+        oauth_store.sweep_oauth(conn, clock.now())
+    left = conn.execute("SELECT token_hash FROM oauth_tokens").fetchall()
+    assert [bytes(r[0]) for r in left] == [hash_key("kpr_2")]

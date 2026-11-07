@@ -172,6 +172,24 @@ def test_used_code_is_refused(
     assert r.status_code == 401
 
 
+def test_dead_request_leaves_the_code_usable(
+    client: TestClient,
+    pending: str,
+    code: str,
+    conn: sqlite3.Connection,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The request vanishes between the page's check and the grant, as when a
+    # second tab finished it first: the code must not be burned with it.
+    monkeypatch.setattr(oauth_store, "take_request", lambda *a: None)
+    r = client.post("/oauth/connect", data={"request": pending, "code": code})
+    assert r.status_code == 400
+    monkeypatch.undo()
+    with db.transaction(conn):
+        assert oauth_store.take_connect_code(conn, code, clock.now()) is not None
+
+
 def test_body_over_4kb_is_400(client: TestClient, pending: str) -> None:
     r = client.post(
         "/oauth/connect",

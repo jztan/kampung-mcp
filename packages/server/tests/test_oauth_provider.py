@@ -66,11 +66,24 @@ async def pending(provider: KampungOAuth, resource: str | None = None) -> str:
     return parse_qs(urlsplit(url).query)["request"][0]
 
 
+def complete(
+    provider: KampungOAuth, request_id: str, machines: Machines, clock: FakeClock
+) -> str:
+    conn = provider._deps.connect()
+    try:
+        with db.transaction(conn):
+            return provider.complete_connect(
+                conn, request_id, machines["laptop"][0].id, clock.now()
+            )
+    finally:
+        conn.close()
+
+
 async def connected(
     provider: KampungOAuth, machines: Machines, clock: FakeClock
 ) -> OAuthToken:
     request_id = await pending(provider, f"{URL}/mcp")
-    url = provider.complete_connect(request_id, machines["laptop"][0].id, clock.now())
+    url = complete(provider, request_id, machines, clock)
     code = parse_qs(urlsplit(url).query)["code"][0]
     client = await _client(provider)
     loaded = await provider.load_authorization_code(client, code)
@@ -143,7 +156,7 @@ async def test_complete_connect_issues_a_single_use_code(
     clock: FakeClock,
 ) -> None:
     request_id = await pending(provider)
-    url = provider.complete_connect(request_id, machines["laptop"][0].id, clock.now())
+    url = complete(provider, request_id, machines, clock)
     assert url.startswith(f"{CLAUDE_CALLBACK}?")
     query = parse_qs(urlsplit(url).query)
     assert query["state"] == ["s"] and query["code"][0].startswith("kpc_")
@@ -160,7 +173,7 @@ async def test_complete_connect_issues_a_single_use_code(
         await provider.exchange_authorization_code(client, loaded)
     assert e.value.error == "invalid_grant"
     with pytest.raises(ValueError):
-        provider.complete_connect(request_id, machines["laptop"][0].id, clock.now())
+        complete(provider, request_id, machines, clock)
 
 
 async def test_access_token_carries_machine_claims(
@@ -233,6 +246,7 @@ async def test_refresh_reuse_after_60s_kills_the_grant(
     clock: FakeClock,
 ) -> None:
     tokens = await connected(provider, machines, clock)
+    with_connector_session(provider, machines, clock)
     client = await _client(provider)
     assert tokens.refresh_token is not None
     old = await provider.load_refresh_token(client, tokens.refresh_token)
@@ -247,6 +261,49 @@ async def test_refresh_reuse_after_60s_kills_the_grant(
     assert oauth_store.grant_for_machine(conn, machines["laptop"][0].id) is None
     actions = [r[0] for r in conn.execute("SELECT action FROM audit")]
     assert "token_reuse" in actions
+    assert connector_ended(conn, machines)
+
+
+def connector_ended(conn: sqlite3.Connection, machines: Machines) -> bool:
+    row = conn.execute(
+        "SELECT ended_at FROM sessions WHERE agent_session_id = ?",
+        (f"connector:{machines['laptop'][0].id}",),
+    ).fetchone()
+    return row is not None and row[0] is not None
+
+
+def with_connector_session(
+    provider: KampungOAuth, machines: Machines, clock: FakeClock
+) -> None:
+    from kampung_server.sessions import connector_session
+
+    conn = provider._deps.connect()
+    try:
+        connector_session(conn, machines["laptop"][0], clock.now())
+    finally:
+        conn.close()
+
+
+async def test_refresh_retry_refuses_a_pair_whose_refresh_was_used(
+    provider: KampungOAuth, machines: Machines, clock: FakeClock
+) -> None:
+    tokens = await connected(provider, machines, clock)
+    client = await _client(provider)
+    assert tokens.refresh_token is not None
+    old = await provider.load_refresh_token(client, tokens.refresh_token)
+    assert old is not None
+    first = await provider.exchange_refresh_token(client, old, ["kampung"])
+    assert first.refresh_token is not None
+    clock.advance(seconds=10)
+    second = await provider.load_refresh_token(client, first.refresh_token)
+    assert second is not None
+    await provider.exchange_refresh_token(client, second, ["kampung"])
+    clock.advance(seconds=10)
+    again = await provider.load_refresh_token(client, tokens.refresh_token)
+    assert again is not None
+    with pytest.raises(TokenError) as e:
+        await provider.exchange_refresh_token(client, again, ["kampung"])
+    assert e.value.error == "invalid_grant"
 
 
 async def test_refresh_from_another_client_refused(
@@ -275,11 +332,13 @@ async def test_revoke_deletes_the_grant(
     clock: FakeClock,
 ) -> None:
     tokens = await connected(provider, machines, clock)
+    with_connector_session(provider, machines, clock)
     access = await provider.load_access_token(tokens.access_token)
     assert access is not None
     await provider.revoke_token(access)
     assert oauth_store.grant_for_machine(conn, machines["laptop"][0].id) is None
     assert await provider.load_access_token(tokens.access_token) is None
+    assert connector_ended(conn, machines)
 
 
 def test_token_index_knows_minted_and_reloaded_tokens(
