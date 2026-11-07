@@ -18,7 +18,10 @@ from .limits import (
 )
 from .models import SESSION_SELECT, Machine, Session, load_session, session_from_row
 
-AGENTS = ("claude-code", "codex", "other")
+CONNECTOR_AGENT = "claude-app"
+AGENTS = ("claude-code", "codex", "other", CONNECTOR_AGENT)
+CONNECTOR_REPO = "claude"
+CONNECTOR_CWD = "Claude app"
 
 
 def register(
@@ -205,6 +208,32 @@ def _create(
     )
     assert cur.lastrowid is not None
     return cur.lastrowid
+
+
+def connector_session(
+    conn: sqlite3.Connection, machine: Machine, now: datetime
+) -> Session:
+    """The one session a Claude app token acts as: `<machine>/claude`, created
+    on first use and revived after the sweep ends it."""
+    agent_session_id = f"connector:{machine.id}"
+    existing = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
+    if existing is not None and existing.ended_at is None:
+        conn.execute(
+            "UPDATE sessions SET last_seen = ? WHERE id = ?", (ts(now), existing.id)
+        )
+        refreshed = load_session(conn, existing.id)
+        assert refreshed is not None
+        return refreshed
+    return register(
+        conn,
+        machine,
+        now,
+        agent=CONNECTOR_AGENT,
+        cwd=CONNECTOR_CWD,
+        repo=CONNECTOR_REPO,
+        hooks=False,
+        agent_session_id=agent_session_id,
+    )
 
 
 def resolve(

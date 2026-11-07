@@ -263,3 +263,12 @@ def test_session_id_out_of_range_is_404(
     headers = bearer(machines["laptop"][1])
     assert client.get(f"/v1/sessions/{raw}/peek", headers=headers).status_code == 404
     assert client.post(f"/v1/sessions/{raw}/end", headers=headers).status_code == 404
+
+
+def test_v1_refuses_claude_app_agent(client: TestClient, machines: Machines) -> None:
+    r = client.post(
+        "/v1/sessions",
+        json={**BODY, "agent": "claude-app"},
+        headers=bearer(machines["laptop"][1]),
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent"

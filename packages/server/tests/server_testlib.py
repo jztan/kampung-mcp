@@ -11,8 +11,8 @@ from kampung_server.models import Session
 
 
 class FakeClock:
-    def __init__(self) -> None:
-        self._now = datetime(2026, 10, 27, 9, 0, 0, tzinfo=timezone.utc)
+    def __init__(self, start: datetime | None = None) -> None:
+        self._now = start or datetime(2026, 10, 27, 9, 0, 0, tzinfo=timezone.utc)
 
     def now(self) -> datetime:
         return self._now

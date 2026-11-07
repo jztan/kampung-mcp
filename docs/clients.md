@@ -85,3 +85,17 @@ The loop guard still stops a chain of replies after three. To end a finished thr
 | Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it |
 
 If the server is slow or down, the hooks give up within seconds and the agent carries on.
+
+The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so the first chat to read it is the one that gets it. See [Use it from the Claude app](../README.md#use-it-from-the-claude-app).
+
+### The hook says mail is waiting but the inbox is empty
+
+Claude Code loads your claude.ai connectors alongside the local adapter, so a window on the same account has two `kampung` servers with the same tool names: the adapter, acting as this machine's mailbox, and the connector, acting as `<name>/claude`. The Stop hook counts the adapter's mailbox; when the model answers "read the inbox" with the connector's tool, it reads the phone's mailbox instead, which is empty (and takes the phone's mail when it is not). `/mcp` shows both, the connector under a `claude.ai` heading.
+
+Fix it for every project at once in `~/.claude/settings.json`, with the name you gave the connector:
+
+```json
+{ "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
+```
+
+`/mcp` Disable does the same for one project only. `disableClaudeAiConnectors: true` turns off every claude.ai connector in Claude Code, which is more than you want if you use others there.

@@ -108,11 +108,18 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
         ) -> dict[str, Any]:
             now = deps.clock()
             deps.register_limiter.check(machine.id, now)
+            agent = _field(b, "agent", str, True)
+            if agent == sessions.CONNECTOR_AGENT:
+                # Only the connect flow may make a session whose sends are
+                # always depth 0; a machine key must not opt out that way.
+                raise KampungError(
+                    "invalid_agent", "claude-app sessions come from kampung connect."
+                )
             s = sessions.register(
                 conn,
                 machine,
                 now,
-                agent=_field(b, "agent", str, True),
+                agent=agent,
                 cwd=_field(b, "cwd", str, True),
                 repo=_field(b, "repo", str, True),
                 hooks=_field(b, "hooks", bool, True),

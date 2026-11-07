@@ -4,27 +4,38 @@ import threading
 
 import uvicorn
 from fastmcp import FastMCP
+from fastmcp.server.auth import AuthProvider, MultiAuth
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import __version__, admin_web
 from .auth import MachineKeyVerifier
+from .bodylimit import BodyLimit
 from .deps import ServerDeps
 from .hook_api import register_hook_routes
 from .limits import SWEEP_EVERY
+from .oauth import KampungOAuth
+from .oauth_connect import ConnectLimiter, register_connect_routes
 from .sweep import start_sweeper
-from .throttle import AuthFailureThrottle
+from .throttle import AnyKnown, AuthFailureThrottle
 from .tools import SERVER_INSTRUCTIONS, register_tools
 
 
 def build_server(deps: ServerDeps) -> FastMCP:
-    mcp = FastMCP(
-        "kampung", instructions=SERVER_INSTRUCTIONS, auth=MachineKeyVerifier(deps)
-    )
+    # With a public URL, Claude app tokens are tried first, then machine
+    # keys. Without one, no OAuth route exists.
+    auth: AuthProvider = MachineKeyVerifier(deps)
+    provider = None
+    if deps.public_url is not None:
+        provider = KampungOAuth(deps, deps.public_url)
+        auth = MultiAuth(server=provider, verifiers=[MachineKeyVerifier(deps)])
+    mcp = FastMCP("kampung", instructions=SERVER_INSTRUCTIONS, auth=auth)
     register_tools(mcp, deps)
     register_hook_routes(mcp, deps)
     admin_web.register(mcp, deps)
+    if provider is not None:
+        register_connect_routes(mcp, deps, provider, ConnectLimiter(deps.clock))
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> JSONResponse:
@@ -35,8 +46,9 @@ def build_server(deps: ServerDeps) -> FastMCP:
 
 def create_app(deps: ServerDeps) -> Starlette:
     app = build_server(deps).http_app(path="/mcp", stateless_http=True)
+    app.add_middleware(BodyLimit)
     # Outermost, so it sees the 401 from FastMCP's own key check on /mcp too.
-    app.add_middleware(AuthFailureThrottle, keys=deps.keys)
+    app.add_middleware(AuthFailureThrottle, keys=AnyKnown(deps.keys, deps.tokens))
     return app
 
 

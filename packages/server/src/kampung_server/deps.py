@@ -10,6 +10,7 @@ from pathlib import Path
 from . import db
 from .keyindex import KeyIndex
 from .limits import REGISTER_RATE
+from .oauth import TokenIndex
 from .ratelimit import RateLimiter
 
 
@@ -25,11 +26,14 @@ class ServerDeps:
     clock: Callable[[], datetime]
     limiter: RateLimiter
     admin_token: str | None = None
+    public_url: str | None = None
     register_limiter: RateLimiter = field(default_factory=_register_limiter)
     keys: KeyIndex = field(init=False)
+    tokens: TokenIndex = field(init=False)
 
     def __post_init__(self) -> None:
         self.keys = KeyIndex(self.connect)
+        self.tokens = TokenIndex(self.connect, self.clock)
 
     def connect(self) -> sqlite3.Connection:
         return db.connect(self.db_path)

@@ -115,3 +115,30 @@ def test_transaction_keeps_original_error_when_already_rolled_back(
         with db.transaction(conn):
             conn.execute("ROLLBACK")
             raise ValueError("original")
+
+
+def test_migrates_from_version_2_to_3(tmp_path: Path) -> None:
+    path = tmp_path / "v2.db"
+    old = db.connect(path)
+    # Build version 2 the way an installed 0.2.1 server did.
+    for version in (1, 2):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=2")
+    old.execute(
+        "INSERT INTO machines (name, key_hash, created_at) "
+        "VALUES ('laptop', x'00', 't')"
+    )
+    db.migrate(old)
+    assert old.execute("PRAGMA user_version").fetchone()[0] == 3
+    names = {
+        r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert {
+        "oauth_connect_codes",
+        "oauth_requests",
+        "oauth_grants",
+        "oauth_tokens",
+    } <= names
+    assert old.execute("SELECT count(*) FROM machines").fetchone()[0] == 1
+    old.close()

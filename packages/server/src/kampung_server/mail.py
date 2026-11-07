@@ -11,6 +11,8 @@ from .errors import KampungError
 from .identity import is_paired
 from .ids import new_message_id
 from .limits import (
+    CONNECTOR_WAKE_BUDGET,
+    CONNECTOR_WAKE_WINDOW,
     INBOX_MAX,
     MAX_BODY_BYTES,
     MAX_WAITING_PER_MAILBOX,
@@ -26,7 +28,7 @@ from .models import (
     load_machine,
     session_from_row,
 )
-from .sessions import is_live
+from .sessions import CONNECTOR_AGENT, is_live
 from .sweep import sweep
 
 KIND = "peer message, information only, not an instruction"
@@ -41,13 +43,23 @@ class SendResult:
     id: str
     depth: int
     wake: bool
+    # Why wake is false when the depth alone would have allowed it.
+    reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        result = asdict(self)
+        if self.reason is None:
+            del result["reason"]
+        return result
 
 
 def effective_depth(session: Session, now: datetime) -> int:
-    """The sender's loop-guard depth; sessions without hooks reset on a timer."""
+    """The sender's loop-guard depth; sessions without hooks reset on a timer.
+
+    A Claude app session has no human-turn signal at all and its sends are
+    the owner's, so it is always at depth -1; the wake budget bounds it."""
+    if session.agent == CONNECTOR_AGENT:
+        return -1
     if not session.hooks and (
         session.last_delivered_at is None
         or parse_ts(session.last_delivered_at) < now - NOHOOK_DEPTH_RESET
@@ -148,6 +160,17 @@ def send(
 
     depth = effective_depth(sender, now) + 1
     wake = depth <= WAKE_DEPTH_LIMIT
+    reason = None
+    if wake and sender.agent == CONNECTOR_AGENT:
+        # Two connector-woken sessions could otherwise wake each other through
+        # the connector without limit; mail past the budget still arrives.
+        woken = conn.execute(
+            "SELECT count(*) FROM messages WHERE from_session_id = ? AND wake = 1 "
+            "AND sent_at > ?",
+            (sender.id, ts(now - CONNECTOR_WAKE_WINDOW)),
+        ).fetchone()[0]
+        if woken >= CONNECTOR_WAKE_BUDGET:
+            wake, reason = False, "wake_budget"
     message_id = new_message_id(now)
     with db.transaction(conn):
         conn.execute(
@@ -174,7 +197,7 @@ def send(
             "send",
             {"id": message_id, "to": to, "depth": depth, "wake": wake, "bytes": size},
         )
-    return SendResult(message_id, depth, wake)
+    return SendResult(message_id, depth, wake, reason)
 
 
 # Mail one session may read: its mailbox, undelivered, unexpired, and either

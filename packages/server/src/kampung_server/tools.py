@@ -40,6 +40,11 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
             machine = _machine(conn)
             if not needs_session:
                 return work(conn, machine, None, now)
+            if _is_connector():
+                # A Claude app token acts as its machine's one connector
+                # session; any session header it carries is ignored.
+                session = sessions.connector_session(conn, machine, now)
+                return work(conn, machine, session, now)
             raw = get_http_headers(include={SESSION_HEADER}).get(SESSION_HEADER, "")
             session_id = parse_session_id(raw)
             if session_id is None:
@@ -59,6 +64,10 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         finally:
             if conn is not None:
                 conn.close()
+
+    def _is_connector() -> bool:
+        token = get_access_token()
+        return bool(token and token.claims.get("connector"))
 
     def _machine(conn: sqlite3.Connection) -> Machine:
         token = get_access_token()

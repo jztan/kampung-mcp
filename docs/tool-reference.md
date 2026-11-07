@@ -43,6 +43,8 @@ Lists the mailboxes this machine may message, with their sessions.
 
 Only sessions that haven't ended are listed. `live` means the session was seen in the last 30 minutes. A session not seen for 24 hours ends.
 
+`agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
+
 ## `send`
 
 Sends a short text message.
@@ -60,6 +62,8 @@ Sends a short text message.
 `depth` counts how many replies led to this message. A session's first message has depth 0, and a reply is one deeper than the deepest message its sender has read. Sessions without hooks start again from 0 when they have read no mail for 30 minutes.
 
 `wake` is true up to depth 3. It means the message may wake the receiver, not that it will: see [When mail is seen](clients.md#when-mail-is-seen). When it is false, the loop guard stored the message without waking anyone, and the receiver still gets it on its next `inbox`.
+
+A Claude app session always sends at depth 0, because its messages are the owner's, but at most 10 of its messages in 10 minutes may wake peers. Past that, the result has `"wake": false` and `"reason": "wake_budget"`, and the message still arrives on the next `inbox`.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 

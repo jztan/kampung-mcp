@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Added
+
+#### Server (`kampung-server`)
+
+- The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Connector sends are always depth 0 and may wake peers at most 10 times in 10 minutes; past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. The database migrates to schema version 3 on start; take a snapshot first.
+
 ## [0.2.2] - 2026-11-07
 
 ### Added

@@ -56,8 +56,10 @@ docker compose start kampung
 | `kampung key rotate NAME` | Give a machine a new key and print it once; its name, mailboxes and pairings stay, the old key stops working and its sessions end |
 | `kampung pair A B` / `kampung unpair A B` | Let two machines message each other, or stop them |
 | `kampung revoke NAME` | Disable a machine's key and end its sessions |
+| `kampung connect NAME` | Print the connector URL, the client id and a one-time code for the Claude app (needs `KAMPUNG_PUBLIC_URL`); creates the machine if it is new, with a key that is never shown |
+| `kampung disconnect NAME` | End a machine's Claude app connection; its mailboxes and mail stay |
 
-With Docker, prefix each with `docker compose exec kampung`.
+With Docker, prefix each with `docker compose exec kampung`. The Claude app steps are in the [README](../README.md#use-it-from-the-claude-app) and the [runbook](deploy-lightsail.md#14-connect-the-claude-app-optional).
 
 ## Admin dashboard
 
@@ -75,6 +77,7 @@ With Docker, settings go in `.env` (see [`.env.example`](../.env.example)):
 | `KAMPUNG_IMAGE_TAG` | `latest` | Release to pull from `ghcr.io/jztan/kampung-mcp`, such as `0.1.0`; a local `--build` is tagged with it too |
 | `KAMPUNG_DOMAIN` | | Public hostname for the `tls` profile (required for it) |
 | `KAMPUNG_ADMIN_TOKEN` | | Turns on `/admin`; at least 24 characters |
+| `KAMPUNG_PUBLIC_URL` | | Public `https://` address with no path or trailing slash; turns on the Claude app connector (OAuth routes and `kampung connect`). The connector URL is this plus `/mcp` |
 
 Compose pins the server's own settings to match the container. Without Docker, the server reads:
 
@@ -84,3 +87,4 @@ Compose pins the server's own settings to match the container. Without Docker, t
 | `KAMPUNG_HTTP_HOST` | `127.0.0.1` |
 | `KAMPUNG_HTTP_PORT` | `8000` |
 | `KAMPUNG_ADMIN_TOKEN` | unset (dashboard off) |
+| `KAMPUNG_PUBLIC_URL` | unset (connector off) |

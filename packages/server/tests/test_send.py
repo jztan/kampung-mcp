@@ -277,3 +277,62 @@ def test_one_sender_cannot_fill_a_mailbox_for_everyone(
     assert send(conn, tablet, "desktop/blog", "still gets through", None, clock.now())
     inbox(conn, reader, 1, clock.now())
     assert send(conn, flooder, "desktop/blog", "room again", None, clock.now())
+
+
+def _phone(make_session: MakeSession) -> Session:
+    return make_session(
+        "laptop", repo="claude", agent="claude-app", hooks=False, cwd="Claude app"
+    )
+
+
+def test_connector_send_is_always_depth_zero(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    phone = _phone(make_session)
+    peer = make_session("desktop", "blog")
+    assert send(conn, phone, "desktop/blog", "hi", None, clock.now()).depth == 0
+    inbox(conn, peer, 20, clock.now())
+    peer = load_session(conn, peer.id) or peer
+    reply = send(conn, peer, "laptop/claude", "back", None, clock.now())
+    assert reply.depth == 1
+    inbox(conn, phone, 20, clock.now())
+    phone = load_session(conn, phone.id) or phone
+    assert phone.max_depth_seen == 1
+    third = send(conn, phone, "desktop/blog", "again", None, clock.now())
+    assert third.depth == 0 and third.wake is True and third.reason is None
+
+
+def test_eleventh_wake_in_ten_minutes_is_stored_without_wake(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    phone = _phone(make_session)
+    peer = make_session("desktop", "blog")
+    for _ in range(10):
+        r = send(conn, phone, "desktop/blog", "x", None, clock.now())
+        assert r.wake is True and r.reason is None
+    r = send(conn, phone, "desktop/blog", "x", None, clock.now())
+    assert r.wake is False and r.reason == "wake_budget"
+    assert r.to_dict()["reason"] == "wake_budget"
+    assert len(inbox(conn, peer, 20, clock.now()).messages) == 11
+
+
+def test_budget_frees_after_the_window(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    phone = _phone(make_session)
+    make_session("desktop", "blog")
+    for _ in range(10):
+        send(conn, phone, "desktop/blog", "x", None, clock.now())
+    assert send(conn, phone, "desktop/blog", "x", None, clock.now()).wake is False
+    clock.advance(minutes=11)
+    assert send(conn, phone, "desktop/blog", "x", None, clock.now()).wake is True
+
+
+def test_budget_does_not_apply_to_adapters(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    laptop = make_session("laptop", "api")
+    make_session("desktop", "blog")
+    for _ in range(11):
+        r = send(conn, laptop, "desktop/blog", "x", None, clock.now())
+        assert r.wake is True and r.reason is None
