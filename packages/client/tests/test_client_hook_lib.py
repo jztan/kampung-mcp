@@ -47,9 +47,16 @@ def test_ancestors_starts_at_parent_and_excludes_pid_1() -> None:
         ("...", "root"),
     ],
 )
-def test_repo_name_sanitizes(tmp_path: Path, name: str, expected: str) -> None:
-    d = git_repo(tmp_path / "plain", name)
-    assert hook.repo_name(str(d)) == expected
+def test_repo_name_sanitizes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, expected: str
+) -> None:
+    # git reports the top folder; some of these names (a trailing dot) cannot
+    # exist on Windows, so the sanitising is tested on git's answer directly.
+    def fake_git(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, f"/src/{name}\n", "")
+
+    monkeypatch.setattr(hook.subprocess, "run", fake_git)
+    assert hook.repo_name(str(tmp_path)) == expected
 
 
 def test_repo_name_outside_git_is_the_shared_scratch_mailbox(
