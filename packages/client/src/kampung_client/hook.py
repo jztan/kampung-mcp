@@ -311,9 +311,16 @@ def ancestors(pid: int | None = None) -> list[Ancestor]:
     return _walk(os.getpid() if pid is None else pid, _lookup_or_none)
 
 
+SCRATCH_REPO = "scratch"
+
+
 def repo_name(cwd: str) -> str:
-    """The mailbox repo name: the git worktree's directory name, made valid."""
-    name = os.path.basename(os.path.abspath(cwd))
+    """The mailbox repo name: the git worktree's directory name, made valid.
+
+    A cwd outside any git worktree (a temp or eval folder, the home folder)
+    gets the machine's one shared scratch mailbox, so throwaway folders do not
+    each leave a mailbox behind."""
+    name = SCRATCH_REPO
     try:
         top = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],

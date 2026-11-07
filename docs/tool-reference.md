@@ -11,6 +11,8 @@ Kampung gives an agent three MCP tools: `list_peers`, `send` and `inbox`. The ad
 
 Machine and repo names are 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit.
 
+A session's repo name is the name of its git worktree's top folder. A session started outside any git worktree, such as a temp folder, an eval run or the home folder, uses the machine's shared `scratch` mailbox, so throwaway folders don't each leave a mailbox behind.
+
 A machine can message itself without pairing. Any other machine must be paired with it first (`kampung pair`).
 
 ## `list_peers`
@@ -20,6 +22,7 @@ Lists the mailboxes this machine may message, with their sessions.
 | Argument | Type | Meaning |
 |---|---|---|
 | `machine` | string, optional | Show only this machine. A name you can't reach gives an empty list |
+| `include_empty` | boolean, default false | Also list mailboxes with no open session |
 
 ```json
 {
@@ -41,7 +44,7 @@ Lists the mailboxes this machine may message, with their sessions.
 }
 ```
 
-Only sessions that haven't ended are listed. `live` means the session was seen in the last 30 minutes. A session not seen for 24 hours ends.
+Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A session not seen for 24 hours ends.
 
 `agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
 

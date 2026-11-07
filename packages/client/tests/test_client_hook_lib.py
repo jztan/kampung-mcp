@@ -48,9 +48,17 @@ def test_ancestors_starts_at_parent_and_excludes_pid_1() -> None:
     ],
 )
 def test_repo_name_sanitizes(tmp_path: Path, name: str, expected: str) -> None:
-    d = tmp_path / "plain" / name
-    d.mkdir(parents=True)
+    d = git_repo(tmp_path / "plain", name)
     assert hook.repo_name(str(d)) == expected
+
+
+def test_repo_name_outside_git_is_the_shared_scratch_mailbox(
+    tmp_path: Path,
+) -> None:
+    for name in ("chess-eval-3f9a1c2b", "tmp", "work"):
+        d = tmp_path / "plain" / name
+        d.mkdir(parents=True)
+        assert hook.repo_name(str(d)) == "scratch"
 
 
 def test_repo_name_uses_git_toplevel(tmp_path: Path) -> None:
@@ -153,8 +161,7 @@ def test_register_returns_session_file_dict(server: LiveServer, tmp_path: Path) 
 
 
 def test_register_with_awkward_dir_name(server: LiveServer, tmp_path: Path) -> None:
-    d = tmp_path / "plain" / ".My Repo!"
-    d.mkdir(parents=True)
+    d = git_repo(tmp_path / "plain", ".My Repo!")
     assert hook.register("codex", str(d), False)["mailbox"] == "laptop/My-Repo-"
 
 

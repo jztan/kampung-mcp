@@ -88,7 +88,7 @@ For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/depl
 
 | Tool | What it does |
 |---|---|
-| `list_peers(machine?)` | Mailboxes this machine may message, with their sessions |
+| `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions. Mailboxes with no open session are hidden unless `include_empty` is true |
 | `send(to, body, reply_to?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`. `wake` in the result means the loop guard lets it wake the receiver, not that it will |
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
 

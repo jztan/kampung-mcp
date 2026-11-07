@@ -82,15 +82,17 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         return machine_from_row(row)
 
     @mcp.tool
-    def list_peers(machine: str | None = None) -> Result:
-        """List mailboxes you can message, with their sessions."""
+    def list_peers(machine: str | None = None, include_empty: bool = False) -> Result:
+        """List mailboxes you can message, with their sessions. Mailboxes with
+        no open session are hidden unless include_empty is true; they still
+        take mail."""
 
         def work(
             conn: sqlite3.Connection, me: Machine, _: Session | None, now: datetime
         ) -> Result:
             return {
                 "kind": mail.PEERS_KIND,
-                "peers": mail.list_peers(conn, me, now, machine),
+                "peers": mail.list_peers(conn, me, now, machine, include_empty),
             }
 
         return call(work)
