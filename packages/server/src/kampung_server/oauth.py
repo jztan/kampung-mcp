@@ -124,8 +124,10 @@ class KampungOAuth(OAuthProvider):
         self.public_url = public_url.rstrip("/")
         self.resource = f"{self.public_url}/mcp"
         # Hash of a rotated refresh token -> (rotated at, the pair issued for
-        # it). In memory only: a retry after a restart is refused.
+        # it). In memory only: a retry after a restart is refused. Refreshes
+        # run on threadpool threads, so the dict is guarded.
         self._retries: dict[bytes, tuple[int, OAuthToken]] = {}
+        self._retries_lock = threading.Lock()
 
     # Client
 
@@ -283,6 +285,7 @@ class KampungOAuth(OAuthProvider):
         issued = await run_in_threadpool(work)
         if issued is None:
             raise TokenError("invalid_grant", "authorization code is not valid")
+        self._deps.tokens.add(issued.access_token)
         return issued
 
     # Refresh
@@ -313,16 +316,20 @@ class KampungOAuth(OAuthProvider):
         refresh_token: RefreshToken,
         scopes: list[str],
     ) -> OAuthToken:
+        # Tokens minted here are indexed only after COMMIT (see _issue).
+        fresh: list[str] = []
+
         def work() -> OAuthToken | None:
             now = self._deps.clock()
             epoch = _epoch(now)
             secret = refresh_token.token
             key = hash_key(secret)
-            self._retries = {
-                k: v
-                for k, v in self._retries.items()
-                if epoch - v[0] <= OAUTH_REFRESH_REUSE.total_seconds()
-            }
+            reuse = OAUTH_REFRESH_REUSE.total_seconds()
+            with self._retries_lock:
+                for stale in [
+                    k for k, v in self._retries.items() if epoch - v[0] > reuse
+                ]:
+                    del self._retries[stale]
             conn = self._deps.connect()
             try:
                 with db.transaction(conn):
@@ -340,10 +347,12 @@ class KampungOAuth(OAuthProvider):
                             refresh_token.resource,
                             now,
                         )
-                        self._retries[key] = (epoch, issued)
+                        with self._retries_lock:
+                            self._retries[key] = (epoch, issued)
+                        fresh.append(issued.access_token)
                         return issued
                     rotated_at = _epoch(parse_ts(used_at))
-                    if epoch - rotated_at > OAUTH_REFRESH_REUSE.total_seconds():
+                    if epoch - rotated_at > reuse:
                         oauth_store.delete_grant(conn, grant_id)
                         audit.record(
                             conn, now, "oauth", "token_reuse", {"grant": grant_id}
@@ -351,7 +360,8 @@ class KampungOAuth(OAuthProvider):
                         return None
                     # A retry inside the window gets the pair already issued,
                     # never a new one, so one token cannot become two sessions.
-                    entry = self._retries.get(key)
+                    with self._retries_lock:
+                        entry = self._retries.get(key)
                     if entry is None or (
                         entry[1].refresh_token is not None
                         and oauth_store.load_token(
@@ -367,6 +377,8 @@ class KampungOAuth(OAuthProvider):
                 conn.close()
 
         issued = await run_in_threadpool(work)
+        for token in fresh:
+            self._deps.tokens.add(token)
         if issued is None:
             raise TokenError("invalid_grant", "refresh token is not valid")
         return issued
@@ -475,7 +487,8 @@ class KampungOAuth(OAuthProvider):
             ).model_dump_json(exclude={"token"}),
             refresh_expires,
         )
-        self._deps.tokens.add(access)
+        # Not indexed here: the caller adds it after COMMIT, or a reload in
+        # between could read the committed rows without it and drop it.
         return OAuthToken(
             access_token=access,
             expires_in=int(OAUTH_ACCESS_TTL.total_seconds()),

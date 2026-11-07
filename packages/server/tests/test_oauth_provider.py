@@ -310,3 +310,32 @@ def db_hour():  # type: ignore[no-untyped-def]
     from datetime import timedelta
 
     return timedelta(hours=1)
+
+
+async def test_access_token_is_indexed_only_once_committed(
+    provider: KampungOAuth,
+    deps: ServerDeps,
+    db_path: Path,
+    machines: Machines,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An index reload between add and commit would otherwise drop the fresh
+    # token for a second, and its first call would get a false 401.
+    seen: list[bool] = []
+    other = db.connect(db_path)
+
+    def add(token: str) -> None:
+        seen.append(
+            oauth_store.load_token(other, "access", token, clock.now()) is not None
+        )
+
+    monkeypatch.setattr(deps.tokens, "add", add)
+    tokens = await connected(provider, machines, clock)
+    client = await _client(provider)
+    assert tokens.refresh_token is not None
+    old = await provider.load_refresh_token(client, tokens.refresh_token)
+    assert old is not None
+    await provider.exchange_refresh_token(client, old, ["kampung"])
+    other.close()
+    assert seen == [True, True]

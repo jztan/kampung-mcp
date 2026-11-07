@@ -366,3 +366,46 @@ def test_body_cap_on_token_and_authorize(server: Server) -> None:
     small = "request=x&code=" + "x" * 5000
     r = httpx.post(f"{server.url}/oauth/connect", content=small, headers=form)
     assert r.status_code == 400
+
+
+def _parallel(calls: list[Any]) -> list[httpx.Response]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(len(calls)) as pool:
+        return list(pool.map(lambda f: f(), calls))
+
+
+def test_parallel_exchanges_of_one_code_issue_one_pair(server: Server) -> None:
+    code = connect_code(server)
+    verifier, challenge = pkce()
+    request_id = start_authorize(server, challenge, None)
+    auth_code = post_code(server, request_id, code)
+    results = _parallel([lambda: exchange(server, auth_code, verifier)] * 4)
+    assert sorted(r.status_code for r in results) == [200, 401, 401, 401]
+
+
+def test_parallel_refreshes_of_one_token_return_one_pair(server: Server) -> None:
+    tokens = connect(server)
+    results = _parallel([lambda: refresh(server, tokens["refresh_token"])] * 4)
+    assert all(r.status_code == 200 for r in results), [r.text for r in results]
+    pairs = {(r.json()["access_token"], r.json()["refresh_token"]) for r in results}
+    assert len(pairs) == 1
+
+
+def test_parallel_refreshes_of_different_tokens_each_keep_their_retry(
+    server: Server,
+) -> None:
+    # Two grants refreshing at the same instant must not prune each other's
+    # retry entry; each one's own retry inside the window still works.
+    a = connect(server, "phone")
+    b = connect(server, "tablet")
+    first = _parallel(
+        [lambda: refresh(server, a["refresh_token"])] * 2
+        + [lambda: refresh(server, b["refresh_token"])] * 2
+    )
+    assert all(r.status_code == 200 for r in first), [r.text for r in first]
+    again = _parallel(
+        [lambda: refresh(server, a["refresh_token"])]
+        + [lambda: refresh(server, b["refresh_token"])]
+    )
+    assert all(r.status_code == 200 for r in again), [r.text for r in again]
