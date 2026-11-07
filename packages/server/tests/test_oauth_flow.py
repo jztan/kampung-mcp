@@ -163,9 +163,7 @@ def connect(server: Server, name: str = "phone") -> dict[str, Any]:
 
 
 @asynccontextmanager
-async def client_for(
-    server: Server, token: str, **extra: str
-) -> AsyncIterator[Client]:
+async def client_for(server: Server, token: str, **extra: str) -> AsyncIterator[Client]:
     headers = {"Authorization": f"Bearer {token}", **extra}
     async with Client(
         StreamableHttpTransport(f"{server.url}/mcp", headers=headers)

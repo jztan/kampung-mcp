@@ -41,7 +41,9 @@ def test_new_connect_code_invalidates_the_previous_one(
         assert oauth_store.take_connect_code(conn, second, clock.now()) is not None
 
 
-def test_request_cap_refuses_the_101st(conn: sqlite3.Connection, clock: FakeClock) -> None:
+def test_request_cap_refuses_the_101st(
+    conn: sqlite3.Connection, clock: FakeClock
+) -> None:
     with db.transaction(conn):
         for i in range(100):
             assert oauth_store.save_request(conn, f"r{i}", "{}", clock.now())
@@ -68,7 +70,9 @@ def test_take_request_is_single_use(conn: sqlite3.Connection, clock: FakeClock) 
         assert oauth_store.take_request(conn, "r", clock.now()) is None
 
 
-def test_expired_request_is_not_loaded(conn: sqlite3.Connection, clock: FakeClock) -> None:
+def test_expired_request_is_not_loaded(
+    conn: sqlite3.Connection, clock: FakeClock
+) -> None:
     with db.transaction(conn):
         oauth_store.save_request(conn, "r", "{}", clock.now())
     clock.advance(minutes=11)

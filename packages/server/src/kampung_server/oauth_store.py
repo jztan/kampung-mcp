@@ -64,9 +64,12 @@ def save_request(
     return True
 
 
-def load_request(conn: sqlite3.Connection, request_id: str, now: datetime) -> str | None:
+def load_request(
+    conn: sqlite3.Connection, request_id: str, now: datetime
+) -> str | None:
     row = conn.execute(
-        "SELECT params_json FROM oauth_requests WHERE request_id = ? AND expires_at > ?",
+        "SELECT params_json FROM oauth_requests "
+        "WHERE request_id = ? AND expires_at > ?",
         (request_id, ts(now)),
     ).fetchone()
     return str(row[0]) if row else None
@@ -85,7 +88,9 @@ def fail_request(conn: sqlite3.Connection, request_id: str) -> int:
     return attempts
 
 
-def take_request(conn: sqlite3.Connection, request_id: str, now: datetime) -> str | None:
+def take_request(
+    conn: sqlite3.Connection, request_id: str, now: datetime
+) -> str | None:
     row = conn.execute(
         "DELETE FROM oauth_requests WHERE request_id = ? AND expires_at > ? "
         "RETURNING params_json",

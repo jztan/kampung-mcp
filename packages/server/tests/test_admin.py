@@ -285,9 +285,12 @@ def test_disconnect_drops_the_grant_and_keeps_mail(
     admin.disconnect("laptop", "admin:cli")
     assert oauth_store.grant_for_machine(conn, laptop_id) is None
     assert conn.execute("SELECT count(*) FROM messages").fetchone()[0] == 1
-    assert conn.execute(
-        "SELECT revoked_at FROM machines WHERE id = ?", (laptop_id,)
-    ).fetchone()[0] is None
+    assert (
+        conn.execute(
+            "SELECT revoked_at FROM machines WHERE id = ?", (laptop_id,)
+        ).fetchone()[0]
+        is None
+    )
     with pytest.raises(KampungError) as e:
         admin.disconnect("laptop", "admin:cli")
     assert e.value.code == "not_connected"

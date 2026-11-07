@@ -69,9 +69,7 @@ def pending(provider: KampungOAuth) -> str:
 @pytest.fixture
 def code(conn: sqlite3.Connection, machines: Machines, clock: FakeClock) -> str:
     with db.transaction(conn):
-        return oauth_store.new_connect_code(
-            conn, machines["laptop"][0].id, clock.now()
-        )
+        return oauth_store.new_connect_code(conn, machines["laptop"][0].id, clock.now())
 
 
 HEADERS = {
@@ -162,7 +160,11 @@ def test_expired_request_on_post_is_a_plain_400(
 
 
 def test_used_code_is_refused(
-    client: TestClient, pending: str, code: str, conn: sqlite3.Connection, clock: FakeClock
+    client: TestClient,
+    pending: str,
+    code: str,
+    conn: sqlite3.Connection,
+    clock: FakeClock,
 ) -> None:
     with db.transaction(conn):
         oauth_store.take_connect_code(conn, code, clock.now())
@@ -207,8 +209,10 @@ def test_address_lockout_after_twenty_failures(
         request_id = asyncio.run(make())
         r = client.post("/oauth/connect", data={"request": request_id, "code": "w"})
         assert r.status_code == 401, i
-    r = client.post("/oauth/connect", data={"request": asyncio.run(make()), "code": "w"})
+    form = {"request": asyncio.run(make()), "code": "w"}
+    r = client.post("/oauth/connect", data=form)
     assert r.status_code == 429
     clock.advance(minutes=16)
-    r = client.post("/oauth/connect", data={"request": asyncio.run(make()), "code": "w"})
+    form = {"request": asyncio.run(make()), "code": "w"}
+    r = client.post("/oauth/connect", data=form)
     assert r.status_code == 401

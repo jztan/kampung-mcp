@@ -126,13 +126,13 @@ def test_migrates_from_version_2_to_3(tmp_path: Path) -> None:
             old.execute(statement)
     old.execute("PRAGMA user_version=2")
     old.execute(
-        "INSERT INTO machines (name, key_hash, created_at) VALUES ('laptop', x'00', 't')"
+        "INSERT INTO machines (name, key_hash, created_at) "
+        "VALUES ('laptop', x'00', 't')"
     )
     db.migrate(old)
     assert old.execute("PRAGMA user_version").fetchone()[0] == 3
     names = {
-        r[0]
-        for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     assert {
         "oauth_connect_codes",

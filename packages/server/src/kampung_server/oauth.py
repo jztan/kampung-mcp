@@ -144,8 +144,7 @@ class KampungOAuth(OAuthProvider):
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         raise RegistrationError(
             "invalid_client_metadata",
-            "This server does not register clients; use the client id "
-            f"{CLIENT_ID}.",
+            "This server does not register clients; use the client id " f"{CLIENT_ID}.",
         )
 
     # Authorize and connect
@@ -158,9 +157,7 @@ class KampungOAuth(OAuthProvider):
     ) -> str:
         if str(params.redirect_uri) != CLAUDE_CALLBACK:
             raise AuthorizeError("invalid_request", "redirect_uri is not allowed")
-        if params.resource is not None and not self._is_this_resource(
-            params.resource
-        ):
+        if params.resource is not None and not self._is_this_resource(params.resource):
             # RFC 8707 says invalid_target; the SDK's error codes stop at RFC 6749.
             raise AuthorizeError("invalid_request", "unknown resource")
         if params.state is not None and len(params.state) > MAX_STATE_LENGTH:
