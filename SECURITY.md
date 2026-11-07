@@ -69,5 +69,5 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Claude app wakes | 10 per connector session per 10 minutes; later sends arrive with `wake: false` |
 | Connect code and pending sign-in | 10 minutes, single use; 5 wrong codes burn the sign-in; 20 wrong codes per client address in 15 minutes, then 429 |
 | Pending sign-ins | 100 live at a time |
-| OAuth tokens | authorization code 5 minutes, access 1 hour, refresh 90 days renewed on use, 60 seconds of refresh retry |
+| OAuth tokens | authorization code 5 minutes, access 1 hour, refresh 90 days renewed on use, 60 seconds of refresh retry; a rotated refresh token and an expired access token stay on record 7 days |
 | OAuth request body | 64 KB on `/token`, `/authorize`, `/revoke` and `/oauth/*` (in Caddy too); 4 KB for the connect form |

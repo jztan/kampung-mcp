@@ -77,7 +77,7 @@ class AdminService:
         try:
             with db.transaction(conn):
                 machine = _require(conn, name)
-                if not oauth_store.delete_grant_for_machine(conn, machine.id):
+                if not oauth_store.delete_grant_for_machine(conn, machine.id, now):
                     raise KampungError(
                         "not_connected", f"{name} has no Claude app connection."
                     )
@@ -136,7 +136,7 @@ class AdminService:
                     (ts(now), machine.id),
                 )
                 _end_sessions(conn, machine, now)
-                oauth_store.delete_grant_for_machine(conn, machine.id)
+                oauth_store.delete_grant_for_machine(conn, machine.id, now)
                 audit.record(conn, now, actor, "revoke", {"machine": name})
         finally:
             conn.close()
@@ -159,7 +159,7 @@ class AdminService:
                     (hash_key(key), machine.id),
                 )
                 _end_sessions(conn, machine, now)
-                oauth_store.delete_grant_for_machine(conn, machine.id)
+                oauth_store.delete_grant_for_machine(conn, machine.id, now)
                 audit.record(conn, now, actor, "rotate_key", {"machine": name})
         finally:
             conn.close()

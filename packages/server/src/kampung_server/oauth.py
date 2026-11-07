@@ -189,48 +189,42 @@ class KampungOAuth(OAuthProvider):
             )
         return f"{self.public_url}/oauth/connect?request={request_id}"
 
-    def complete_connect(self, request_id: str, machine_id: int, now: datetime) -> str:
+    def complete_connect(
+        self, conn: sqlite3.Connection, request_id: str, machine_id: int, now: datetime
+    ) -> str:
         """Finish a request after a valid code: grant the machine, mint the
-        authorization code, return the redirect back to Claude. Blocking.
+        authorization code, return the redirect back to Claude. Runs inside
+        the caller's transaction, so a dead request rolls the code back too.
         Raises ValueError for an unknown, used or expired request."""
-        conn = self._deps.connect()
-        try:
-            with db.transaction(conn):
-                stored = oauth_store.take_request(conn, request_id, now)
-                if stored is None:
-                    raise ValueError("unknown or expired connect request")
-                pending = AuthorizationParams.model_validate_json(stored)
-                row = conn.execute(
-                    "SELECT name FROM machines WHERE id = ?", (machine_id,)
-                ).fetchone()
-                grant_id = oauth_store.replace_grant(conn, machine_id, now)
-                code = CODE_PREFIX + secrets.token_urlsafe(32)
-                expires = now + OAUTH_CODE_TTL
-                record = AuthorizationCode(
-                    code=code,
-                    scopes=pending.scopes or [],
-                    expires_at=_epoch(expires),
-                    client_id=CLIENT_ID,
-                    code_challenge=pending.code_challenge,
-                    redirect_uri=pending.redirect_uri,
-                    redirect_uri_provided_explicitly=(
-                        pending.redirect_uri_provided_explicitly
-                    ),
-                    resource=pending.resource,
-                )
-                oauth_store.save_token(
-                    conn,
-                    grant_id,
-                    "code",
-                    code,
-                    record.model_dump_json(exclude={"code"}),
-                    expires,
-                )
-                audit.record(
-                    conn, now, f"machine:{row[0]}", "connect", {"grant": grant_id}
-                )
-        finally:
-            conn.close()
+        stored = oauth_store.take_request(conn, request_id, now)
+        if stored is None:
+            raise ValueError("unknown or expired connect request")
+        pending = AuthorizationParams.model_validate_json(stored)
+        row = conn.execute(
+            "SELECT name FROM machines WHERE id = ?", (machine_id,)
+        ).fetchone()
+        grant_id = oauth_store.replace_grant(conn, machine_id, now)
+        code = CODE_PREFIX + secrets.token_urlsafe(32)
+        expires = now + OAUTH_CODE_TTL
+        record = AuthorizationCode(
+            code=code,
+            scopes=pending.scopes or [],
+            expires_at=_epoch(expires),
+            client_id=CLIENT_ID,
+            code_challenge=pending.code_challenge,
+            redirect_uri=pending.redirect_uri,
+            redirect_uri_provided_explicitly=pending.redirect_uri_provided_explicitly,
+            resource=pending.resource,
+        )
+        oauth_store.save_token(
+            conn,
+            grant_id,
+            "code",
+            code,
+            record.model_dump_json(exclude={"code"}),
+            expires,
+        )
+        audit.record(conn, now, f"machine:{row[0]}", "connect", {"grant": grant_id})
         return construct_redirect_uri(
             str(pending.redirect_uri), code=code, state=pending.state
         )
@@ -353,22 +347,24 @@ class KampungOAuth(OAuthProvider):
                         return issued
                     rotated_at = _epoch(parse_ts(used_at))
                     if epoch - rotated_at > reuse:
-                        oauth_store.delete_grant(conn, grant_id)
+                        oauth_store.delete_grant(conn, grant_id, now)
                         audit.record(
                             conn, now, "oauth", "token_reuse", {"grant": grant_id}
                         )
                         return None
                     # A retry inside the window gets the pair already issued,
                     # never a new one, so one token cannot become two sessions.
+                    # Once that pair's own refresh token has been used, the
+                    # retry is refused: handing it out again would make the
+                    # client's next refresh look like a reuse.
                     with self._retries_lock:
                         entry = self._retries.get(key)
-                    if entry is None or (
-                        entry[1].refresh_token is not None
-                        and oauth_store.load_token(
-                            conn, "refresh", entry[1].refresh_token, now
-                        )
-                        is None
-                    ):
+                    if entry is None or entry[1].refresh_token is None:
+                        return None
+                    pair_refresh = oauth_store.load_token(
+                        conn, "refresh", entry[1].refresh_token, now
+                    )
+                    if pair_refresh is None or pair_refresh[2] is not None:
                         return None
                     issued_at, issued = entry
                     expires_in = (issued.expires_in or 0) - (epoch - issued_at)
@@ -429,7 +425,7 @@ class KampungOAuth(OAuthProvider):
                     for kind in ("access", "refresh"):
                         loaded = oauth_store.load_token(conn, kind, token.token, now)
                         if loaded is not None:
-                            oauth_store.delete_grant(conn, loaded[0])
+                            oauth_store.delete_grant(conn, loaded[0], now)
                             audit.record(
                                 conn, now, "oauth", "disconnect", {"grant": loaded[0]}
                             )

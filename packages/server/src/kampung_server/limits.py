@@ -32,6 +32,10 @@ OAUTH_CODE_TTL = timedelta(minutes=5)
 OAUTH_ACCESS_TTL = timedelta(hours=1)
 OAUTH_REFRESH_TTL = timedelta(days=90)
 OAUTH_REFRESH_REUSE = timedelta(seconds=60)
+# How long an expired access token and a rotated refresh token stay on record:
+# the first so a stale token gets a 401 and a refresh rather than a throttled
+# 429, the second so its reuse still ends the grant.
+OAUTH_ROTATED_RETENTION = timedelta(days=7)
 OAUTH_MAX_REQUESTS = 100
 OAUTH_CONNECT_ATTEMPTS = 5
 CONNECT_FAILURE_LIMIT = 20  # wrong codes per client address
