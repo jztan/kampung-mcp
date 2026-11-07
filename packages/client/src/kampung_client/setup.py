@@ -23,6 +23,7 @@ OUR_HOOK = re.compile(r"kampung_hook\.py|kampung_client[\\/]+hook\.py")
 SAFE_PS_ARG = re.compile(r"(?!--$)[\w./:=-]+")  # needs no quoting in PowerShell
 HOOK_TIMEOUT = 5  # seconds; also lifts Claude Code's 1.5 s SessionEnd budget
 CODEX_END_TIMEOUT = 3  # seconds; Codex caps SessionEnd hooks at 3
+CONNECTOR_NAME = "kampung"  # the name the docs tell people to give the connector
 
 
 class SetupError(Exception):
@@ -115,7 +116,23 @@ def _claude_settings_path() -> Path:
 
 def _load_claude_settings() -> dict[str, Any]:
     """Read and shape-check settings.json before setup changes anything."""
-    return _load_hooks_file(_claude_settings_path())
+    data = _load_hooks_file(_claude_settings_path())
+    if not isinstance(data.get("deniedMcpServers", []), list):
+        raise SetupError(
+            f"{_claude_settings_path()}: deniedMcpServers should be a list; "
+            "fix it and rerun."
+        )
+    return data
+
+
+def _deny_connector(data: dict[str, Any], connector_name: str) -> str:
+    """Add the Claude app connector to deniedMcpServers (in place) so Claude
+    Code never loads a second kampung next to the adapter; return the name."""
+    name = f"claude.ai {connector_name}"
+    denied = data.setdefault("deniedMcpServers", [])
+    if not any(isinstance(d, dict) and d.get("serverName") == name for d in denied):
+        denied.append({"serverName": name})
+    return name
 
 
 def _load_hooks_file(path: Path) -> dict[str, Any]:
@@ -296,6 +313,7 @@ def run_setup(
     runner: Runner,
     channels: bool = False,
     allow_insecure_http: bool = False,
+    connector_name: str = CONNECTOR_NAME,
 ) -> list[str]:
     server = server.rstrip("/")
     _check_key(server, key, allow_insecure_http)
@@ -321,8 +339,13 @@ def run_setup(
 
     if "claude-code" in agents:
         assert claude_settings is not None
+        denied = _deny_connector(claude_settings, connector_name)
         settings = _merge_claude_hooks(claude_settings)
-        lines.append(f"Claude Code hooks added to {settings}.")
+        lines.append(
+            f"Claude Code hooks added to {settings}, and the Claude app "
+            f"connector ({denied}) is denied there so a window never loads a "
+            "second kampung. Named it differently? Rerun with --connector-name."
+        )
         manual = _register(
             ["claude", "mcp", "remove", "--scope", "user", "kampung"],
             ["claude", "mcp", "add", "--scope", "user", "kampung", "--"]

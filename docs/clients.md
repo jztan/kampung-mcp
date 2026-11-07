@@ -92,7 +92,7 @@ The Claude app connector has no hooks: a chat there sees mail only when you ask 
 
 Claude Code loads your claude.ai connectors alongside the local adapter, so a window on the same account has two `kampung` servers with the same tool names: the adapter, acting as this machine's mailbox, and the connector, acting as `<name>/claude`. The Stop hook counts the adapter's mailbox; when the model answers "read the inbox" with the connector's tool, it reads the phone's mailbox instead, which is empty (and takes the phone's mail when it is not). `/mcp` shows both, the connector under a `claude.ai` heading.
 
-Fix it for every project at once in `~/.claude/settings.json`, with the name you gave the connector:
+`kampung-mcp setup` prevents it for every project at once by adding the connector to `deniedMcpServers` in `~/.claude/settings.json`, assuming the connector is named `kampung`. Rerun setup on a machine set up before 2026-11-07, pass `--connector-name` if you gave it another name, or add the entry yourself:
 
 ```json
 { "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }

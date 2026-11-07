@@ -529,3 +529,58 @@ def test_setup_keeps_settings_symlink(home: Path, server: LiveServer) -> None:
 def test_setup_leaves_no_tmp_files(home: Path, server: LiveServer) -> None:
     run_setup(server.url, server.keys["laptop"], ["claude-code"], Recorder())
     assert [p.name for p in (home / ".claude").iterdir() if "tmp" in p.name] == []
+
+
+def test_setup_denies_the_claude_app_connector_in_claude_code(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)
+    existing = {"deniedMcpServers": [{"serverName": "other"}]}
+    (home / ".claude").mkdir()
+    (home / ".claude" / "settings.json").write_text(json.dumps(existing))
+    for _ in range(2):
+        lines = run_setup(
+            server.url, server.keys["laptop"], ["claude-code"], Recorder()
+        )
+    assert settings(home)["deniedMcpServers"] == [
+        {"serverName": "other"},
+        {"serverName": "claude.ai kampung"},
+    ]
+    assert any("claude.ai kampung" in line for line in lines)
+
+
+def test_setup_denies_the_connector_by_its_given_name(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)
+    run_setup(
+        server.url,
+        server.keys["laptop"],
+        ["claude-code"],
+        Recorder(),
+        connector_name="Home mail",
+    )
+    assert settings(home)["deniedMcpServers"] == [{"serverName": "claude.ai Home mail"}]
+
+
+def test_setup_refuses_malformed_denied_servers_before_changing_anything(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)
+    (home / ".claude").mkdir()
+    path = home / ".claude" / "settings.json"
+    path.write_text(json.dumps({"deniedMcpServers": "nope"}))
+    rec = Recorder()
+    with pytest.raises(SetupError, match="deniedMcpServers"):
+        run_setup(server.url, server.keys["desktop"], ["claude-code"], rec)
+    assert json.loads(path.read_text()) == {"deniedMcpServers": "nope"}
+    cfg = json.loads((hook.config_dir() / "config.json").read_text())
+    assert cfg["key"] == server.keys["laptop"]
+    assert rec.calls == []
+
+
+def test_setup_codex_only_leaves_claude_settings_alone(
+    home: Path, server: LiveServer, codex_at: str
+) -> None:
+    run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
+    assert not (home / ".claude" / "settings.json").exists()

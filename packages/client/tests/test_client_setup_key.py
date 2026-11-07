@@ -12,7 +12,7 @@ SERVER = ["setup", "--server", "https://kampung.example.com"]
 def used(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     keys: list[str] = []
 
-    def fake_run_setup(server: str, key: str, *rest: Any) -> list[str]:
+    def fake_run_setup(server: str, key: str, *rest: Any, **kw: Any) -> list[str]:
         keys.append(key)
         return ["ok"]
 
@@ -57,3 +57,17 @@ def test_no_key_anywhere_fails(
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
     assert cli.main(SERVER) == 1
     assert "KAMPUNG_KEY" in capsys.readouterr().err and used == []
+
+
+def test_connector_name_flag_reaches_run_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_run_setup(*args: Any, **kwargs: Any) -> list[str]:
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(setup, "run_setup", fake_run_setup)
+    assert cli.main([*SERVER, "--key", "k", "--connector-name", "Home mail"]) == 0
+    assert seen["connector_name"] == "Home mail"
