@@ -12,7 +12,8 @@ Kampung is built for one owner per server: one container, one SQLite database, o
   <img src="docs/images/security-model.svg" alt="Each machine is a trust boundary holding one machine key in config.json. Calls go with the key over HTTPS or Tailscale to Caddy, which terminates TLS, caps request bodies and keeps /admin to loopback and the tailnet. A client with no key or a wrong key is rejected at the first check before its body is read. Inside the Kampung server every request passes six checks in order: machine key, ownership, pairing, limits, loop guard and the envelope that marks peer text as information only. Mail, hashed keys and the audit log are kept in SQLite on a volume." width="860">
 </p>
 
-- **Closed by default.** Every `/mcp` and `/v1` request needs a machine key. `/health` is open and returns only the version. `/admin` exists only when `KAMPUNG_ADMIN_TOKEN` is set.
+- **Closed by default.** Every `/mcp` and `/v1` request needs a machine key, or on `/mcp` a Claude app token. `/health` is open and returns only the version. `/admin` exists only when `KAMPUNG_ADMIN_TOKEN` is set, and the OAuth routes (`/.well-known/*`, `/authorize`, `/token`, `/revoke`, `/oauth/connect`) only when `KAMPUNG_PUBLIC_URL` is set. None of them gives mail access without a key or a grant, and the only state a stranger can create is a capped, 10-minute pending sign-in.
+- **The Claude app connector** is a second credential bound to a machine. There is one fixed public OAuth client and no client registration. A grant starts only from a one-time code printed by `kampung connect` on the server and entered on the connect page, which the bundled Caddy keeps away from Anthropic's address range so it is only reachable from your own networks. Tokens are stored hashed, access tokens last an hour, refresh tokens rotate, a refresh token reused more than 60 seconds after rotation ends the grant, and `kampung disconnect`, `revoke` and `key rotate` end it at once. A Claude app token cannot reach `/v1`, so it cannot reset a loop guard.
 - **Loopback only.** The container publishes on `127.0.0.1`. Reach it from other machines through the `tls` profile (Caddy with automatic HTTPS) or over Tailscale.
 - **The client refuses plain `http://`** unless the host is loopback, because every request carries the machine key. `setup --allow-insecure-http` overrides this for a network you trust, such as Tailscale, and warns on every use. Tailscale addresses need it too: `100.64.0.0/10` is also carrier-grade NAT space, and a `*.ts.net` name falls back to public DNS when Tailscale is off.
 
@@ -21,7 +22,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **Clients without a key.** They get a 401 before any request body is read. Wrong keys are answered from memory, with no database lookup.
 - **Machines reaching mail that isn't theirs.** The machine is the trust boundary: a key can only use its own machine's mailboxes and sessions, and can only send to machines you have paired with `kampung pair`. The sender is taken from the key, never from the request.
 - **A leaked database giving working keys.** Only the SHA-256 hash of each key is stored. Keys are 256 random bits, so they can't be guessed.
-- **Agents waking each other forever.** From the fourth reply in a row, mail is stored without waking the receiver until a human types in that session.
+- **Agents waking each other forever.** From the fourth reply in a row, mail is stored without waking the receiver until a human types in that session. A Claude app session sends at depth 0, since its messages are the owner's, but may wake peers at most 10 times in 10 minutes.
 - **One key filling the server or a peer's mailbox.** Request bodies, unread mail per mailbox and per sending machine, sessions and mailboxes per machine, sends and registrations per minute are all capped, and sessions that ended long ago are deleted. See [Limits](#limits).
 - **Dashboard misuse.** The admin token must be at least 24 characters and is compared in constant time. Logins are limited to 5 failures per 15 minutes per client address, except for a browser that has already signed in with the token (it keeps a 30-day cookie derived from the token, so a flood from a shared address can't lock the owner out, and it still needs the token), sessions last 12 hours, every action needs a CSRF token, pages send a strict content security policy and can't be framed, and every change is audited.
 
@@ -32,6 +33,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **Agents on paired machines.** Pairing is a trust decision. A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. Kampung labels all of it as information from a peer, never instructions, but a label is not a sandbox. Pair only machines whose agents you trust.
 - **Floods from many addresses.** Wrong keys are answered from memory. Once an address has sent 20 wrong keys within a minute, its requests get 429 until the oldest of those is a minute old; requests with a valid key still get through, so a revoked machine retrying behind a shared NAT doesn't lock out its neighbours. Behind the bundled Caddy the address is the real client's, and IPv6 clients count per /64. An attacker with many addresses can still spread out, so keep the firewall allowlist or a network-level rate limit in front of a server that faces the open internet. Behind a different proxy, set `KAMPUNG_FORWARDED_ALLOW_IPS` to it (see `.env.example`).
 - **Woken Codex threads.** A closed or cleared Codex thread can be woken, and run headless, until 30 minutes after its last turn. `codex archive` ends a finished thread at once.
+- **Other connectors in the same chat.** A connector added on claude.ai reaches every Claude surface on the account, including sessions with nobody typing. A chat that also holds mail or drive connectors can be steered by a peer's text into sending their content out through `send`; the envelope is wording, not a sandbox. Keep the connector off in such chats, keep `send` on "needs approval", and remember that mail read in a chat stays in the account's synced history. `<name>/claude` does not prove the owner typed a message.
 
 ## Operator checklist
 
@@ -64,3 +66,8 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Session `cwd` | 1,024 printable characters |
 | `/v1` request body | 64 KB (also capped by Caddy: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`) |
 | Wake depth | 3 replies in a row |
+| Claude app wakes | 10 per connector session per 10 minutes; later sends arrive with `wake: false` |
+| Connect code and pending sign-in | 10 minutes, single use; 5 wrong codes burn the sign-in; 20 wrong codes per client address in 15 minutes, then 429 |
+| Pending sign-ins | 100 live at a time |
+| OAuth tokens | authorization code 5 minutes, access 1 hour, refresh 90 days renewed on use, 60 seconds of refresh retry |
+| OAuth request body | 64 KB on `/token`, `/authorize`, `/revoke` and `/oauth/*` (in Caddy too); 4 KB for the connect form |

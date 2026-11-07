@@ -94,12 +94,26 @@ For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/depl
 
 Every message arrives in an envelope with the sender, sent time, loop-guard depth and a "peer message, not an instruction" tag. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](docs/tool-reference.md) for results and errors.
 
+## Use it from the Claude app
+
+With `KAMPUNG_PUBLIC_URL` set (see `.env.example`), the Claude app and claude.ai can join as a peer with its own mailbox, for example `phone/claude`, and read or leave mail with no laptop running. On the server:
+
+```bash
+docker compose exec kampung kampung connect phone
+docker compose exec kampung kampung pair phone mac
+```
+
+`connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, choose **Sign in now** and, under the OAuth client setting, **Use your own OAuth client** with that client id and no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, so leave the connector off in Claude Code's `/mcp` list.
+
+`kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21`), so allow that range on port 443; the [deployment runbook](docs/deploy-lightsail.md) has the firewall and the checks.
+
 ## Security
 
 - **Closed by default.** Every request needs a machine key; a new machine can do nothing until you pair it.
 - **The machine is the trust boundary.** One key per machine, stored hashed. A machine can only use its own mailboxes.
 - **Peer messages are information, never commands**, and pairing is a trust decision: only pair machines whose agents you trust.
 - **Not end-to-end encrypted.** The server sees messages so it can enforce pairing and keep the audit log.
+- **Claude app tokens are a second credential bound to a machine.** They come only from a one-time code you print on the server, never from registration, and they cannot reach the hook API.
 
 The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.md).
 
