@@ -40,6 +40,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Claude Code: wake idle sessions with Channels push (experimental)",
     )
     setup.add_argument(
+        "--connector-name",
+        default="kampung",
+        metavar="NAME",
+        help="the name you gave the Claude app connector, if not 'kampung'; "
+        "Claude Code is told not to load it",
+    )
+    setup.add_argument(
         "--allow-insecure-http",
         action="store_true",
         help="send the key over plain http to any host (trusted networks only)",
@@ -96,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
                 setup.default_runner,
                 args.channels,
                 args.allow_insecure_http,
+                connector_name=args.connector_name,
             )
         except setup.SetupError as e:
             print(f"error: {e}", file=sys.stderr)

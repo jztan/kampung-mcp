@@ -105,7 +105,7 @@ docker compose exec kampung kampung pair phone mac
 
 `connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read, so the first chat to read the inbox gets it.
 
-**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same three tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. Deny it once for every project in `~/.claude/settings.json`, using the name you gave the connector:
+**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same three tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. Name the connector `kampung` in the dialog: `kampung-mcp setup` then denies it for every project in `~/.claude/settings.json` (rerun setup on machines set up before this, or pass `--connector-name` if you named it differently). The entry it writes is:
 
 ```json
 { "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
