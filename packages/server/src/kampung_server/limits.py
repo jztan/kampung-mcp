@@ -10,6 +10,8 @@ TARGET_FALLBACK = timedelta(hours=24)
 SEND_RATE = 60
 SEND_RATE_WINDOW = timedelta(seconds=60)
 REGISTER_RATE = 60
+# Typed-prompt calls per machine per minute: each refills wake budgets.
+HUMAN_TURN_RATE = 60
 SWEEP_EVERY = timedelta(minutes=5)
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_CWD_CHARS = 1024

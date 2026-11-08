@@ -176,13 +176,22 @@ class AdminService:
         finally:
             conn.close()
 
-    def reset_depth(self, session_id: int, actor: str) -> None:
+    def refill(self, session_id: int, actor: str) -> None:
+        """Refill the wake budgets of a session's mailbox, as a typed prompt
+        in it would."""
         now = self._clock()
         conn = self._connect()
         try:
             with db.transaction(conn):
-                sessions.human_turn(conn, _require_open_session(conn, session_id))
-                audit.record(conn, now, actor, "reset_depth", {"session": session_id})
+                s = _require_open_session(conn, session_id)
+                cleared = sessions.human_turn(conn, s)
+                audit.record(
+                    conn,
+                    now,
+                    actor,
+                    "refill",
+                    {"session": session_id, "mailbox": s.mailbox, "pairs": cleared},
+                )
         finally:
             conn.close()
 

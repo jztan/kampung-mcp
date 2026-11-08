@@ -144,8 +144,17 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
         def handler(
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
-            s = sessions.resolve(conn, machine, _session_id(request), deps.clock())
-            sessions.human_turn(conn, s)
+            now = deps.clock()
+            deps.human_turn_limiter.check(machine.id, now)
+            s = sessions.resolve(conn, machine, _session_id(request), now)
+            cleared = sessions.human_turn(conn, s)
+            audit.record(
+                conn,
+                now,
+                f"machine:{machine.name}",
+                "refill",
+                {"mailbox": s.mailbox, "pairs": cleared, "by": "human_turn"},
+            )
             return {}
 
         return await _run(deps, request, handler)

@@ -3,7 +3,7 @@
 import sqlite3
 from datetime import datetime
 
-from . import audit, db
+from . import audit, db, guard
 from .addressing import validate_name
 from .clock import parse_ts, ts
 from .errors import KampungError
@@ -285,8 +285,10 @@ def resolve(
     return refreshed
 
 
-def human_turn(conn: sqlite3.Connection, session: Session) -> None:
-    conn.execute("UPDATE sessions SET max_depth_seen = -1 WHERE id = ?", (session.id,))
+def human_turn(conn: sqlite3.Connection, session: Session) -> int:
+    """Someone typed in this session: refill its mailbox's wake budgets.
+    Returns the pair rows cleared."""
+    return guard.refill_mailbox(conn, session.mailbox_id)
 
 
 def end(conn: sqlite3.Connection, session_id: int, now: datetime) -> None:

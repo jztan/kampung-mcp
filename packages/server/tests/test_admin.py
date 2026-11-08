@@ -153,15 +153,21 @@ def test_delete_delivered_message_rejected(
     assert _code(admin.delete_message, m.id, "admin:web") == "already_delivered"
 
 
-def test_reset_depth(
+def test_refill(
     conn: sqlite3.Connection, admin: AdminService, make_session: MakeSession
 ) -> None:
     s = make_session("laptop", "api")
-    conn.execute("UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", (s.id,))
-    admin.reset_depth(s.id, "admin:web")
-    reloaded = load_session(conn, s.id)
-    assert reloaded is not None and reloaded.max_depth_seen == -1
-    assert _code(admin.reset_depth, 9999, "admin:web") == "unknown_session"
+    conn.execute(
+        "UPDATE mailboxes SET wakes_since_refill = 30 WHERE id = ?", (s.mailbox_id,)
+    )
+    admin.refill(s.id, "admin:web")
+    used = conn.execute(
+        "SELECT wakes_since_refill FROM mailboxes WHERE id = ?", (s.mailbox_id,)
+    ).fetchone()[0]
+    assert used == 0
+    actor = conn.execute("SELECT actor FROM audit WHERE action = 'refill'").fetchone()
+    assert actor[0] == "admin:web"
+    assert _code(admin.refill, 9999, "admin:web") == "unknown_session"
 
 
 def test_repeat_revoke_is_an_error(
@@ -181,12 +187,12 @@ def test_ended_session_cannot_be_ended_or_reset(
 ) -> None:
     s = make_session("laptop")
     admin.end_session(s.id, "admin:web")
-    for act in (admin.end_session, admin.reset_depth):
+    for act in (admin.end_session, admin.refill):
         with pytest.raises(KampungError) as e:
             act(s.id, "admin:web")
         assert e.value.code == "session_ended"
     actions = [r[0] for r in conn.execute("SELECT action FROM audit")]
-    assert actions.count("end_session") == 1 and "reset_depth" not in actions
+    assert actions.count("end_session") == 1 and "refill" not in actions
 
 
 def test_rotate_key_replaces_the_key_and_keeps_the_machine(
