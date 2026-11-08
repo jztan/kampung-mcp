@@ -54,8 +54,14 @@ def _repair_early_schema_5(conn: sqlite3.Connection) -> None:
     per-machine index) and oauth_requests.client; a database migrated then
     says version 5, so it would never run them. Both checks are cheap reads
     on a database that has them."""
-    if "machine_id" not in _columns(conn, "sessions"):
-        with transaction(conn):
+    sessions_ok = "machine_id" in _columns(conn, "sessions")
+    requests_ok = "client" in _columns(conn, "oauth_requests")
+    if sessions_ok and requests_ok:
+        return
+    with transaction(conn):
+        # Read again under the write lock: another process may have repaired
+        # the file between the check above and here.
+        if "machine_id" not in _columns(conn, "sessions"):
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN machine_id INTEGER "
                 "REFERENCES machines(id)"
@@ -69,8 +75,7 @@ def _repair_early_schema_5(conn: sqlite3.Connection) -> None:
                 "CREATE UNIQUE INDEX sessions_agent ON sessions "
                 "(machine_id, agent_session_id) WHERE agent_session_id IS NOT NULL"
             )
-    if "client" not in _columns(conn, "oauth_requests"):
-        with transaction(conn):
+        if "client" not in _columns(conn, "oauth_requests"):
             conn.execute(
                 "ALTER TABLE oauth_requests ADD COLUMN client TEXT NOT NULL "
                 "DEFAULT ''"

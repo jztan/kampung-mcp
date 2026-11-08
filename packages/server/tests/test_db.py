@@ -284,11 +284,10 @@ def test_agent_session_id_is_unique_per_machine(conn: sqlite3.Connection) -> Non
         add(1, "bb")
 
 
-def test_a_database_from_the_first_schema_5_is_repaired(tmp_path: Path) -> None:
-    # Develop ran schema 5 for a few hours before sessions.machine_id and
-    # oauth_requests.client were added to it; such a database says version 5
-    # and would never get them.
-    old = db.connect(tmp_path / "early-v5.db")
+def _early_v5(path: Path) -> sqlite3.Connection:
+    """A database migrated by develop's first schema 5, which lacked
+    sessions.machine_id and oauth_requests.client."""
+    old = db.connect(path)
     for version in (1, 2, 3, 4):
         for statement in db._statements(db._script(version)):
             old.execute(statement)
@@ -297,6 +296,45 @@ def test_a_database_from_the_first_schema_5_is_repaired(tmp_path: Path) -> None:
         if not any(word in statement for word in folded):
             old.execute(statement)
     old.execute("PRAGMA user_version=5")
+    return old
+
+
+def test_two_processes_repairing_at_once_both_succeed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager
+
+    path = tmp_path / "early-v5.db"
+    mine = _early_v5(path)
+    real = db.transaction
+    raced = []
+
+    @contextmanager
+    def racing(c: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+        if not raced:
+            # Another process repairs the file just before we take the lock.
+            raced.append(1)
+            monkeypatch.setattr(db, "transaction", real)
+            other = db.connect(path)
+            db.migrate(other)
+            other.close()
+            monkeypatch.setattr(db, "transaction", racing)
+        with real(c):
+            yield c
+
+    monkeypatch.setattr(db, "transaction", racing)
+    db.migrate(mine)
+    names = [r[1] for r in mine.execute("PRAGMA table_info(sessions)")]
+    assert names.count("machine_id") == 1
+    mine.close()
+
+
+def test_a_database_from_the_first_schema_5_is_repaired(tmp_path: Path) -> None:
+    # Develop ran schema 5 for a few hours before sessions.machine_id and
+    # oauth_requests.client were added to it; such a database says version 5
+    # and would never get them.
+    old = _early_v5(tmp_path / "early-v5.db")
     for name, key in (("a", "x'01'"), ("b", "x'02'")):
         old.execute(
             f"INSERT INTO machines (name, key_hash, created_at) VALUES ('{name}', "
