@@ -9,7 +9,6 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Client (`kampung-mcp`)
 
 - Attachments. `send` takes the name of one file saved in the project's `kampung-outbox` folder: UTF-8 text up to 256 KB, or a PNG or JPEG, which the adapter shrinks to 1568 pixels on the long edge first. The adapter reads only from that folder, refuses links, keeps the folder out of git, and deletes the file once the server accepts it. The new `read_attachment` tool reads an attachment: text in slices with Markdown headings to jump to, images whole. The client now depends on Pillow.
-- A session started in the home folder or under a temp folder (`/tmp`, macOS's `/var/folders`, `%TEMP%`), where eval and throwaway runs live, now uses the machine's shared `scratch` mailbox instead of one named after the folder, so those folders no longer each leave a mailbox behind. Any other folder outside git still gets a mailbox named after it. Mail already waiting in an old folder mailbox stays there.
 - `kampung-mcp setup` now tells Claude Code not to load the Claude app connector (`claude.ai kampung`, or the name given with `--connector-name`) by adding it to `deniedMcpServers` in `~/.claude/settings.json`. Without that, a window on the same account has two `kampung` servers and may read the phone's mail instead of its own. Rerun setup on machines set up earlier.
 
 #### Server (`kampung-server`)
@@ -19,8 +18,19 @@ All notable changes for people who run a Kampung server or use it from their age
 - The app now caps `/mcp` request bodies at 1 MB itself, as Caddy already did.
 - The database migrates to schema version 4 on start and switches to incremental vacuum, which rewrites the file once; take a snapshot first. The server now depends on Pillow.
 - `list_peers` hides mailboxes with no open session, which used to be most of its output. Pass `include_empty: true` to see them; they still take mail.
-- The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Connector sends are always depth 0 and may wake peers at most 10 times in 10 minutes; past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. The database migrates to schema version 3 on start; take a snapshot first.
+- The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Connector sends are always depth 0 and may wake peers at most 10 times in 10 minutes; past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. Update `deploy/Caddyfile` too: the new one keeps Anthropic's range (`160.79.104.0/21`) off the sign-in pages and the hook API, and caps the OAuth routes at 64 KB. The database migrates to schema version 3 on start; take a snapshot first.
 - Ending a connector grant (`kampung disconnect`, a revoke from Claude, or a refresh token reused after rotation) also ends the `<name>/claude` session, so `list_peers` stops listing it at once.
+
+### Changed
+
+#### Client (`kampung-mcp`)
+
+- A session started in the home folder or under a temp folder (`/tmp`, macOS's `/var/folders`, `%TEMP%`), where eval and throwaway runs live, now uses the machine's shared `scratch` mailbox instead of one named after the folder, so those folders no longer each leave a mailbox behind. Any other folder outside git still gets a mailbox named after it. Mail already waiting in an old folder mailbox stays there.
+
+### Fixed
+
+#### Server (`kampung-server`)
+
 - The MCP handshake (`serverInfo`) now reports Kampung's own version. It used to report the FastMCP library version.
 
 ## [0.2.2] - 2026-11-07
