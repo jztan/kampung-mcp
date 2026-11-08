@@ -79,6 +79,18 @@ def test_repo_name_in_a_temp_folder_is_the_shared_scratch_mailbox(
     assert hook.repo_name(str(temp_root)) == "scratch"
 
 
+def test_repo_name_temp_match_ignores_case_folding(
+    tmp_path: Path, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Windows normcase lowercases; a temp root given in mixed case must still
+    # match a cwd under it.
+    t = tmp_path / "SysTemp"
+    (t / "Eval").mkdir(parents=True)
+    monkeypatch.setattr(hook, "_temp_roots", lambda: [str(t)])
+    monkeypatch.setattr(hook.os.path, "normcase", lambda p: p.lower())
+    assert hook.repo_name(str(t / "Eval")) == "scratch"
+
+
 def test_repo_name_in_the_home_folder_is_the_shared_scratch_mailbox(
     temp_root: Path, home: Path
 ) -> None:

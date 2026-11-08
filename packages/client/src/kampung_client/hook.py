@@ -340,7 +340,7 @@ def _is_scratch(cwd: str) -> bool:
         return True
     return any(
         here == root or here.startswith(root.rstrip(os.sep) + os.sep)
-        for root in _temp_roots()
+        for root in map(_norm, _temp_roots())
     )
 
 
