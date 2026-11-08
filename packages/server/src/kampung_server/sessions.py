@@ -19,6 +19,7 @@ from .limits import (
 from .models import SESSION_SELECT, Machine, Session, load_session, session_from_row
 
 CONNECTOR_AGENT = "claude-app"
+CONNECTOR_ID_PREFIX = "connector:"
 AGENTS = ("claude-code", "codex", "other", CONNECTOR_AGENT)
 CONNECTOR_REPO = "claude"
 CONNECTOR_CWD = "Claude app"
@@ -99,6 +100,17 @@ def _register(
                 conn,
                 "mb.machine_id = ? AND mb.repo = ? AND s.suffix = ?",
                 (machine.id, repo, suffix),
+            )
+        if (
+            existing is not None
+            and existing.agent == CONNECTOR_AGENT
+            and agent != CONNECTOR_AGENT
+        ):
+            # Only connector_session may revive the Claude app's session: its
+            # sends skip the depth check, so a machine key must not get it.
+            raise KampungError(
+                "invalid_agent_session",
+                "That session belongs to the Claude app connector.",
             )
         if existing is not None:
             conn.execute(
@@ -215,8 +227,15 @@ def connector_session(
 ) -> Session:
     """The one session a Claude app token acts as: `<machine>/claude`, created
     on first use and revived after the sweep ends it."""
-    agent_session_id = f"connector:{machine.id}"
+    agent_session_id = f"{CONNECTOR_ID_PREFIX}{machine.id}"
     existing = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
+    if existing is not None and existing.agent != CONNECTOR_AGENT:
+        # Registered through the hook API before that was refused: release
+        # the id rather than adopt a session the connector did not make.
+        conn.execute(
+            "UPDATE sessions SET agent_session_id = NULL WHERE id = ?", (existing.id,)
+        )
+        existing = None
     if existing is not None and existing.ended_at is None:
         conn.execute(
             "UPDATE sessions SET last_seen = ? WHERE id = ?", (ts(now), existing.id)
@@ -247,6 +266,15 @@ def resolve(
             conn, now, f"machine:{machine.name}", "denied", {"session": session_id}
         )
         raise KampungError("not_owner", "That session belongs to another machine.")
+    if session.agent == CONNECTOR_AGENT:
+        # A machine key never acts as its Claude app session; the connector
+        # reaches it through connector_session, not here.
+        audit.record(
+            conn, now, f"machine:{machine.name}", "denied", {"session": session_id}
+        )
+        raise KampungError(
+            "not_owner", "That session belongs to the Claude app connector."
+        )
     if session.ended_at is not None:
         raise KampungError("session_ended", "Re-read your session file or re-register.")
     conn.execute(

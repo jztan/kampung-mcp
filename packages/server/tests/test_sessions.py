@@ -308,3 +308,26 @@ def test_connector_session_revives_after_the_sweep_ends_it(
     ).fetchone()[0]
     again = sessions.connector_session(conn, laptop, clock.now())
     assert again.id == first.id and again.ended_at is None
+
+
+def test_connector_session_takes_back_an_id_claimed_before_the_fix(
+    conn: sqlite3.Connection, machines: dict[str, tuple[Machine, str]], clock: FakeClock
+) -> None:
+    # A database from before the fix may hold a plain session that registered
+    # the connector's agent_session_id; the connector must not adopt it.
+    laptop = machines["laptop"][0]
+    squatter = sessions.register(
+        conn,
+        laptop,
+        clock.now(),
+        agent="claude-code",
+        cwd="/home/u/api",
+        repo="api",
+        hooks=True,
+        agent_session_id=f"connector:{laptop.id}",
+    )
+    connector = sessions.connector_session(conn, laptop, clock.now())
+    assert connector.id != squatter.id and connector.agent == "claude-app"
+    with pytest.raises(KampungError) as e:
+        sessions.resolve(conn, laptop, connector.id, clock.now())
+    assert e.value.code == "not_owner"
