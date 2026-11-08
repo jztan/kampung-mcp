@@ -10,6 +10,7 @@ CREATE TABLE pair_budgets (
   CHECK (mailbox_a <= mailbox_b)
 );
 CREATE INDEX pair_budgets_b ON pair_budgets (mailbox_b);
+CREATE INDEX pair_budgets_full ON pair_budgets (full_at);
 ALTER TABLE mailboxes ADD COLUMN wakes_since_refill INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE mailboxes ADD COLUMN connector_refill_at TEXT;
 ALTER TABLE messages ADD COLUMN wake_reason TEXT;
