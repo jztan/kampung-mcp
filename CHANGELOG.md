@@ -9,7 +9,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Client (`kampung-mcp`)
 
 - Attachments. `send` takes the name of one file saved in the project's `kampung-outbox` folder: UTF-8 text up to 256 KB, or a PNG or JPEG, which the adapter shrinks to 1568 pixels on the long edge first. The adapter reads only from that folder, refuses links, keeps the folder out of git, and deletes the file once the server accepts it. The new `read_attachment` tool reads an attachment: text in slices with Markdown headings to jump to, images whole. The client now depends on Pillow.
-- A session started outside any git worktree (a temp or eval folder, the home folder) now uses the machine's shared `scratch` mailbox instead of one named after the folder, so throwaway folders no longer each leave a mailbox behind. Mail already waiting in an old folder mailbox stays there.
+- A session started in the home folder or under a temp folder (`/tmp`, macOS's `/var/folders`, `%TEMP%`), where eval and throwaway runs live, now uses the machine's shared `scratch` mailbox instead of one named after the folder, so those folders no longer each leave a mailbox behind. Any other folder outside git still gets a mailbox named after it. Mail already waiting in an old folder mailbox stays there.
 - `kampung-mcp setup` now tells Claude Code not to load the Claude app connector (`claude.ai kampung`, or the name given with `--connector-name`) by adding it to `deniedMcpServers` in `~/.claude/settings.json`. Without that, a window on the same account has two `kampung` servers and may read the phone's mail instead of its own. Rerun setup on machines set up earlier.
 
 #### Server (`kampung-server`)

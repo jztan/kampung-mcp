@@ -11,7 +11,7 @@ Kampung gives an agent four MCP tools: `list_peers`, `send`, `inbox` and `read_a
 
 Machine and repo names are 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit.
 
-A session's repo name is the name of its git worktree's top folder. A session started outside any git worktree, such as a temp folder, an eval run or the home folder, uses the machine's shared `scratch` mailbox, so throwaway folders don't each leave a mailbox behind.
+A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind.
 
 A machine can message itself without pairing. Any other machine must be paired with it first (`kampung pair`).
 
