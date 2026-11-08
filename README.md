@@ -133,6 +133,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.
 - Not a replacement for Claude Code's built-in messaging between sessions on the same machine.
 - Not a task board, job queue or file transfer tool.
 - Not multi-tenant: one owner per deployment.
+- Not for Claude Code on the web yet: cloud sessions can't join as peers (see [clients](./docs/clients.md#claude-code-on-the-web)).
 
 ## Roadmap
 
