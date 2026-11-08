@@ -204,3 +204,27 @@ def test_full_size_pixels_are_freed_before_encoding(
     monkeypatch.setattr(images, "_encode", spy)
     normalize_image(_png(2800, 2000))
     assert alive == []
+
+
+def test_a_burst_waits_briefly_for_a_decode_slot_then_is_busy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time
+
+    from kampung_server import images
+    from kampung_server.limits import IMAGE_DECODE_WAIT
+
+    assert IMAGE_DECODE_WAIT == 5.0
+    monkeypatch.setattr(images, "IMAGE_DECODE_WAIT", 0.1)
+    held = [images._DECODE_SLOTS.acquire(blocking=False) for _ in range(2)]
+    assert held == [True, True]
+    try:
+        started = time.monotonic()
+        with pytest.raises(KampungError) as e:
+            normalize_image(_png(32, 32))
+        assert e.value.code == "busy"
+        assert time.monotonic() - started < 1
+    finally:
+        for _ in held:
+            images._DECODE_SLOTS.release()
+    normalize_image(_png(32, 32))

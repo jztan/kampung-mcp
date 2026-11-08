@@ -41,18 +41,16 @@ def test_new_connect_code_invalidates_the_previous_one(
         assert oauth_store.take_connect_code(conn, second, clock.now()) is not None
 
 
-def test_request_cap_refuses_the_101st(
+def test_at_the_cap_the_oldest_request_makes_room(
     conn: sqlite3.Connection, clock: FakeClock
 ) -> None:
     with db.transaction(conn):
         for i in range(100):
-            assert oauth_store.save_request(
-                conn, f"r{i}", "{}", clock.now(), f"10.0.0.{i}"
-            )
-        assert not oauth_store.save_request(conn, "r100", "{}", clock.now(), "x")
-    clock.advance(minutes=11)
-    with db.transaction(conn):
-        assert oauth_store.save_request(conn, "r101", "{}", clock.now(), "x")
+            oauth_store.save_request(conn, f"r{i}", "{}", clock.now(), f"10.0.0.{i}")
+            clock.advance(seconds=1)
+        oauth_store.save_request(conn, "owner", "{}", clock.now(), "192.0.2.1")
+    live = {r[0] for r in conn.execute("SELECT request_id FROM oauth_requests")}
+    assert len(live) == 100 and "owner" in live and "r0" not in live and "r1" in live
 
 
 def test_one_address_keeps_its_three_newest_requests(
@@ -60,9 +58,9 @@ def test_one_address_keeps_its_three_newest_requests(
 ) -> None:
     with db.transaction(conn):
         for i in range(150):
-            assert oauth_store.save_request(conn, f"a{i}", "{}", clock.now(), "a")
+            oauth_store.save_request(conn, f"a{i}", "{}", clock.now(), "a")
             clock.advance(seconds=1)
-        assert oauth_store.save_request(conn, "b0", "{}", clock.now(), "b")
+        oauth_store.save_request(conn, "b0", "{}", clock.now(), "b")
     live = [r[0] for r in conn.execute("SELECT request_id FROM oauth_requests")]
     assert sorted(live) == ["a147", "a148", "a149", "b0"]
 

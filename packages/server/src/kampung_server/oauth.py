@@ -180,11 +180,11 @@ class KampungOAuth(OAuthProvider):
         request_id = secrets.token_urlsafe(32)
         client_address = CLIENT_ADDRESS.get()
 
-        def work() -> bool:
+        def work() -> None:
             conn = self._deps.connect()
             try:
                 with db.transaction(conn):
-                    return oauth_store.save_request(
+                    oauth_store.save_request(
                         conn,
                         request_id,
                         pending.model_dump_json(),
@@ -194,10 +194,7 @@ class KampungOAuth(OAuthProvider):
             finally:
                 conn.close()
 
-        if not await run_in_threadpool(work):
-            raise AuthorizeError(
-                "temporarily_unavailable", "too many sign-ins waiting; try again soon"
-            )
+        await run_in_threadpool(work)
         return f"{self.public_url}/oauth/connect?request={request_id}"
 
     def complete_connect(

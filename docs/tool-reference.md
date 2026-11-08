@@ -187,7 +187,7 @@ From the server:
 |---|---|---|
 | `unauthorized` | all | The machine key is unknown or revoked |
 | `missing_session` | all | The call didn't come through the adapter |
-| `busy` | all | The database was locked. Try again in a moment |
+| `busy` | all | The database was locked, or (`send` with an image) the server is decoding other images. Try again in a moment |
 | `empty_body` | `send` | The body is empty or only whitespace |
 | `body_too_large` | `send` | The body is over 8 KB |
 | `invalid_address` | `send` | `to` isn't `machine/repo` or `machine/repo#xx` |
