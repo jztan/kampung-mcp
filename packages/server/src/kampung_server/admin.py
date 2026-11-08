@@ -4,7 +4,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import datetime
 
-from . import audit, db, oauth_store, sessions
+from . import audit, db, guard, oauth_store, sessions
 from .addressing import validate_name
 from .clock import ts
 from .errors import KampungError
@@ -184,7 +184,8 @@ class AdminService:
         try:
             with db.transaction(conn):
                 s = _require_open_session(conn, session_id)
-                cleared = sessions.human_turn(conn, s)
+                # Not a typed prompt: refill only.
+                cleared = guard.refill_mailbox(conn, s.mailbox_id)
                 audit.record(
                     conn,
                     now,

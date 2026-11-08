@@ -285,9 +285,10 @@ def resolve(
     return refreshed
 
 
-def human_turn(conn: sqlite3.Connection, session: Session) -> int:
-    """Someone typed in this session: refill its mailbox's wake budgets.
-    Returns the pair rows cleared."""
+def human_turn(conn: sqlite3.Connection, session: Session, now: datetime) -> int:
+    """Someone typed in this session: note it, and refill its mailbox's wake
+    budgets. Returns the pair rows cleared."""
+    conn.execute("UPDATE sessions SET typed_at = ? WHERE id = ?", (ts(now), session.id))
     return guard.refill_mailbox(conn, session.mailbox_id)
 
 

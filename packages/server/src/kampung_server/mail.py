@@ -279,11 +279,13 @@ def _decide(
         )
     if sender.agent == CONNECTOR_AGENT:
         return _connector_send(conn, sender, target_box, now, g)
-    if not sender.hooks:
+    if sender.typed_at is None:
+        # Never reported typing (no hooks, or Codex on Windows, whose hooks
+        # never run): nothing would ever refill it, so time does.
         _quiet_refill(conn, sender.mailbox_id, now)
     if guard.mailbox_left(conn, sender.mailbox_id, g) == 0:
         mine = f"{sender.machine}/{sender.repo}"
-        if sender.hooks:
+        if sender.typed_at is not None:
             held = (
                 f"Stored without waking {peer}: {mine} has woken peers "
                 f"{g.mailbox_budget} times since anyone typed in it. It waits in "

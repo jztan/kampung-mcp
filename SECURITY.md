@@ -39,6 +39,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 - **Woken Codex threads.** A closed or cleared Codex thread can be woken, and run headless, until 30 minutes after its last turn. `codex archive` ends a finished thread at once.
 - **Other connectors in the same chat.** A connector added on claude.ai reaches every Claude surface on the account, including sessions with nobody typing. A chat that also holds mail or drive connectors can be steered by a peer's text into sending their content out through `send`; the envelope is wording, not a sandbox. Keep the connector off in such chats, keep `send` on "needs approval", and remember that mail read in a chat stays in the account's synced history. `<name>/claude` does not prove the owner typed a message.
 - **Loop-guard refills that are not you typing.** The server cannot tell your typing from other input. A message from the Claude app counts as yours, though any surface that has the connector can send one: a claude.ai chat with nobody typing, or a Claude Code window that loads the connector because `kampung-mcp setup` was not rerun. Each such refill is limited to one per mailbox every 10 minutes and to machines the app's machine is paired with. Prompts from `/loop`, scheduled routines or `claude -p` also look typed to the hook, so they refill too. Every refill is in the audit log.
+- **Mailbox budgets that come back by time.** The per-mailbox budget normally comes back only when someone types. A session that never reports typing would otherwise be stuck for good, so for it the budget comes back after 30 minutes without a waking send from its mailbox. Today that is Codex on Windows (no hooks are installed there), Codex before its hooks are approved, any window whose hooks are missing or failing, and agents that register through the hook API without calling `human-turn`. The trade-off: such a session's loop can resume without you. It still halts on its own, because a looping pair never goes 30 minutes without sending, and once the budget is spent its messages wake nobody, so nothing replies. It resumes only if something else starts a turn in it after 30 quiet minutes, and the pair budget still applies.
 
 ## Operator checklist
 
@@ -75,7 +76,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | `/v1` request body | 64 KB (also capped by Caddy: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`) |
 | `/mcp` request body | 1 MB, in the app as well as in Caddy |
 | Wakes per pair of mailboxes | 9 in a row, one back every 10 minutes (`KAMPUNG_PAIR_WAKE_SIZE`, `KAMPUNG_PAIR_WAKE_REFILL_MINUTES`) |
-| Wakes per mailbox | 30 until someone types there (`KAMPUNG_MAILBOX_WAKE_BUDGET`); a mailbox without hooks gets them back after 30 minutes without waking sends |
+| Wakes per mailbox | 30 until someone types there (`KAMPUNG_MAILBOX_WAKE_BUDGET`); for a session that never reports typing, they come back after 30 minutes without waking sends |
 | Claude app refills | one per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES`) |
 | Typed-prompt calls per machine | 60 per minute |
 | Claude app wakes | 10 per connector session per 10 minutes; later sends arrive with `wake: false` |

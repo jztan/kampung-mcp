@@ -147,7 +147,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             now = deps.clock()
             deps.human_turn_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
-            cleared = sessions.human_turn(conn, s)
+            cleared = sessions.human_turn(conn, s, now)
             audit.record(
                 conn,
                 now,

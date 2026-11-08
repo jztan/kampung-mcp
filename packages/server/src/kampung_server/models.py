@@ -41,6 +41,7 @@ class Session:
     ended_at: str | None
     max_depth_seen: int
     last_delivered_at: str | None
+    typed_at: str | None = None
 
     @property
     def mailbox(self) -> str:
@@ -54,7 +55,7 @@ class Session:
 SESSION_SELECT = (
     "SELECT s.id, s.mailbox_id, mb.machine_id, m.name AS machine, mb.repo, "
     "s.suffix, s.agent, s.agent_session_id, s.hooks, s.cwd, s.started_at, "
-    "s.last_seen, s.ended_at, s.max_depth_seen, s.last_delivered_at "
+    "s.last_seen, s.ended_at, s.max_depth_seen, s.last_delivered_at, s.typed_at "
     "FROM sessions s JOIN mailboxes mb ON mb.id = s.mailbox_id "
     "JOIN machines m ON m.id = mb.machine_id"
 )
@@ -77,6 +78,7 @@ def session_from_row(row: sqlite3.Row) -> Session:
         ended_at=row["ended_at"],
         max_depth_seen=row["max_depth_seen"],
         last_delivered_at=row["last_delivered_at"],
+        typed_at=row["typed_at"],
     )
 
 

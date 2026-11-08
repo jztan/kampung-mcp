@@ -159,14 +159,17 @@ def test_resolve_touches_last_seen(
     assert r.last_seen == ts(clock.now())
 
 
-def test_human_turn_refills_the_mailbox(
-    conn: sqlite3.Connection, make_session: MakeSession
+def test_human_turn_refills_the_mailbox_and_records_typing(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
 ) -> None:
     s = make_session("laptop")
+    assert s.typed_at is None
     conn.execute(
         "UPDATE mailboxes SET wakes_since_refill = 30 WHERE id = ?", (s.mailbox_id,)
     )
-    assert human_turn(conn, s) == 0
+    assert human_turn(conn, s, clock.now()) == 0
+    typed = load_session(conn, s.id)
+    assert typed is not None and typed.typed_at is not None
     used = conn.execute(
         "SELECT wakes_since_refill FROM mailboxes WHERE id = ?", (s.mailbox_id,)
     ).fetchone()[0]

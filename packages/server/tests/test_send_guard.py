@@ -5,12 +5,14 @@ import sqlite3
 import threading
 from pathlib import Path
 
+import pytest
+
 from kampung_server import db, guard, mail
 from kampung_server.admin import AdminService
 from kampung_server.guard import GuardSettings
-from kampung_server.mail import inbox, peek, send
-from kampung_server.models import Session
-from kampung_server.sessions import end
+from kampung_server.mail import SendResult, inbox, peek, send
+from kampung_server.models import Session, load_session
+from kampung_server.sessions import end, human_turn
 from server_testlib import FakeClock, MakeSession
 
 G = GuardSettings()
@@ -317,20 +319,28 @@ async def test_send_description_states_the_live_settings(
     text = tools["send"].description or ""
     assert "5 times in a row" in text and "every 10 minutes" in text
     assert "40" in text and "fyi" in text and "hint" in text
+    assert "Codex on Windows" in text and "after 30 minutes without waking" in text
     assert "wake false" in SERVER_INSTRUCTIONS and "hint" in SERVER_INSTRUCTIONS
 
 
-def test_mailbox_without_hooks_gets_its_budget_back_after_quiet(
-    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
-) -> None:
-    # Windows Codex and self-registered agents never call human-turn.
-    a = make_session("laptop", "api", hooks=False)
-    for repo in ("one", "two", "three", "four"):
-        make_session("desktop", repo)
+def _fill(conn: sqlite3.Connection, a: Session, now: object) -> SendResult:
+    """Use up a's mailbox budget across four receivers; return the held send."""
     for _ in range(8):
         for repo in ("one", "two", "three", "four"):
-            send(conn, a, f"desktop/{repo}", "x", None, clock.now())
-    held = send(conn, a, "desktop/one", "x", None, clock.now())
+            send(conn, a, f"desktop/{repo}", "x", None, now)  # type: ignore[arg-type]
+    return send(conn, a, "desktop/one", "x", None, now)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("hooks", [False, True])
+def test_never_typed_session_gets_its_budget_back_after_quiet(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock, hooks: bool
+) -> None:
+    # hooks=False: self-registered. hooks=True: Codex on Windows, which the
+    # adapter registers with hooks but which never runs them, so never types.
+    a = make_session("laptop", "api", hooks=hooks)
+    for repo in ("one", "two", "three", "four"):
+        make_session("desktop", repo)
+    held = _fill(conn, a, clock.now())
     assert held.reason == "mailbox_budget"
     assert held.hint and "typed" not in held.hint and "30 minutes" in held.hint
     clock.advance(minutes=29)
@@ -338,25 +348,25 @@ def test_mailbox_without_hooks_gets_its_budget_back_after_quiet(
     clock.advance(minutes=31)
     for repo in ("one", "two", "three", "four"):
         make_session("desktop", repo)  # keep the receivers live
-    a = make_session("laptop", "api", hooks=False)
     r = send(conn, a, "desktop/three", "x", None, clock.now())
     assert r.wake is True and r.reason is None
 
 
-def test_hooked_mailbox_budget_never_comes_back_by_time(
+def test_typed_session_budget_never_comes_back_by_time(
     conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
 ) -> None:
     a = make_session("laptop", "api")
     for repo in ("one", "two", "three", "four"):
         make_session("desktop", repo)
-    conn.execute(
-        "UPDATE mailboxes SET wakes_since_refill = 30 WHERE id = ?", (a.mailbox_id,)
-    )
+    human_turn(conn, a, clock.now())
+    a = load_session(conn, a.id) or a
+    held = _fill(conn, a, clock.now())
+    assert held.reason == "mailbox_budget" and held.hint and "typed" in held.hint
     clock.advance(hours=3)
-    a = make_session("laptop", "api")
-    make_session("desktop", "one")
+    for repo in ("one", "two", "three", "four"):
+        make_session("desktop", repo)
     r = send(conn, a, "desktop/one", "x", None, clock.now())
-    assert r.reason == "mailbox_budget" and r.hint and "typed" in r.hint
+    assert r.reason == "mailbox_budget"
 
 
 def test_reply_to_an_idle_connector_still_cannot_wake(
