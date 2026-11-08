@@ -267,8 +267,12 @@ def _decide(
         return _Decision(
             True,
             note="no_session",
-            hint=f"Nobody is working in {peer} now; whoever opens it next is "
-            "woken for this.",
+            # Plain about timing: a Codex window gets no thread, and so no
+            # wake, until its first prompt.
+            hint=f"Nobody is working in {peer} now. Your message waits there. "
+            "A Claude Code window opened there gets it when it starts; a Codex "
+            "window gets it on its first prompt. If the work needs them now, "
+            "tell your user.",
         )
     if all(r["agent"] == CONNECTOR_AGENT for r in live):
         return _Decision(

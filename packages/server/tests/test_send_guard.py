@@ -407,3 +407,19 @@ def test_connector_refill_audits_the_mailbox_address(
         "SELECT detail FROM audit WHERE action = 'refill'"
     ).fetchone()[0]
     assert '"mailbox": "desktop/blog"' in detail
+
+
+def test_no_session_hint_says_plainly_how_the_mail_is_picked_up(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    gone = make_session("desktop", "reviewer")
+    end(conn, gone.id, clock.now())
+    r = send(conn, a, "desktop/reviewer", "review please", None, clock.now())
+    assert r.note == "no_session" and r.wake is True
+    assert r.hint == (
+        "Nobody is working in desktop/reviewer now. Your message waits there. "
+        "A Claude Code window opened there gets it when it starts; a Codex "
+        "window gets it on its first prompt. If the work needs them now, tell "
+        "your user."
+    )
