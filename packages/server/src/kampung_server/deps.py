@@ -10,7 +10,7 @@ from pathlib import Path
 from . import db
 from .guard import GuardSettings
 from .keyindex import KeyIndex
-from .limits import HUMAN_TURN_RATE, REGISTER_RATE, SESSION_ROUTE_RATE
+from .limits import END_RATE, HUMAN_TURN_RATE, PEEK_RATE, REGISTER_RATE
 from .oauth import TokenIndex
 from .ratelimit import RateLimiter
 
@@ -21,10 +21,12 @@ def _human_turn_limiter() -> RateLimiter:
     )
 
 
-def session_route_limiter() -> RateLimiter:
-    return RateLimiter(
-        SESSION_ROUTE_RATE, hint="Too many session calls; try again in a minute."
-    )
+def peek_limiter() -> RateLimiter:
+    return RateLimiter(PEEK_RATE, hint="Too many peek calls; try again in a minute.")
+
+
+def end_limiter() -> RateLimiter:
+    return RateLimiter(END_RATE, hint="Too many end calls; try again in a minute.")
 
 
 def _register_limiter() -> RateLimiter:
@@ -42,7 +44,8 @@ class ServerDeps:
     public_url: str | None = None
     register_limiter: RateLimiter = field(default_factory=_register_limiter)
     human_turn_limiter: RateLimiter = field(default_factory=_human_turn_limiter)
-    session_route_limiter: RateLimiter = field(default_factory=session_route_limiter)
+    peek_limiter: RateLimiter = field(default_factory=peek_limiter)
+    end_limiter: RateLimiter = field(default_factory=end_limiter)
     guard: GuardSettings = field(default_factory=GuardSettings)
     keys: KeyIndex = field(init=False)
     tokens: TokenIndex = field(init=False)

@@ -414,22 +414,28 @@ def test_server_start_caps_pair_debt_to_the_settings(
 def test_session_routes_are_rate_limited_per_machine(
     db_path: Path, clock: FakeClock, machines: Machines, method: str, path: str
 ) -> None:
-    from kampung_server.deps import session_route_limiter
+    from kampung_server.deps import end_limiter, peek_limiter
 
-    assert session_route_limiter()._limit == 1200
+    # Peek covers 256 sessions polling every 2 seconds; end has its own.
+    assert peek_limiter()._limit == 7680 and end_limiter()._limit == 600
     deps = ServerDeps(
         db_path=db_path,
         clock=clock.now,
         limiter=RateLimiter(),
-        session_route_limiter=RateLimiter(5, timedelta(seconds=60)),
+        peek_limiter=RateLimiter(5, timedelta(seconds=60)),
+        end_limiter=RateLimiter(5, timedelta(seconds=60)),
     )
+    other_method, other = ("POST", "end") if path == "peek" else ("GET", "peek")
     with TestClient(create_app(deps)) as c:
         desktop = bearer(machines["desktop"][1])
         codes = [
-            c.request(method, "/v1/sessions/9999/" + path, headers=desktop).status_code
+            c.request(method, f"/v1/sessions/9999/{path}", headers=desktop).status_code
             for _ in range(6)
         ]
         assert codes[:-1] == [404] * 5 and codes[-1] == 429
-        # Another machine keeps its own allowance.
+        # The other route and another machine keep their own allowance.
+        r = c.request(other_method, f"/v1/sessions/9999/{other}", headers=desktop)
+        assert r.status_code == 404
         laptop = bearer(machines["laptop"][1])
-        assert c.get("/v1/sessions/9999/peek", headers=laptop).status_code == 404
+        r = c.request(method, f"/v1/sessions/9999/{path}", headers=laptop)
+        assert r.status_code == 404

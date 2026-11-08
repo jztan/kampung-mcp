@@ -15,10 +15,11 @@ SEND_RATE_WINDOW = timedelta(seconds=60)
 REGISTER_RATE = 60
 # Typed-prompt calls per machine per minute: each refills wake budgets.
 HUMAN_TURN_RATE = 60
-# peek and end calls per machine per minute. Hooks peek about every 30
-# seconds per session and the Channels poller every 2 seconds per window, so
-# this covers 40 windows polling at once.
-SESSION_ROUTE_RATE = 1200
+# peek calls per machine per minute: the Channels poller peeks every 2
+# seconds, so this covers MAX_LIVE_SESSIONS_PER_MACHINE windows polling at once.
+PEEK_RATE = 256 * 30
+# end calls per machine per minute, apart from peek so polling never blocks one.
+END_RATE = 600
 # The audit log keeps 90 days and at most this many rows, pruned a batch per
 # sweep so a backlog never holds the write lock for long.
 AUDIT_RETENTION = timedelta(days=90)
@@ -63,8 +64,9 @@ MAX_ATTACHMENT_TEXT_BYTES = 256 * 1024
 MAX_ATTACHMENT_IMAGE_BYTES = 512 * 1024
 IMAGE_LONG_EDGE = 1568  # what Claude keeps of an image anyway
 # Checked from the header, before decoding: a decoded RGBA image takes 4 bytes
-# a pixel, so this holds one decode to about 32 MB, and IMAGE_DECODES of them
-# run at once. Our adapter shrinks images to IMAGE_LONG_EDGE before sending.
+# a pixel, so this holds one decode to about 32 MB. Only IMAGE_DECODES images
+# hold full-size pixels at once: each is shrunk before its slot is released.
+# Our adapter shrinks images to IMAGE_LONG_EDGE before sending.
 IMAGE_MAX_PIXELS = 8_000_000
 IMAGE_DECODES = 2
 # Claude Code moves a text result over 50,000 characters into a file the

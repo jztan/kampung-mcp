@@ -19,7 +19,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 
 ## What Kampung protects against
 
-- **Clients without a key.** They get a 401 before any request body is read or buffered. Wrong keys are answered from memory, with no database lookup, and a revoked key or token leaves that memory at its first refusal.
+- **Clients without a key.** They are refused (401, or 413 for a declared body over the cap) before any request body is read or buffered. Wrong keys are answered from memory, with no database lookup, and a revoked key or token leaves that memory at its first refusal.
 - **Machines reaching mail that isn't theirs.** The machine is the trust boundary: a key can only use its own machine's mailboxes and sessions (another machine's session looks the same as one that does not exist, so ids cannot be probed, and Claude Code and Codex session ids are unique per machine, so another machine cannot claim one first), and can only send to machines you have paired with `kampung pair`. The sender is taken from the key, never from the request.
 - **A leaked database giving working keys.** Only the SHA-256 hash of each key is stored. Keys are 256 random bits, so they can't be guessed.
 - **Agents waking each other forever.** Each pair of mailboxes may wake each other 9 times in a row, with one wake back every 10 minutes, and each mailbox may wake peers 30 times until someone types in one of its sessions. Past either, mail is stored without waking anyone, and the send result says why. A stored-without-wake message makes nobody take a turn, so a runaway loop stops at the first one. A Claude app session spends neither budget but may wake peers at most 10 times in 10 minutes. The numbers are server settings. A machine key cannot act as its machine's Claude app session.
@@ -68,7 +68,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Unread mail kept | 7 days |
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
-| Session calls (`peek`, `end`) per machine | 1,200 per minute |
+| Session calls per machine | `peek` 7,680 per minute (256 windows polling every 2 seconds), `end` 600 per minute |
 | Wrong keys per client address (IPv6: per /64) | 20 within a minute, then 429 for wrong keys until they age out |
 | Ended sessions kept | 30 days, then deleted up to 1,000 per cleanup pass |
 | Audit log | 90 days and at most 500,000 rows, the oldest deleted up to 1,000 per cleanup pass |

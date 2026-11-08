@@ -165,7 +165,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
             now = deps.clock()
-            deps.session_route_limiter.check(machine.id, now)
+            deps.peek_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
             return dict(mail.peek(conn, s, now).to_dict())
 
@@ -177,7 +177,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
             now = deps.clock()
-            deps.session_route_limiter.check(machine.id, now)
+            deps.end_limiter.check(machine.id, now)
             actor = f"machine:{machine.name}"
             s = load_session(conn, _session_id(request))
             if s is None or not sessions.usable_by(s, machine):

@@ -162,14 +162,14 @@ def test_at_most_two_images_decode_at_once(monkeypatch: pytest.MonkeyPatch) -> N
     running = [0, 0]  # now, most seen
     real = images.ImageOps.exif_transpose
 
-    def slow(img: Image.Image) -> Image.Image:
+    def slow(img: Image.Image, **kw: bool) -> Image.Image | None:
         with lock:
             running[0] += 1
             running[1] = max(running[1], running[0])
         time.sleep(0.05)
         with lock:
             running[0] -= 1
-        return real(img)
+        return real(img, **kw)  # type: ignore[call-overload,no-any-return]
 
     monkeypatch.setattr(images.ImageOps, "exif_transpose", slow)
     data = _png(32, 32)
@@ -179,3 +179,28 @@ def test_at_most_two_images_decode_at_once(monkeypatch: pytest.MonkeyPatch) -> N
     for t in threads:
         t.join()
     assert running[1] == 2
+
+
+def test_full_size_pixels_are_freed_before_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gc
+
+    from PIL._util import DeferredError
+
+    from kampung_server import images
+
+    real = images._encode
+    alive: list[tuple[int, int]] = []
+
+    def spy(img: Image.Image, fmt: str) -> bytes:
+        for obj in gc.get_objects():
+            if isinstance(obj, Image.Image) and max(obj.size) > 1568:
+                pixels = obj.__dict__.get("_im")
+                if pixels is not None and not isinstance(pixels, DeferredError):
+                    alive.append(obj.size)
+        return real(img, fmt)
+
+    monkeypatch.setattr(images, "_encode", spy)
+    normalize_image(_png(2800, 2000))
+    assert alive == []

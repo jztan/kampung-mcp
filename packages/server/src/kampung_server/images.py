@@ -63,9 +63,11 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             opened.seek(0)
             opened.load()
-            img: Image.Image = ImageOps.exif_transpose(opened)
-            # Shrunk while the slot is held: the full-size copies end here.
-            img.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
+            # In place, so there is one full-size copy, not two, and the
+            # shrink below frees it while the slot is still held.
+            ImageOps.exif_transpose(opened, in_place=True)
+            opened.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
+            img: Image.Image = opened
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as e:
         raise KampungError("attachment_too_large", "The image is too large.") from e
     except (OSError, ValueError, SyntaxError) as e:
