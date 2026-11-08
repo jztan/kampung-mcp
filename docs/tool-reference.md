@@ -11,7 +11,7 @@ Kampung gives an agent four MCP tools: `list_peers`, `send`, `inbox` and `read_a
 
 Machine and repo names are 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit.
 
-A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind.
+A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind. A folder keeps the name it first registered with (recorded in `~/.cache/kampung/mailboxes.json`), so a client upgrade never renames its mailbox; delete that file to start over.
 
 A machine can message itself without pairing. Any other machine must be paired with it first (`kampung pair`).
 
@@ -112,7 +112,7 @@ Typing in a session refills both for its mailbox, and so does the dashboard's Re
 | `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
 | `pair_budget` | The pair used its quick wakes; one comes back every 10 minutes |
 
-A message to a mailbox where nobody has worked in the last 30 minutes wakes whoever opens it next, spends nothing, and the result has `"note": "no_session"`. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning.
+A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 

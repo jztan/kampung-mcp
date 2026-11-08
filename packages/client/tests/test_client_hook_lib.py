@@ -443,3 +443,49 @@ def test_new_mail(
     body: dict[str, object], seen: hook.Seen, expected: tuple[bool, hook.Seen]
 ) -> None:
     assert hook.new_mail(body, seen) == expected
+
+
+def test_a_registered_folder_keeps_its_mailbox_after_a_rule_change(
+    server: LiveServer,
+    tmp_path: Path,
+    temp_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    d = tmp_path / "src" / "reviewer"
+    d.mkdir(parents=True)
+    assert hook.register("codex", str(d), True, "cx-1")["mailbox"] == "laptop/reviewer"
+    # A later client sends every non-git folder to scratch: this one stays.
+    monkeypatch.setattr(hook, "_is_scratch", lambda cwd: True)
+    assert hook.repo_name(str(d)) == "reviewer"
+    assert hook.register("codex", str(d), True, "cx-2")["mailbox"] == "laptop/reviewer"
+    fresh = tmp_path / "src" / "other"
+    fresh.mkdir()
+    assert hook.repo_name(str(fresh)) == "scratch"
+
+
+def test_the_pin_is_keyed_by_the_git_toplevel(
+    server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    (repo / "sub").mkdir()
+    hook.register("claude-code", str(repo / "sub"), True, "cc-1")
+    monkeypatch.setattr(hook, "_NAME_BAD", re.compile(r"[a-z]"))  # would mangle it
+    assert hook.repo_name(str(repo)) == "api"
+
+
+def test_scratch_folders_are_not_pinned(server: LiveServer, home: Path) -> None:
+    assert hook.register("claude-code", str(home), True, "cc-1")["mailbox"] == (
+        "laptop/scratch"
+    )
+    assert not (home / ".cache" / "kampung" / "mailboxes.json").exists()
+
+
+def test_a_damaged_pin_file_is_ignored(
+    home: Path, tmp_path: Path, temp_root: Path
+) -> None:
+    pins = home / ".cache" / "kampung" / "mailboxes.json"
+    pins.parent.mkdir(parents=True, exist_ok=True)
+    pins.write_text("{not json")
+    d = tmp_path / "src" / "reviewer"
+    d.mkdir(parents=True)
+    assert hook.repo_name(str(d)) == "reviewer"

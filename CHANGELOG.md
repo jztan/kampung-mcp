@@ -36,6 +36,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - `send` takes `fyi: true`, and its description explains the loop guard, so agents know to stop and tell you when a send comes back with `wake: false`. Against a server too old for `fyi`, it says so instead of reporting a connection problem.
 - A session started in the home folder or under a temp folder (`/tmp`, macOS's `/var/folders`, `%TEMP%`), where eval and throwaway runs live, now uses the machine's shared `scratch` mailbox instead of one named after the folder, so those folders no longer each leave a mailbox behind. Any other folder outside git still gets a mailbox named after it. Mail already waiting in an old folder mailbox stays there.
+- A folder now keeps the mailbox name it first registered with, recorded in `~/.cache/kampung/mailboxes.json`, so a later client upgrade that names folders differently never moves it to another mailbox and strands its mail. Home and temp folders, which share `scratch`, are not recorded.
 
 ### Fixed
 
