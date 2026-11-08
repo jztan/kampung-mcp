@@ -382,3 +382,28 @@ def test_reply_to_an_idle_connector_still_cannot_wake(
     end(conn, phone.id, clock.now())
     r = send(conn, a, "laptop/claude", "and later", None, clock.now())
     assert r.reason == "cannot_wake"
+
+
+def test_connector_sends_that_woke_nobody_do_not_count(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    phone = _phone(make_session)
+    idle = make_session("desktop", "scratch")
+    end(conn, idle.id, clock.now())
+    make_session("desktop", "blog")
+    for _ in range(10):
+        r = send(conn, phone, "desktop/scratch", "x", None, clock.now())
+        assert r.note == "no_session"
+    assert send(conn, phone, "desktop/blog", "x", None, clock.now()).wake
+
+
+def test_connector_refill_audits_the_mailbox_address(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    phone = _phone(make_session)
+    make_session("desktop", "blog")
+    send(conn, phone, "desktop/blog", "go on", None, clock.now())
+    detail = conn.execute(
+        "SELECT detail FROM audit WHERE action = 'refill'"
+    ).fetchone()[0]
+    assert '"mailbox": "desktop/blog"' in detail

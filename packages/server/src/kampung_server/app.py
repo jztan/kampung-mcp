@@ -9,7 +9,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import __version__, admin_web
+from . import __version__, admin_web, db, guard
 from .auth import MachineKeyVerifier
 from .bodylimit import BodyLimit
 from .deps import ServerDeps
@@ -54,9 +54,21 @@ def create_app(deps: ServerDeps) -> Starlette:
     return app
 
 
+def cap_pair_debt(deps: ServerDeps) -> None:
+    """Fit stored pair debt to this start's settings: a shorter refill interval
+    takes effect at once instead of after the old, longer one."""
+    conn = deps.connect()
+    try:
+        with db.transaction(conn):
+            guard.cap_pairs(conn, deps.clock(), deps.guard)
+    finally:
+        conn.close()
+
+
 def serve(
     deps: ServerDeps, host: str, port: int, forwarded_allow_ips: str = "127.0.0.1"
 ) -> None:
+    cap_pair_debt(deps)
     start_sweeper(
         deps.db_path, deps.clock, SWEEP_EVERY.total_seconds(), threading.Event()
     )
