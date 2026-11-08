@@ -275,6 +275,31 @@ async def test_full_flow_then_tools(server: Server) -> None:
         assert r.data["messages"][0]["from"].startswith("desktop/blog#")
 
 
+async def test_connector_image_is_refused_and_nothing_stored(server: Server) -> None:
+    # Review Focus 4, end to end: the Claude app may attach text only.
+    tokens = connect(server)
+    register(server, "desktop", "blog")
+    image = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 64).decode()
+    async with client_for(server, tokens["access_token"]) as phone:
+        r = await phone.call_tool(
+            "send",
+            {
+                "to": "desktop/blog",
+                "body": "look",
+                "attachment": {"name": "s.png", "image": image, "type": "image/png"},
+            },
+        )
+    assert r.data["error"] == "invalid_attachment"
+    conn = db.connect(server.deps.db_path)
+    try:
+        counts = conn.execute(
+            "SELECT (SELECT count(*) FROM messages), (SELECT count(*) FROM attachments)"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert tuple(counts) == (0, 0)
+
+
 def test_refresh_works_and_old_refresh_dies(server: Server) -> None:
     tokens = connect(server)
     r = refresh(server, tokens["refresh_token"])

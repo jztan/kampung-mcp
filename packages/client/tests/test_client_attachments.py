@@ -95,6 +95,38 @@ async def test_file_kept_after_a_rejected_send(
     assert (box / "env.txt").read_text() == f"TOKEN line\n{KEY}\n"
 
 
+@pytest.mark.parametrize(
+    "case, code",
+    [
+        ("unpaired", "not_paired"),
+        ("body", "body_too_large"),
+        ("mailbox", "unknown_mailbox"),
+    ],
+)
+async def test_file_kept_after_each_kind_of_server_rejection(
+    home: Path, server: LiveServer, tmp_path: Path, case: str, code: str
+) -> None:
+    # Review Focus 5 past the secret check: unpaired, oversized, misaddressed.
+    repo = git_repo(tmp_path, "api")
+    hooked(repo, "cc-1")
+    desktop_blog(server)
+    if case == "unpaired":
+        server.admin.unpair("laptop", "desktop", "admin:cli")
+    box = repo / "kampung-outbox"
+    box.mkdir()
+    (box / "notes.md").write_text("# Notes\nplain text\n")
+    args = {
+        "to": "desktop/nowhere" if case == "mailbox" else "desktop/blog",
+        "body": "x" * 9000 if case == "body" else "notes",
+        "attachment": "notes.md",
+    }
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        r = await c.call_tool("send", args)
+    assert r.data["error"] == code
+    assert (box / "notes.md").read_text() == "# Notes\nplain text\n"
+    assert db_query(server, "SELECT count(*) FROM attachments") == [(0,)]
+
+
 async def test_missing_file_names_the_full_outbox_path_and_creates_it(
     home: Path, server: LiveServer, tmp_path: Path
 ) -> None:

@@ -537,3 +537,65 @@ def test_headings_are_capped(
     assert isinstance(headings, list) and len(headings) == 200
     assert meta["headings_truncated"] is True
     assert len(_json.dumps(meta, ensure_ascii=False)) <= 45000
+
+
+# Follow-ups from the attachments review
+
+
+def test_long_key_split_far_from_the_seam_edge_is_caught(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    # A JWT's parts run to thousands of characters, past any fixed window
+    # around the seam: here the token starts 700 characters before it.
+    a, _ = make_session("laptop"), make_session("desktop", "blog")
+    body = "token: eyJ" + "a" * 700 + ".eyJ" + "b" * 10
+    rest = "b" * 10 + "." + "c" * 20 + "\n"
+    assert attachments_scan_clean(body) and attachments_scan_clean(rest)
+    e = _err(
+        send,
+        conn,
+        a,
+        "desktop/blog",
+        body,
+        None,
+        clock.now(),
+        attachment=_text("rest.txt", rest),
+    )
+    assert e.code == "secret_detected"
+
+
+def attachments_scan_clean(text: str) -> bool:
+    from kampung_server.secret_scan import scan
+
+    return scan(text) is None
+
+
+def test_image_is_not_decoded_before_the_pairing_check(
+    conn: sqlite3.Connection,
+    admin: object,
+    make_session: MakeSession,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    a, _ = make_session("laptop"), make_session("desktop", "blog")
+    admin.unpair("laptop", "desktop", "admin:cli")  # type: ignore[attr-defined]
+
+    def never(data: bytes) -> tuple[bytes, str]:
+        raise AssertionError("decoded before the pairing check")
+
+    monkeypatch.setattr(attachments.images, "normalize_image", never)
+    att = parse_attachment(
+        {"name": "shot.png", "image": _png_b64(), "type": "image/png"},
+        connector=False,
+    )
+    e = _err(send, conn, a, "desktop/blog", "look", None, clock.now(), attachment=att)
+    assert e.code == "not_paired"
+
+
+def test_unsupported_image_errors_are_fresh_objects() -> None:
+    from kampung_server.images import normalize_image
+
+    first = _err(normalize_image, b"not an image")
+    second = _err(normalize_image, b"still not")
+    assert first.code == second.code == "unsupported_attachment_type"
+    assert first is not second

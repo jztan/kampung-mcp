@@ -94,6 +94,7 @@ class MessageRow:
     size: int
     # Never the content: the dashboard shows that an attachment exists.
     attachment_bytes: int | None = None
+    attachment_name: str | None = None
 
 
 @dataclass
@@ -287,7 +288,7 @@ def messages(
     where = " AND ".join(conds)
     rows = conn.execute(
         f"SELECT msg.id, msg.sent_at, msg.depth, LENGTH(CAST(msg.body AS BLOB)) "
-        f"AS size, att.bytes AS att_bytes, "
+        f"AS size, att.bytes AS att_bytes, att.name AS att_name, "
         f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
         f"{_MSG_STATE} AS state {_MSG_FROM} WHERE {where} "
         f"ORDER BY msg.sent_at DESC, msg.id DESC LIMIT {LIMIT}",
@@ -304,6 +305,7 @@ def messages(
                 r["state"],
                 r["size"],
                 r["att_bytes"],
+                r["att_name"],
             )
             for r in rows
         ],

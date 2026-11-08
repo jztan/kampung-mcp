@@ -43,6 +43,18 @@ class Attachment:
     name: str
     type: str
     data: bytes
+    # An image as sent, not yet decoded: mail.send re-encodes it only after
+    # the routing checks, so an unpaired sender cannot make the server
+    # decode images.
+    raw_image: bool = False
+
+
+def finish(attachment: Attachment) -> Attachment:
+    """The attachment as stored: images re-encoded, text unchanged."""
+    if not attachment.raw_image:
+        return attachment
+    encoded, kind = images.normalize_image(attachment.data)
+    return Attachment(attachment.name, kind, encoded)
 
 
 def valid_name(name: str) -> bool:
@@ -57,7 +69,8 @@ def _invalid(hint: str) -> KampungError:
 
 
 def parse_attachment(raw: object, connector: bool) -> Attachment:
-    """An attachment from the send tool's argument, checked and normalised."""
+    """An attachment from the send tool's argument, checked. An image is
+    re-encoded later, by finish()."""
     if not isinstance(raw, dict):
         raise _invalid('Pass {"name", "text"} or {"name", "image", "type"}.')
     keys = set(raw)
@@ -88,8 +101,7 @@ def parse_attachment(raw: object, connector: bool) -> Attachment:
             decoded = base64.b64decode(raw["image"], validate=True)
         except (binascii.Error, ValueError) as e:
             raise _invalid("The image is not valid base64.") from e
-        encoded, kind = images.normalize_image(decoded)
-        return Attachment(name, kind, encoded)
+        return Attachment(name, raw["type"], decoded, raw_image=True)
     raise _invalid('Pass {"name", "text"} or {"name", "image", "type"}.')
 
 

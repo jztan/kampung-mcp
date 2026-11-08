@@ -162,6 +162,8 @@ def send(
     ):
         raise KampungError("unknown_message", "reply_to names no known message.")
 
+    if attachment is not None:
+        attachment = attachments.finish(attachment)
     depth = effective_depth(sender, now) + 1
     wake = depth <= WAKE_DEPTH_LIMIT
     reason = None
@@ -222,9 +224,10 @@ def _scan(body: str, attachment: Attachment | None) -> None:
     if attachment is not None and attachment.type == attachments.TEXT:
         attached = attachment.data.decode("utf-8")
         text = body + "\n" + attached
-        # Joined with no separator too, around the seam, so a key cut in two
-        # between the body and the attachment does not slip through.
-        seam = body[-512:] + attached[:512]
+        # Joined with no separator too, whole, so a secret cut in two
+        # between the body and the attachment does not slip through, however
+        # far from the seam it starts.
+        seam = body + attached
     found = scan(text)
     if found is None and seam and scan(seam) is not None:
         raise KampungError(
