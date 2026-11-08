@@ -298,3 +298,23 @@ def test_racing_connector_sends_for_the_last_wake(
     for _ in range(9):
         send(conn, phone, "desktop/blog", "x", None, clock.now())
     assert _race(db_path, phone, "desktop/blog", clock.now()) == [False, True]
+
+
+async def test_send_description_states_the_live_settings(
+    conn: sqlite3.Connection, db_path: Path, clock: FakeClock
+) -> None:
+    from fastmcp import Client
+
+    from kampung_server.app import build_server
+    from kampung_server.deps import ServerDeps
+    from kampung_server.ratelimit import RateLimiter
+    from kampung_server.tools import SERVER_INSTRUCTIONS
+
+    g = GuardSettings(pair_size=5, mailbox_budget=40)
+    deps = ServerDeps(db_path, clock.now, RateLimiter(), guard=g)
+    async with Client(build_server(deps)) as c:
+        tools = {t.name: t for t in await c.list_tools()}
+    text = tools["send"].description or ""
+    assert "5 times in a row" in text and "every 10 minutes" in text
+    assert "40" in text and "fyi" in text and "hint" in text
+    assert "wake false" in SERVER_INSTRUCTIONS and "hint" in SERVER_INSTRUCTIONS
