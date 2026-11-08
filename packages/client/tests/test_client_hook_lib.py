@@ -489,3 +489,23 @@ def test_a_damaged_pin_file_is_ignored(
     d = tmp_path / "src" / "reviewer"
     d.mkdir(parents=True)
     assert hook.repo_name(str(d)) == "reviewer"
+
+
+def test_register_asks_git_once(
+    server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Hooks have 2 seconds; git is slow to start on Windows, so naming and
+    # pinning the mailbox share one look at the worktree.
+    repo = git_repo(tmp_path, "api")
+    real = hook.subprocess.run
+    seen: list[list[str]] = []
+
+    def counting(cmd: list[str], *a: Any, **kw: Any) -> Any:
+        seen.append(cmd)
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(hook.subprocess, "run", counting)
+    assert hook.register("claude-code", str(repo), True, "cc-1")["mailbox"] == (
+        "laptop/api"
+    )
+    assert sum("rev-parse" in cmd for cmd in seen) == 1
