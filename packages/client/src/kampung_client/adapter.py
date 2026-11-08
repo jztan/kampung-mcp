@@ -736,7 +736,9 @@ def _add_launch_binding(
                     codex_launch.launch_thread_once, resolver.cwd, not_before
                 )
                 if found is not None:
-                    if await asyncio.to_thread(resolver.bind_at_launch, found):
+                    if await asyncio.to_thread(
+                        codex_launch.adopt, found, resolver.bind_at_launch
+                    ):
                         waker.start()
                     return
                 await asyncio.sleep(codex_launch.LAUNCH_DELAY)

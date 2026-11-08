@@ -17,10 +17,16 @@ import os
 import socket
 import struct
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from . import hook
+
+try:
+    import fcntl
+except ImportError:  # Windows: no launch binding there
+    fcntl = None  # type: ignore[assignment]
 
 TRY_BUDGET = 3.0  # seconds one look at the socket may take, start to finish
 # The window's thread appears only once the folder-trust prompt is answered,
@@ -151,7 +157,18 @@ class _Conn:
         self._send({"jsonrpc": "2.0", "method": method})
 
     def close(self) -> None:
-        self.sock.close()
+        """End with a WebSocket close frame (1000, normal), so the daemon
+        does not log a reset for every look."""
+        try:
+            self.sock.settimeout(0.5)
+            mask = os.urandom(4)
+            payload = struct.pack(">H", 1000)
+            masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+            self.sock.sendall(bytes([0x88, 0x80 | len(payload)]) + mask + masked)
+        except OSError:
+            pass
+        finally:
+            self.sock.close()
 
 
 def _open(path: Path, deadline: float) -> _Conn:
@@ -211,56 +228,114 @@ def _same_folder(a: object, b: str) -> bool:
     return isinstance(a, str) and hook._norm(a) == hook._norm(b)
 
 
+def thread_created_at(tid: str) -> float | None:
+    """When a thread was made, in seconds, from its id: Codex thread ids are
+    UUIDv7, whose first 48 bits are milliseconds since 1970. The daemon's own
+    createdAt moves after a thread starts, so it cannot tell new from old.
+    None for an id that is not UUIDv7."""
+    digits = tid.replace("-", "")
+    if len(digits) != 32 or digits[12] != "7":
+        return None
+    try:
+        return int(digits[:12], 16) / 1000
+    except ValueError:
+        return None
+
+
+def _created(t: dict[str, Any]) -> float | None:
+    from_id = thread_created_at(str(t.get("id")))
+    if from_id is not None:
+        return from_id
+    created = t.get("createdAt")
+    return float(created) if isinstance(created, (int, float)) else None
+
+
 def _fresh(t: dict[str, Any], cwd: str, not_before: float) -> bool:
     """A thread nobody has prompted yet, opened in this folder since this
     adapter started. `turns` cannot tell: Codex fills it only on request, so
     an empty preview (the first prompt's text) stands for "no prompt yet"."""
     source = t.get("source")
+    created = _created(t)
     return (
-        _same_folder(t.get("cwd"), cwd)
+        isinstance(t.get("id"), str)
+        and _same_folder(t.get("cwd"), cwd)
         and not t.get("preview")
         and not t.get("ephemeral")
         and not t.get("parentThreadId")
         and not (isinstance(source, dict) and "subAgent" in source)
-        and isinstance(t.get("createdAt"), (int, float))
-        and t["createdAt"] >= not_before
+        and created is not None
+        and created >= not_before
     )
 
 
-def pick_launch_thread(
-    threads: list[dict[str, Any]], cwd: str, claimed: set[str], not_before: float
-) -> str | None:
-    """This window's thread: fresh (see _fresh), not bound by any other
-    window or hook; the newest, if several. Two windows opened in one folder
-    within seconds can still pick the same one (accepted: the other binds on
-    its first prompt, and no mail is lost)."""
-    fresh = [
-        t
-        for t in threads
-        if isinstance(t.get("id"), str)
-        and t["id"] not in claimed
-        and _fresh(t, cwd, not_before)
-    ]
-    if not fresh:
-        return None
-    return str(max(fresh, key=lambda t: t["createdAt"])["id"])
+def launch_candidates(
+    threads: list[dict[str, Any]], cwd: str, not_before: float
+) -> list[str]:
+    """This window's possible threads, newest first (see _fresh). Which one
+    is ours is settled by claim_thread: a hook's session file for a thread is
+    not a claim, it is the same window registering early."""
+    fresh = [t for t in threads if _fresh(t, cwd, not_before)]
+    fresh.sort(key=lambda t: _created(t) or 0, reverse=True)
+    return [str(t["id"]) for t in fresh]
 
 
-def claimed_ids() -> set[str]:
-    """Agent session ids that already have a session file: bound elsewhere."""
+def _claims_dir() -> Path:
+    return hook.cache_dir() / "codex-claims"
+
+
+# Claims this adapter holds: thread id -> the open, locked claim file. The
+# lock lives as long as the descriptor, so it ends with the process.
+_held: dict[str, int] = {}
+
+
+def claim_thread(tid: str) -> bool:
+    """Claim a thread for this adapter, so two adapters never bind one. A
+    claim is an exclusive kernel lock (flock) on a file per thread, held
+    while this process runs: the kernel drops it when the process dies, so
+    no claim goes stale and no pid is guessed at. True when it is ours."""
+    if tid in _held:
+        return True
+    if fcntl is None or tid in (".", "..") or not tid:
+        return False
+    path = _claims_dir() / hook._NAME_BAD.sub("_", tid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        return {p.stem for p in hook.sessions_dir().glob("*.json")}
-    except OSError:
-        return set()
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:  # held by another adapter
+        os.close(fd)
+        return False
+    os.ftruncate(fd, 0)
+    os.write(fd, str(os.getpid()).encode())  # for people reading the folder
+    _held[tid] = fd
+    return True
+
+
+def release_claim(tid: str) -> None:
+    fd = _held.pop(tid, None)
+    if fd is not None:
+        os.close(fd)  # closing drops the lock
+
+
+def adopt(tid: str, bind: Callable[[str], bool]) -> bool:
+    """Bind a claimed thread with `bind`; if it declines (a tool call bound
+    first), give the claim back, so the thread's own window can take it."""
+    if bind(tid):
+        return True
+    release_claim(tid)
+    return False
 
 
 def launch_thread_once(cwd: str, not_before: float) -> str | None:
-    """One look at the socket: this window's thread id, or None. Never raises
-    for a socket problem, and ends within TRY_BUDGET seconds."""
+    """One look at the socket: this window's thread id, claimed, or None.
+    Never raises for a socket or file problem, and ends within TRY_BUDGET."""
     path = control_socket()
     if not path.exists():
         return None
     try:
-        return pick_launch_thread(loaded_threads(path), cwd, claimed_ids(), not_before)
+        for tid in launch_candidates(loaded_threads(path), cwd, not_before):
+            if claim_thread(tid):
+                return tid
     except (ControlError, OSError):
         return None
+    return None
