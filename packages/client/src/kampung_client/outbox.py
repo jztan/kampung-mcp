@@ -217,14 +217,20 @@ def ensure_excluded(outbox: Path) -> None:
     rel = _git(top, "rev-parse", "--git-path", "info/exclude")
     if rel is None:
         return
-    exclude = (top / rel).resolve()
+    path = top / rel
+    # Resolve the folder only: a symlinked exclude file could point anywhere,
+    # so it is left alone and the outbox may just show up in git status.
+    exclude = path.parent.resolve() / path.name
     try:
+        if exclude.is_symlink():
+            return
         text = exclude.read_text() if exclude.exists() else ""
         if EXCLUDE_LINE in text.splitlines():
             return
         exclude.parent.mkdir(parents=True, exist_ok=True)
         prefix = "" if text == "" or text.endswith("\n") else "\n"
-        with exclude.open("a") as out:
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        with os.fdopen(os.open(exclude, flags, 0o644), "a") as out:
             out.write(f"{prefix}{EXCLUDE_LINE}\n")
     except OSError:
         pass  # the outbox still works; git may just list it

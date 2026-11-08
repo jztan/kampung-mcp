@@ -15,7 +15,11 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from .errors import KampungError
 from .limits import IMAGE_LONG_EDGE, IMAGE_MAX_PIXELS, MAX_ATTACHMENT_IMAGE_BYTES
 
-UNSUPPORTED = KampungError("unsupported_attachment_type", "Images must be PNG or JPEG.")
+
+def _unsupported() -> KampungError:
+    # A fresh error each time: a shared instance would carry one request's
+    # traceback and cause into another, across threads.
+    return KampungError("unsupported_attachment_type", "Images must be PNG or JPEG.")
 
 
 def _encode(img: Image.Image, fmt: str) -> bytes:
@@ -35,7 +39,7 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
         # Pillow refuses a huge header itself, before our own pixel check.
         raise KampungError("attachment_too_large", "The image is too large.") from e
     except (UnidentifiedImageError, OSError, ValueError) as e:
-        raise UNSUPPORTED from e
+        raise _unsupported() from e
     width, height = opened.size
     if width * height > IMAGE_MAX_PIXELS:
         raise KampungError(
@@ -53,7 +57,7 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as e:
         raise KampungError("attachment_too_large", "The image is too large.") from e
     except (OSError, ValueError, SyntaxError) as e:
-        raise UNSUPPORTED from e
+        raise _unsupported() from e
     img.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
     # A fresh image carries pixels only: no info, EXIF or ICC profile.
     mode = "RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB"

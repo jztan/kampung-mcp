@@ -18,7 +18,11 @@ IMAGE_LONG_EDGE = 1568  # the server applies the same rules
 IMAGE_MAX_PIXELS = 25_000_000
 MAX_ATTACHMENT_IMAGE_BYTES = 512 * 1024
 
-UNSUPPORTED = OutboxError("unsupported_attachment_type", "Images must be PNG or JPEG.")
+
+def _unsupported() -> OutboxError:
+    # A fresh error each time: a shared instance would carry one call's
+    # traceback and cause into another, across threads.
+    return OutboxError("unsupported_attachment_type", "Images must be PNG or JPEG.")
 
 
 def _encode(img: Image.Image, fmt: str) -> bytes:
@@ -38,7 +42,7 @@ def shrink(data: bytes) -> tuple[bytes, str]:
         # Pillow refuses a huge header itself, before our own pixel check.
         raise OutboxError("attachment_too_large", "The image is too large.") from e
     except (UnidentifiedImageError, OSError, ValueError) as e:
-        raise UNSUPPORTED from e
+        raise _unsupported() from e
     width, height = opened.size
     if width * height > IMAGE_MAX_PIXELS:
         raise OutboxError(
@@ -56,7 +60,7 @@ def shrink(data: bytes) -> tuple[bytes, str]:
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as e:
         raise OutboxError("attachment_too_large", "The image is too large.") from e
     except (OSError, ValueError, SyntaxError) as e:
-        raise UNSUPPORTED from e
+        raise _unsupported() from e
     img.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
     # A fresh image carries pixels only: no info, EXIF or ICC profile.
     mode = "RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB"

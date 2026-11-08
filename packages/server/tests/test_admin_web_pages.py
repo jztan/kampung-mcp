@@ -242,7 +242,9 @@ def test_messages_page_shows_attachment_metadata_only(
     sent = mail.send(conn, a, "desktop/api", "see notes", None, clock.now(), att)
     login(web)
     page = web.get("/admin/messages").text
-    assert "+ 23 B attached" in page
+    listed = page.split("<tbody>", 1)[1]
+    assert "notes_v2.md" in listed and "23 B" in listed
+    assert "attachment-content-here" not in page
     detail = web.get(f"/admin/messages/{sent.id}").text
     assert "notes_v2.md" in detail and "23 B" in detail and "text" in detail
     assert "attachment-content-here" not in detail

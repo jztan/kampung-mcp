@@ -88,6 +88,8 @@ a { color: var(--accent); }
 .panel-head h2 { font-size: 14px; margin: 0; font-weight: 650; }
 .panel-head .sub { color: var(--muted); font-size: 12.5px; }
 td .sub { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Attachment names run to 100 characters: wrap them, never widen the table. */
+td .sub .att-name { display: inline-block; max-width: 24ch; white-space: normal; overflow-wrap: break-word; vertical-align: top; }
 .scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 8px 14px; background: var(--sunken); border-bottom: 1px solid var(--line); white-space: nowrap; }

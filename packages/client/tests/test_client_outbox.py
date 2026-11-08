@@ -253,3 +253,29 @@ def test_git_runs_with_fsmonitor_off(
     outbox_dir(str(repo))
     ensure_excluded(repo / "kampung-outbox")
     assert calls and all("core.fsmonitor=" in c for c in calls)
+
+
+def test_exclude_never_writes_through_a_symlinked_exclude_file(
+    tmp_path: Path,
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep\n")
+    exclude = repo / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    exclude.unlink(missing_ok=True)
+    exclude.symlink_to(outside)
+    ensure_excluded(repo / "kampung-outbox")
+    assert outside.read_text() == "keep\n"
+
+
+def test_unsupported_image_errors_are_fresh_objects() -> None:
+    from kampung_client.images import shrink
+
+    errors = []
+    for data in (b"not an image", b"still not"):
+        with pytest.raises(OutboxError) as e:
+            shrink(data)
+        errors.append(e.value)
+    assert errors[0].code == errors[1].code == "unsupported_attachment_type"
+    assert errors[0] is not errors[1]
