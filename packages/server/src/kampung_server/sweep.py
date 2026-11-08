@@ -13,7 +13,14 @@ from pathlib import Path
 
 from . import db, guard, oauth_store
 from .clock import ts
-from .limits import ENDED_SESSION_RETENTION, SESSION_DELETE_BATCH, TARGET_FALLBACK
+from .limits import (
+    AUDIT_DELETE_BATCH,
+    AUDIT_MAX_ROWS,
+    AUDIT_RETENTION,
+    ENDED_SESSION_RETENTION,
+    SESSION_DELETE_BATCH,
+    TARGET_FALLBACK,
+)
 
 
 def sweep(conn: sqlite3.Connection, now: datetime) -> None:
@@ -45,10 +52,27 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
         (ts(now - ENDED_SESSION_RETENTION), SESSION_DELETE_BATCH),
     )
     oauth_store.sweep_oauth(conn, now)
+    _prune_audit(conn, now)
     guard.sweep_pairs(conn, now)
     # Hand the pages of deleted mail and attachments back to the file system.
     # The pragma frees one page per row it returns, so read them all.
     conn.execute("PRAGMA incremental_vacuum").fetchall()
+
+
+def _prune_audit(conn: sqlite3.Connection, now: datetime) -> None:
+    """Drop audit rows past AUDIT_RETENTION, and the oldest past AUDIT_MAX_ROWS,
+    a batch at a time. Ids rise with time, so both are ranges of the primary
+    key: each pass touches at most a batch of rows, never the whole table."""
+    oldest = "(SELECT min(id) FROM audit)"
+    conn.execute(
+        f"DELETE FROM audit WHERE id < {oldest} + ? "
+        "AND id <= (SELECT max(id) FROM audit) - ?",
+        (AUDIT_DELETE_BATCH, AUDIT_MAX_ROWS),
+    )
+    conn.execute(
+        f"DELETE FROM audit WHERE id < {oldest} + ? AND at < ?",
+        (AUDIT_DELETE_BATCH, ts(now - AUDIT_RETENTION)),
+    )
 
 
 def start_sweeper(

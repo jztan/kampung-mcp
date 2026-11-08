@@ -20,3 +20,7 @@ ALTER TABLE messages ADD COLUMN wake_reason TEXT;
 ALTER TABLE messages ADD COLUMN spent INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN fyi INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN budget_left INTEGER;
+-- The client address a pending sign-in came from, so one address keeps only
+-- its newest few and cannot fill the cap for everyone.
+ALTER TABLE oauth_requests ADD COLUMN client TEXT NOT NULL DEFAULT '';
+CREATE INDEX oauth_requests_client ON oauth_requests (client);

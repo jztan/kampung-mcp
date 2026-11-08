@@ -116,7 +116,7 @@ def test_register_is_audited(
     ]
 
 
-def test_resolve_other_machine_is_not_owner(
+def test_resolve_other_machine_looks_missing(
     conn: sqlite3.Connection,
     machines: Machines,
     make_session: MakeSession,
@@ -125,9 +125,9 @@ def test_resolve_other_machine_is_not_owner(
     s = make_session("desktop", "blog")
     with pytest.raises(KampungError) as e:
         resolve(conn, machines["laptop"][0], s.id, clock.now())
-    assert e.value.code == "not_owner"
+    assert e.value.code == "unknown_session"
     denied = conn.execute("SELECT count(*) FROM audit WHERE action = 'denied'")
-    assert denied.fetchone()[0] == 1
+    assert denied.fetchone()[0] == 0
 
 
 def test_resolve_unknown_and_ended(
@@ -337,4 +337,4 @@ def test_connector_session_takes_back_an_id_claimed_before_the_fix(
     assert connector.id != squatter.id and connector.agent == "claude-app"
     with pytest.raises(KampungError) as e:
         sessions.resolve(conn, laptop, connector.id, clock.now())
-    assert e.value.code == "not_owner"
+    assert e.value.code == "unknown_session"

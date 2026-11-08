@@ -234,3 +234,34 @@ def test_address_lockout_after_twenty_failures(
     form = {"request": asyncio.run(make()), "code": "w"}
     r = client.post("/oauth/connect", data=form)
     assert r.status_code == 401
+
+
+def _authorize(c: TestClient) -> str:
+    params = {
+        "client_id": CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": CLAUDE_CALLBACK,
+        "state": "st",
+        "code_challenge": "a" * 43,
+        "code_challenge_method": "S256",
+        "scope": "kampung",
+    }
+    r = c.get("/authorize", params=params, follow_redirects=False)
+    return str(r.headers["location"])
+
+
+def test_one_address_filling_sign_ins_never_blocks_another(
+    deps: ServerDeps, machines: Machines
+) -> None:
+    from kampung_server.app import create_app
+
+    app = create_app(deps)
+    with TestClient(app, base_url=URL, client=("203.0.113.5", 4000)) as flood:
+        for _ in range(101):
+            assert _authorize(flood).startswith(f"{URL}/oauth/connect?request=")
+    with TestClient(app, base_url=URL, client=("198.51.100.7", 4000)) as owner:
+        assert _authorize(owner).startswith(f"{URL}/oauth/connect?request=")
+    clients = [
+        r[0] for r in deps.connect().execute("SELECT client FROM oauth_requests")
+    ]
+    assert sorted(clients) == ["198.51.100.7"] + ["203.0.113.5"] * 3

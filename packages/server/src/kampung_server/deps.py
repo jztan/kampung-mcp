@@ -10,7 +10,7 @@ from pathlib import Path
 from . import db
 from .guard import GuardSettings
 from .keyindex import KeyIndex
-from .limits import HUMAN_TURN_RATE, REGISTER_RATE
+from .limits import HUMAN_TURN_RATE, REGISTER_RATE, SESSION_ROUTE_RATE
 from .oauth import TokenIndex
 from .ratelimit import RateLimiter
 
@@ -18,6 +18,12 @@ from .ratelimit import RateLimiter
 def _human_turn_limiter() -> RateLimiter:
     return RateLimiter(
         HUMAN_TURN_RATE, hint="Too many typed-prompt calls; try again in a minute."
+    )
+
+
+def session_route_limiter() -> RateLimiter:
+    return RateLimiter(
+        SESSION_ROUTE_RATE, hint="Too many session calls; try again in a minute."
     )
 
 
@@ -36,6 +42,7 @@ class ServerDeps:
     public_url: str | None = None
     register_limiter: RateLimiter = field(default_factory=_register_limiter)
     human_turn_limiter: RateLimiter = field(default_factory=_human_turn_limiter)
+    session_route_limiter: RateLimiter = field(default_factory=session_route_limiter)
     guard: GuardSettings = field(default_factory=GuardSettings)
     keys: KeyIndex = field(init=False)
     tokens: TokenIndex = field(init=False)

@@ -166,6 +166,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
             now = deps.clock()
+            deps.session_route_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
             return dict(mail.peek(conn, s, now).to_dict())
 
@@ -177,15 +178,11 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
             now = deps.clock()
+            deps.session_route_limiter.check(machine.id, now)
             actor = f"machine:{machine.name}"
             s = load_session(conn, _session_id(request))
-            if s is None:
+            if s is None or not sessions.usable_by(s, machine):
                 raise KampungError("unknown_session", "No such session.")
-            if s.machine_id != machine.id:
-                audit.record(conn, now, actor, "denied", {"session": s.id})
-                raise KampungError(
-                    "not_owner", "That session belongs to another machine."
-                )
             sessions.end(conn, s.id, now)
             audit.record(conn, now, actor, "end_session", {"session": s.id})
             return {}

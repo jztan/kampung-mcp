@@ -105,11 +105,11 @@ async def test_two_machines_exchange(server: Server) -> None:
         assert peers.data["kind"] == PEERS_KIND
 
 
-async def test_session_header_spoof_is_not_owner(server: Server) -> None:
+async def test_session_header_spoof_looks_missing(server: Server) -> None:
     b = register(server, "desktop", "blog")
     async with client_for(server, server.keys["laptop"], b) as c:
         r = await c.call_tool("inbox", {})
-        assert r.data["error"] == "not_owner"
+        assert r.data["error"] == "unknown_session"
 
 
 async def test_missing_session_header(server: Server) -> None:

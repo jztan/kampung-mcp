@@ -259,22 +259,8 @@ def resolve(
     conn: sqlite3.Connection, machine: Machine, session_id: int, now: datetime
 ) -> Session:
     session = load_session(conn, session_id)
-    if session is None:
+    if session is None or not usable_by(session, machine):
         raise KampungError("unknown_session", "No such session; register again.")
-    if session.machine_id != machine.id:
-        audit.record(
-            conn, now, f"machine:{machine.name}", "denied", {"session": session_id}
-        )
-        raise KampungError("not_owner", "That session belongs to another machine.")
-    if session.agent == CONNECTOR_AGENT:
-        # A machine key never acts as its Claude app session; the connector
-        # reaches it through connector_session, not here.
-        audit.record(
-            conn, now, f"machine:{machine.name}", "denied", {"session": session_id}
-        )
-        raise KampungError(
-            "not_owner", "That session belongs to the Claude app connector."
-        )
     if session.ended_at is not None:
         raise KampungError("session_ended", "Re-read your session file or re-register.")
     conn.execute(
@@ -283,6 +269,14 @@ def resolve(
     refreshed = load_session(conn, session_id)
     assert refreshed is not None
     return refreshed
+
+
+def usable_by(session: Session, machine: Machine) -> bool:
+    """Whether a machine key may act as this session. Another machine's
+    session, and the machine's own Claude app session (which the connector
+    reaches through connector_session), look the same as a missing one, so
+    guessed ids reveal nothing and leave no audit row to fill the disk."""
+    return session.machine_id == machine.id and session.agent != CONNECTOR_AGENT
 
 
 def human_turn(conn: sqlite3.Connection, session: Session, now: datetime) -> int:

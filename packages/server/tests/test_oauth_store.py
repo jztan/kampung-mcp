@@ -46,16 +46,30 @@ def test_request_cap_refuses_the_101st(
 ) -> None:
     with db.transaction(conn):
         for i in range(100):
-            assert oauth_store.save_request(conn, f"r{i}", "{}", clock.now())
-        assert not oauth_store.save_request(conn, "r100", "{}", clock.now())
+            assert oauth_store.save_request(
+                conn, f"r{i}", "{}", clock.now(), f"10.0.0.{i}"
+            )
+        assert not oauth_store.save_request(conn, "r100", "{}", clock.now(), "x")
     clock.advance(minutes=11)
     with db.transaction(conn):
-        assert oauth_store.save_request(conn, "r101", "{}", clock.now())
+        assert oauth_store.save_request(conn, "r101", "{}", clock.now(), "x")
+
+
+def test_one_address_keeps_its_three_newest_requests(
+    conn: sqlite3.Connection, clock: FakeClock
+) -> None:
+    with db.transaction(conn):
+        for i in range(150):
+            assert oauth_store.save_request(conn, f"a{i}", "{}", clock.now(), "a")
+            clock.advance(seconds=1)
+        assert oauth_store.save_request(conn, "b0", "{}", clock.now(), "b")
+    live = [r[0] for r in conn.execute("SELECT request_id FROM oauth_requests")]
+    assert sorted(live) == ["a147", "a148", "a149", "b0"]
 
 
 def test_fail_request_burns_at_five(conn: sqlite3.Connection, clock: FakeClock) -> None:
     with db.transaction(conn):
-        oauth_store.save_request(conn, "r", '{"a": 1}', clock.now())
+        oauth_store.save_request(conn, "r", '{"a": 1}', clock.now(), "a")
         for n in range(1, 5):
             assert oauth_store.fail_request(conn, "r") == n
         assert oauth_store.load_request(conn, "r", clock.now()) == '{"a": 1}'
@@ -65,7 +79,7 @@ def test_fail_request_burns_at_five(conn: sqlite3.Connection, clock: FakeClock) 
 
 def test_take_request_is_single_use(conn: sqlite3.Connection, clock: FakeClock) -> None:
     with db.transaction(conn):
-        oauth_store.save_request(conn, "r", "{}", clock.now())
+        oauth_store.save_request(conn, "r", "{}", clock.now(), "a")
         assert oauth_store.take_request(conn, "r", clock.now()) == "{}"
         assert oauth_store.take_request(conn, "r", clock.now()) is None
 
@@ -74,7 +88,7 @@ def test_expired_request_is_not_loaded(
     conn: sqlite3.Connection, clock: FakeClock
 ) -> None:
     with db.transaction(conn):
-        oauth_store.save_request(conn, "r", "{}", clock.now())
+        oauth_store.save_request(conn, "r", "{}", clock.now(), "a")
     clock.advance(minutes=11)
     assert oauth_store.load_request(conn, "r", clock.now()) is None
 
@@ -138,7 +152,7 @@ def test_sweep_oauth_removes_expired_rows(
     now = clock.now()
     with db.transaction(conn):
         oauth_store.new_connect_code(conn, _laptop(machines), now)
-        oauth_store.save_request(conn, "r", "{}", now)
+        oauth_store.save_request(conn, "r", "{}", now, "a")
         g = oauth_store.replace_grant(conn, _laptop(machines), now)
         oauth_store.save_token(conn, g, "access", "kpa_1", "{}", now + db_hour())
         oauth_store.save_token(conn, g, "refresh", "kpr_1", "{}", now + 3 * db_hour())
