@@ -354,7 +354,7 @@ def test_send_without_attachment_is_unchanged(
 ) -> None:
     a, _ = make_session("laptop"), make_session("desktop", "blog")
     sent = send(conn, a, "desktop/blog", "plain", None, clock.now())
-    assert set(sent.to_dict()) == {"id", "depth", "wake"}
+    assert set(sent.to_dict()) == {"id", "wake", "budget"}
     assert conn.execute("SELECT count(*) FROM attachments").fetchone()[0] == 0
 
 

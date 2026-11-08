@@ -78,22 +78,25 @@ def test_revoke_needs_typed_name(
     assert ended is not None and ended.ended_at is not None
 
 
-def test_end_and_reset_depth(
+def test_end_and_refill(
     web: TestClient, conn: sqlite3.Connection, make_session: MakeSession
 ) -> None:
     s = make_session("laptop", "api")
-    conn.execute("UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", (s.id,))
-    conn.commit()
+    conn.execute(
+        "UPDATE mailboxes SET wakes_since_refill = 30 WHERE id = ?", (s.mailbox_id,)
+    )
     csrf = login(web)
-    page = web.post(f"/admin/sessions/{s.id}/reset-depth", data={"csrf": csrf}).text
-    assert f"Reset depth for {s.address}" in page
-    reset = load_session(conn, s.id)
-    assert reset is not None and reset.max_depth_seen == -1
+    page = web.post(f"/admin/sessions/{s.id}/refill", data={"csrf": csrf}).text
+    assert f"Refilled {s.mailbox}" in page
+    used = conn.execute(
+        "SELECT wakes_since_refill FROM mailboxes WHERE id = ?", (s.mailbox_id,)
+    ).fetchone()[0]
+    assert used == 0
     page = web.post(f"/admin/sessions/{s.id}/end", data={"csrf": csrf}).text
     assert f"Ended {s.address}" in page
     ended = load_session(conn, s.id)
     assert ended is not None and ended.ended_at is not None
-    assert audit_rows(conn) == ["reset_depth", "end_session"]
+    assert audit_rows(conn) == ["refill", "end_session"]
 
 
 def test_delete_message_confirm_flow(
@@ -130,7 +133,7 @@ def test_action_without_csrf_is_refused(
         ("/admin/pairs/delete", {"a": "laptop", "b": "desktop"}),
         ("/admin/machines/laptop/revoke", {"confirm": "laptop"}),
         (f"/admin/sessions/{a.id}/end", {}),
-        (f"/admin/sessions/{a.id}/reset-depth", {}),
+        (f"/admin/sessions/{a.id}/refill", {}),
         (f"/admin/messages/{sent.id}/delete", {}),
     ]
     for path, form in posts:
@@ -183,7 +186,7 @@ def test_stale_revoke_and_end_say_so(
     web.post("/admin/machines/laptop/revoke", data=form)
     again = web.post("/admin/machines/laptop/revoke", data=form).text
     assert "already revoked" in again and "Revoked laptop" not in again
-    for action in ("end", "reset-depth"):
+    for action in ("end", "refill"):
         page = web.post(f"/admin/sessions/{s.id}/{action}", data={"csrf": csrf}).text
         assert "already ended" in page, action
     assert audit_rows(conn) == ["revoke"]

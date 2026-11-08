@@ -9,7 +9,7 @@ from kampung_server.clock import ts
 from kampung_server.errors import KampungError
 from kampung_server import mail
 from kampung_server.limits import MAX_WAITING_PER_MAILBOX, MAX_WAITING_PER_SENDER
-from kampung_server.mail import SendResult, effective_depth, inbox, send
+from kampung_server.mail import inbox, send
 from kampung_server.models import Session, load_session
 from kampung_server.sweep import sweep
 
@@ -31,67 +31,6 @@ def _code(conn: sqlite3.Connection, s: Session, to: str, body: str, now: object)
 @pytest.fixture
 def pair(make_session: MakeSession) -> tuple[Session, Session]:
     return make_session("laptop", "api"), make_session("desktop", "blog")
-
-
-def test_send_depth_zero_after_human_turn(
-    conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
-) -> None:
-    r = send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
-    assert isinstance(r, SendResult)
-    assert (r.depth, r.wake) == (0, True)
-    assert r.to_dict() == {"id": r.id, "depth": 0, "wake": True}
-
-
-def test_send_depth_follows_max_seen(
-    conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
-) -> None:
-    s = _set(conn, pair[0], max_depth_seen=2)
-    r = send(conn, s, "desktop/blog", "hi", None, clock.now())
-    assert (r.depth, r.wake) == (3, True)
-
-
-def test_depth_above_limit_is_no_wake(
-    conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
-) -> None:
-    s = _set(conn, pair[0], max_depth_seen=3)
-    r = send(conn, s, "desktop/blog", "hi", None, clock.now())
-    assert (r.depth, r.wake) == (4, False)
-
-
-def test_nohooks_depth_resets_after_30_min(
-    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
-) -> None:
-    make_session("desktop", "blog")
-    s = make_session("laptop", "api", hooks=False, agent="codex")
-    s = _set(
-        conn,
-        s,
-        max_depth_seen=3,
-        last_delivered_at=ts(clock.now() - timedelta(minutes=31)),
-    )
-    assert effective_depth(s, clock.now()) == -1
-    assert send(conn, s, "desktop/blog", "hi", None, clock.now()).depth == 0
-
-
-def test_nohooks_depth_kept_within_30_min(
-    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
-) -> None:
-    make_session("desktop", "blog")
-    s = make_session("laptop", "api", hooks=False, agent="codex")
-    s = _set(
-        conn,
-        s,
-        max_depth_seen=3,
-        last_delivered_at=ts(clock.now() - timedelta(minutes=29)),
-    )
-    assert send(conn, s, "desktop/blog", "hi", None, clock.now()).depth == 4
-
-
-def test_hooks_session_never_time_resets(
-    conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
-) -> None:
-    s = _set(conn, pair[0], max_depth_seen=3, last_delivered_at=None)
-    assert effective_depth(s, clock.now()) == 3
 
 
 def test_body_size_counts_bytes(
@@ -172,7 +111,7 @@ def test_send_to_own_mailbox_allowed(
 ) -> None:
     a = make_session("laptop", "api")
     make_session("laptop", "api")
-    assert send(conn, a, "laptop/api", "hi", None, clock.now()).depth == 0
+    assert send(conn, a, "laptop/api", "hi", None, clock.now()).wake is True
 
 
 def test_audit_never_holds_body(
@@ -285,23 +224,6 @@ def _phone(make_session: MakeSession) -> Session:
     )
 
 
-def test_connector_send_is_always_depth_zero(
-    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
-) -> None:
-    phone = _phone(make_session)
-    peer = make_session("desktop", "blog")
-    assert send(conn, phone, "desktop/blog", "hi", None, clock.now()).depth == 0
-    inbox(conn, peer, 20, clock.now())
-    peer = load_session(conn, peer.id) or peer
-    reply = send(conn, peer, "laptop/claude", "back", None, clock.now())
-    assert reply.depth == 1
-    inbox(conn, phone, 20, clock.now())
-    phone = load_session(conn, phone.id) or phone
-    assert phone.max_depth_seen == 1
-    third = send(conn, phone, "desktop/blog", "again", None, clock.now())
-    assert third.depth == 0 and third.wake is True and third.reason is None
-
-
 def test_eleventh_wake_in_ten_minutes_is_stored_without_wake(
     conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
 ) -> None:
@@ -333,6 +255,8 @@ def test_budget_does_not_apply_to_adapters(
 ) -> None:
     laptop = make_session("laptop", "api")
     make_session("desktop", "blog")
-    for _ in range(11):
-        r = send(conn, laptop, "desktop/blog", "x", None, clock.now())
-        assert r.wake is True and r.reason is None
+    reasons = [
+        send(conn, laptop, "desktop/blog", "x", None, clock.now()).reason
+        for _ in range(11)
+    ]
+    assert "wake_budget" not in reasons

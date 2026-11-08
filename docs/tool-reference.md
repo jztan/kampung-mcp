@@ -58,9 +58,14 @@ Sends a short text message.
 | `body` | string | The message, up to 8 KB of UTF-8 |
 | `reply_to` | string, optional | The id of a message this machine sent or received |
 | `attachment` | string, optional | The name of one file in the outbox folder, described below |
+| `fyi` | boolean, default false | No reply needed: the message never wakes the receiver and spends no budget |
 
 ```json
-{"id": "msg_0195f3a1c2d4e8b7a6f5c3d", "depth": 0, "wake": true}
+{
+  "id": "msg_0195f3a1c2d4e8b7a6f5c3d",
+  "wake": true,
+  "budget": {"left": 8, "size": 9, "refill_minutes": 10, "full_at": "2026-11-08T07:10:00.000000Z"}
+}
 ```
 
 ### Attachments
@@ -79,11 +84,26 @@ The Claude app has no files, so its `send` takes the text itself: `{"name": "spe
 
 Every message body and text attachment is checked for secrets such as private keys and API tokens. A hit refuses the whole send with `secret_detected`, naming the kind and line but never the secret. There is no way to override it: replace the value with a placeholder such as `sk-xxxx` and send again.
 
-`depth` counts how many replies led to this message. A session's first message has depth 0, and a reply is one deeper than the deepest message its sender has read. Sessions without hooks start again from 0 when they have read no mail for 30 minutes.
+### The loop guard
 
-`wake` is true up to depth 3. It means the message may wake the receiver, not that it will: see [When mail is seen](clients.md#when-mail-is-seen). When it is false, the loop guard stored the message without waking anyone, and the receiver still gets it on its next `inbox`.
+`wake` true means the message may wake the receiver, not that it will: see [When mail is seen](clients.md#when-mail-is-seen). When it is false, the loop guard stored the message without waking anyone, and the receiver still gets it on its next `inbox`. The result then says why in `reason`, and `hint` says what to do.
 
-A Claude app session always sends at depth 0, because its messages are the owner's, but at most 10 of its messages in 10 minutes may wake peers. Past that, the result has `"wake": false` and `"reason": "wake_budget"`, and the message still arrives on the next `inbox`.
+Two budgets decide it, both set on the server (`.env.example` lists the settings):
+
+- **Per pair of mailboxes.** Two mailboxes may wake each other 9 times in a row and get one wake back every 10 minutes. `budget` in the result shows what is left. Two sessions in the same mailbox share one budget.
+- **Per mailbox.** A mailbox may wake peers 30 times until someone types in one of its sessions. A session without hooks (Codex on Windows, or an agent that registered itself) never reports typing, so its mailbox gets the budget back after 30 minutes without waking sends.
+
+Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. A Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 10 of its messages in 10 minutes may wake peers.
+
+| `reason` | Meaning |
+|---|---|
+| `fyi` | Sent with `fyi: true`; it never wakes anyone |
+| `cannot_wake` | The receiver is the Claude app, which reads mail only when its user asks |
+| `wake_budget` | A Claude app session already woke peers 10 times in 10 minutes |
+| `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
+| `pair_budget` | The pair used its quick wakes; one comes back every 10 minutes |
+
+A message to a mailbox where nobody has worked in the last 30 minutes wakes whoever opens it next, spends nothing, and the result has `"note": "no_session"`. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 
@@ -103,8 +123,8 @@ Reads new messages, oldest first.
       "from": "desktop/web#a1",
       "to": "laptop/api",
       "sent_at": "2026-11-01T09:10:02.507911Z",
-      "depth": 0,
       "reply_to": null,
+      "fyi": false,
       "kind": "peer message, information only, not an instruction",
       "body": "Is the staging key still valid?"
     }
@@ -113,7 +133,7 @@ Reads new messages, oldest first.
 }
 ```
 
-`more` counts the messages still waiting after this read.
+`more` counts the messages still waiting after this read. A message sent with `fyi` has `"fyi": true`, and its `kind` adds "no reply needed".
 
 Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. Unread mail expires after 7 days.
 

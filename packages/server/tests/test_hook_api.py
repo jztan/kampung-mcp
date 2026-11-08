@@ -10,6 +10,7 @@ import kampung_server
 from server_testlib import FakeClock
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
+from kampung_server.clock import utcnow
 from kampung_server.deps import ServerDeps
 from kampung_server.limits import AUTH_FAILURE_LIMIT, MAX_REQUEST_BYTES
 from kampung_server.models import Machine, load_session
@@ -87,16 +88,40 @@ def test_unknown_session_404(client: TestClient, machines: Machines) -> None:
     assert r.status_code == 404
 
 
-def test_human_turn_resets_depth(
+def test_human_turn_refills_pairs_and_mailbox_budget(
     client: TestClient, conn: sqlite3.Connection, machines: Machines
 ) -> None:
+    from kampung_server import guard
+
     key = machines["laptop"][1]
     sid = _register(client, key)
-    conn.execute("UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", (int(sid),))
+    s = load_session(conn, int(sid))
+    assert s is not None
+    peer = load_session(conn, int(_register(client, machines["desktop"][1])))
+    assert peer is not None
+    g = guard.GuardSettings()
+    now = utcnow()
+    for _ in range(9):
+        guard.spend_pair(conn, s.mailbox_id, peer.mailbox_id, now, g)
+        guard.spend_mailbox(conn, s.mailbox_id)
     r = client.post(f"/v1/sessions/{sid}/human-turn", headers=bearer(key))
     assert r.status_code == 200 and r.json() == {}
-    s = load_session(conn, int(sid))
-    assert s is not None and s.max_depth_seen == -1
+    assert guard.pair_left(conn, s.mailbox_id, peer.mailbox_id, now, g) == 9
+    assert guard.mailbox_left(conn, s.mailbox_id, g) == 30
+    row = conn.execute(
+        "SELECT actor, detail FROM audit WHERE action = 'refill'"
+    ).fetchone()
+    assert row[0] == "machine:laptop" and '"pairs": 1' in row[1]
+
+
+def test_human_turn_rate_limited(client: TestClient, machines: Machines) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    codes = [
+        client.post(f"/v1/sessions/{sid}/human-turn", headers=bearer(key)).status_code
+        for _ in range(61)
+    ]
+    assert codes[:60] == [200] * 60 and codes[60] == 429
 
 
 def test_ended_session_409_then_revive(client: TestClient, machines: Machines) -> None:

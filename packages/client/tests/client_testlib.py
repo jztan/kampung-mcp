@@ -146,8 +146,9 @@ def run_hook(
     )
 
 
-def peer_send(live: LiveServer, to: str, body: str, depth_seen: int = -1) -> None:
-    """Send `body` to `to` from a desktop/blog session, straight through the store."""
+def peer_send(live: LiveServer, to: str, body: str, held: bool = False) -> None:
+    """Send `body` to `to` from a desktop/blog session, straight through the
+    store. `held` sends it as FYI, so it is stored without waking anyone."""
     from kampung_server import mail, sessions
     from kampung_server.models import load_machine
 
@@ -164,13 +165,7 @@ def peer_send(live: LiveServer, to: str, body: str, depth_seen: int = -1) -> Non
             repo="blog",
             hooks=True,
         )
-        if depth_seen != -1:
-            conn.execute(
-                "UPDATE sessions SET max_depth_seen = ? WHERE id = ?",
-                (depth_seen, s.id),
-            )
-            s = sessions.resolve(conn, desktop, s.id, utcnow())
-        mail.send(conn, s, to, body, None, utcnow())
+        mail.send(conn, s, to, body, None, utcnow(), fyi=held)
     finally:
         conn.close()
 

@@ -2,8 +2,8 @@
 {% set kinds = {"live": "ok", "idle": "warn", "ended": "", "queued": "acc", "no-wake": "warn", "delivered": "ok", "expired": "", "active": "ok", "revoked": "bad"} %}
 <span class="pill {{ kinds.get(state, '') }}">{{ state | capitalize }}</span>
 {%- endmacro %}
-{% macro depth(n) -%}
-<span class="depth{% if n > 3 %} hot{% endif %}">{{ n }}</span>
+{% macro wake(label) -%}
+<span class="depth{% if label.startswith("held") %} hot{% endif %}">{{ label }}</span>
 {%- endmacro %}
 {% macro more(page) -%}
 {% if page.total > page.rows | length %}<div class="more">Showing {{ page.rows | length }} of {{ page.total }}, newest first.</div>{% endif %}

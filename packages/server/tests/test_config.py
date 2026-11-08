@@ -45,3 +45,60 @@ def test_from_env_refuses_a_bad_public_url(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("KAMPUNG_PUBLIC_URL", "http://kampung.example.com")
     with pytest.raises(KampungError):
         Settings.from_env()
+
+
+# Loop guard settings
+
+
+def test_guard_settings_defaults() -> None:
+    from datetime import timedelta
+
+    from kampung_server.guard import GuardSettings
+
+    g = GuardSettings.from_env({})
+    assert (g.pair_size, g.pair_refill) == (9, timedelta(minutes=10))
+    assert (g.mailbox_budget, g.connector_cooldown) == (30, timedelta(minutes=10))
+    assert g == GuardSettings()
+
+
+def test_guard_settings_from_env() -> None:
+    from datetime import timedelta
+
+    from kampung_server.guard import GuardSettings
+
+    g = GuardSettings.from_env(
+        {
+            "KAMPUNG_PAIR_WAKE_SIZE": "5",
+            "KAMPUNG_PAIR_WAKE_REFILL_MINUTES": "3",
+            "KAMPUNG_MAILBOX_WAKE_BUDGET": "12",
+            "KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES": "20",
+        }
+    )
+    assert g.pair_size == 5 and g.pair_refill == timedelta(minutes=3)
+    assert g.mailbox_budget == 12 and g.connector_cooldown == timedelta(minutes=20)
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [
+        ("KAMPUNG_PAIR_WAKE_SIZE", "0"),
+        ("KAMPUNG_PAIR_WAKE_SIZE", "101"),
+        ("KAMPUNG_PAIR_WAKE_SIZE", "abc"),
+        ("KAMPUNG_PAIR_WAKE_SIZE", "-1"),
+        ("KAMPUNG_PAIR_WAKE_REFILL_MINUTES", "0"),
+        ("KAMPUNG_PAIR_WAKE_REFILL_MINUTES", "1441"),
+        ("KAMPUNG_MAILBOX_WAKE_BUDGET", "1001"),
+        ("KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES", "0"),
+    ],
+)
+def test_guard_settings_rejects(name: str, value: str) -> None:
+    from kampung_server.guard import GuardSettings
+
+    with pytest.raises(ValueError) as e:
+        GuardSettings.from_env({name: value})
+    assert name in str(e.value)
+
+
+def test_settings_carry_the_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KAMPUNG_PAIR_WAKE_SIZE", "4")
+    assert Settings.from_env().guard.pair_size == 4

@@ -268,7 +268,8 @@ async def test_full_flow_then_tools(server: Server) -> None:
         )
     ) as d:
         r = await d.call_tool("send", {"to": "phone/claude", "body": "hi phone"})
-        assert r.data["wake"] is True
+        # The Claude app reads mail when its user asks; nothing to wake.
+        assert r.data["wake"] is False and r.data["reason"] == "cannot_wake"
     async with client_for(server, tokens["access_token"]) as phone:
         r = await phone.call_tool("inbox", {})
         assert r.data["messages"][0]["body"] == "hi phone"

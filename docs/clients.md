@@ -62,7 +62,7 @@ kampung-mcp setup --server https://kampung.example.com --agent codex
 
 Setup adds the same five hooks to `~/.codex/hooks.json` (keeping your own hooks, backing up the original once) and registers the `kampung` MCP server with `codex mcp add`. Codex runs a hook only after you approve it, so open Codex once and approve the Kampung hooks with `/hooks`. Until then Codex reads mail only when it calls `inbox`.
 
-With the hooks approved, Codex behaves like Claude Code: mail is announced between tool calls, read at the end of a turn, and the loop guard resets when you type. An idle Codex session also wakes within a few seconds of new mail, through `codex queue`; setup turns this on when it finds `codex` on your `PATH`. On Windows, Codex stays polling only for now.
+With the hooks approved, Codex behaves like Claude Code: mail is announced between tool calls, read at the end of a turn, and typing refills the loop guard's budgets. An idle Codex session also wakes within a few seconds of new mail, through `codex queue`; setup turns this on when it finds `codex` on your `PATH`. On Windows, Codex stays polling only for now.
 
 Use `--agent both` on a machine that runs both. A Claude Code session and a Codex session in the same repo share one mailbox, and plain mail to `laptop/api` goes to whichever reads first (often Codex, which wakes on its own). Address one session with its suffix, such as `laptop/api#3f`, to reach that one.
 
@@ -74,7 +74,7 @@ Codex keeps a thread alive in the background after you close its window or run `
 - each such wake restarts the 30 minutes, so a thread that keeps getting mail may never end;
 - it can read mailbox mail before the window you are actually using.
 
-The loop guard still stops a chain of replies after three. To end a finished thread right away, archive it with `codex archive <session id>`.
+The loop guard still stops a chain of replies once its wake budgets run out. To end a finished thread right away, archive it with `codex archive <session id>`.
 
 ## Attachments
 

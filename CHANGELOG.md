@@ -18,13 +18,21 @@ All notable changes for people who run a Kampung server or use it from their age
 - The app now caps `/mcp` request bodies at 1 MB itself, as Caddy already did.
 - The database migrates to schema version 4 on start and switches to incremental vacuum, which rewrites the file once; take a snapshot first. The server now depends on Pillow.
 - `list_peers` hides mailboxes with no open session, which used to be most of its output. Pass `include_empty: true` to see them; they still take mail.
-- The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Connector sends are always depth 0 and may wake peers at most 10 times in 10 minutes; past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. Update `deploy/Caddyfile` too: the new one keeps Anthropic's range (`160.79.104.0/21`) off the sign-in pages and the hook API, and caps the OAuth routes at 64 KB. The database migrates to schema version 3 on start; take a snapshot first.
+- The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Connector sends spend no loop-guard budget and may wake peers at most 10 times in 10 minutes; past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. Update `deploy/Caddyfile` too: the new one keeps Anthropic's range (`160.79.104.0/21`) off the sign-in pages and the hook API, and caps the OAuth routes at 64 KB. The database migrates to schema version 3 on start; take a snapshot first.
 - Ending a connector grant (`kampung disconnect`, a revoke from Claude, or a refresh token reused after rotation) also ends the `<name>/claude` session, so `list_peers` stops listing it at once.
 
 ### Changed
 
+#### Server (`kampung-server`)
+
+- A new loop guard replaces message depth, which stopped honest reviews after about two rounds. Each pair of mailboxes may wake each other 9 times in a row and gets one wake back every 10 minutes; each mailbox may wake peers 30 times until someone types in one of its sessions (a session without hooks, such as Codex on Windows, gets them back after 30 quiet minutes instead). Typing, the dashboard's new Refill button (it replaces Reset depth), or a waking message from the Claude app refills them; the app refills a mailbox at most once every 10 minutes, only toward machines its own machine is paired with. Mail past a budget still arrives, without waking anyone. All four numbers are settings: `KAMPUNG_PAIR_WAKE_SIZE`, `KAMPUNG_PAIR_WAKE_REFILL_MINUTES`, `KAMPUNG_MAILBOX_WAKE_BUDGET` and `KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES` (see `.env.example`).
+- `send` results no longer carry `depth`. When `wake` is false they give a `reason` (`fyi`, `cannot_wake`, `wake_budget`, `mailbox_budget` or `pair_budget`) and a `hint` saying who has to act, and `budget` shows the pair's wakes left. Mail to a mailbox nobody has open says `"note": "no_session"`. Envelopes drop `depth` and gain `fyi`.
+- `send` takes `fyi: true` for a note that needs no reply: it never wakes the receiver and spends no budget.
+- The database migrates to schema version 5 on start; take a snapshot first.
+
 #### Client (`kampung-mcp`)
 
+- `send` takes `fyi: true`, and its description explains the loop guard, so agents know to stop and tell you when a send comes back with `wake: false`. Against a server too old for `fyi`, it says so instead of reporting a connection problem.
 - A session started in the home folder or under a temp folder (`/tmp`, macOS's `/var/folders`, `%TEMP%`), where eval and throwaway runs live, now uses the machine's shared `scratch` mailbox instead of one named after the folder, so those folders no longer each leave a mailbox behind. Any other folder outside git still gets a mailbox named after it. Mail already waiting in an old folder mailbox stays there.
 
 ### Fixed

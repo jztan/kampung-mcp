@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 
 # schema.sql builds version 1; schema_<n>.sql upgrades version n - 1 to n.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 # Deleted attachments give space back, and the WAL is trimmed after a
 # checkpoint, so a busy week cannot leave the volume full.
 JOURNAL_SIZE_LIMIT = 64 * 1024 * 1024

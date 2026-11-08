@@ -50,7 +50,11 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    settings = Settings.from_env()
+    try:
+        settings = Settings.from_env()
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     try:
         conn = db.connect(settings.db_path)
         db.migrate(conn)
@@ -129,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
                 RateLimiter(),
                 settings.admin_token,
                 public_url=settings.public_url,
+                guard=settings.guard,
             )
             app.serve(
                 deps,

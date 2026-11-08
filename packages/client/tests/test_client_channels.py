@@ -93,7 +93,7 @@ def test_channel_nudge_on_new_wakeable_mail(
                 "params": {"content": REASON},
             }
         ]
-        peer_send(server, "laptop/api", "deep one", depth_seen=3)  # wake = false
+        peer_send(server, "laptop/api", "held one", held=True)  # wake = false
         assert not [m for m in mcp.read(5) if m.get("method")]
     finally:
         mcp.close()

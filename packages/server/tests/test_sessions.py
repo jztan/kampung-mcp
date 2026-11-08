@@ -159,14 +159,18 @@ def test_resolve_touches_last_seen(
     assert r.last_seen == ts(clock.now())
 
 
-def test_human_turn_resets_depth(
+def test_human_turn_refills_the_mailbox(
     conn: sqlite3.Connection, make_session: MakeSession
 ) -> None:
     s = make_session("laptop")
-    conn.execute("UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", (s.id,))
-    human_turn(conn, s)
-    reloaded = load_session(conn, s.id)
-    assert reloaded is not None and reloaded.max_depth_seen == -1
+    conn.execute(
+        "UPDATE mailboxes SET wakes_since_refill = 30 WHERE id = ?", (s.mailbox_id,)
+    )
+    assert human_turn(conn, s) == 0
+    used = conn.execute(
+        "SELECT wakes_since_refill FROM mailboxes WHERE id = ?", (s.mailbox_id,)
+    ).fetchone()[0]
+    assert used == 0
 
 
 def test_is_live_window(make_session: MakeSession, clock: FakeClock) -> None:

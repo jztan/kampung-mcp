@@ -142,13 +142,13 @@ def register_actions(mcp: FastMCP, web: Web) -> None:
         )
         return "/admin/sessions"
 
-    @post("/admin/sessions/{id}/reset-depth", back="/admin/sessions")
-    async def reset(request: Request, s: AdminSession, form: FormData) -> str:
+    @post("/admin/sessions/{id}/refill", back="/admin/sessions")
+    async def refill(request: Request, s: AdminSession, form: FormData) -> str:
         target = session_of(request.path_params["id"])
-        admin.reset_depth(target.id, ACTOR)
+        admin.refill(target.id, ACTOR)
         s.flash = (
             "ok",
-            f"Reset depth for {target.address}. Its next message can wake peers.",
+            f"Refilled {target.mailbox}. Its messages can wake peers again.",
         )
         return "/admin/sessions"
 
