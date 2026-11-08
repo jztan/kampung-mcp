@@ -11,7 +11,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from . import db, oauth_store
+from . import db, guard, oauth_store
 from .clock import ts
 from .limits import ENDED_SESSION_RETENTION, SESSION_DELETE_BATCH, TARGET_FALLBACK
 
@@ -45,6 +45,7 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
         (ts(now - ENDED_SESSION_RETENTION), SESSION_DELETE_BATCH),
     )
     oauth_store.sweep_oauth(conn, now)
+    guard.sweep_pairs(conn, now)
     # Hand the pages of deleted mail and attachments back to the file system.
     # The pragma frees one page per row it returns, so read them all.
     conn.execute("PRAGMA incremental_vacuum").fetchall()

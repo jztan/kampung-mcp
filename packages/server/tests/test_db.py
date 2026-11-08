@@ -162,7 +162,7 @@ def test_migrates_3_to_4_with_attachments_and_incremental_vacuum(
         "VALUES ('laptop', x'00', 't')"
     )
     db.migrate(old)
-    assert old.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert old.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert old.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
     names = {
         r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -221,3 +221,36 @@ def test_sweep_reclaims_space_after_expiry(conn: sqlite3.Connection) -> None:
         sweep(conn, datetime(2026, 1, 1, tzinfo=timezone.utc))
     assert conn.execute("SELECT count(*) FROM attachments").fetchone()[0] == 0
     assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+
+
+def test_schema_5_adds_wake_budgets_and_keeps_old_depths(tmp_path: Path) -> None:
+    old = db.connect(tmp_path / "v4.db")
+    for version in (1, 2, 3, 4):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=4")
+    old.execute(
+        "INSERT INTO machines (name, key_hash, created_at) VALUES ('m', x'00', 't')"
+    )
+    old.execute(
+        "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (1, 'api', 't')"
+    )
+    old.execute(
+        "INSERT INTO sessions (mailbox_id, suffix, agent, cwd, hooks, started_at, "
+        "last_seen) VALUES (1, 'aa', 'other', '/w', 1, 't', 't')"
+    )
+    old.execute(
+        "INSERT INTO messages (id, to_mailbox_id, from_session_id, body, depth, "
+        "wake, sent_at, expires_at) VALUES ('m1', 1, 1, 'b', 4, 0, 't', 'u')"
+    )
+    db.migrate(old)
+    assert db.SCHEMA_VERSION == 5
+    assert old.execute("PRAGMA user_version").fetchone()[0] == 5
+    msg = old.execute(
+        "SELECT depth, wake_reason, spent, fyi, budget_left FROM messages"
+    ).fetchone()
+    assert tuple(msg) == (4, None, 0, 0, None)
+    box = old.execute("SELECT wakes_since_refill, connector_refill_at FROM mailboxes")
+    assert tuple(box.fetchone()) == (0, None)
+    assert old.execute("SELECT count(*) FROM pair_budgets").fetchone()[0] == 0
+    old.close()
