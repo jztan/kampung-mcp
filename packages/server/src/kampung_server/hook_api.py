@@ -21,7 +21,6 @@ from .models import Machine, load_session
 
 _STATUS = {
     "unauthorized": 401,
-    "not_owner": 403,
     "unknown_session": 404,
     "session_ended": 409,
     "request_too_large": 413,

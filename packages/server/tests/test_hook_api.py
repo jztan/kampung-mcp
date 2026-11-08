@@ -203,16 +203,16 @@ def test_register_deep_json_400(client: TestClient, machines: Machines) -> None:
     assert r.status_code == 400 and r.json()["error"] == "bad_request"
 
 
-def test_register_other_machines_agent_session_403(
+def test_another_machines_agent_session_id_does_not_block_registration(
     client: TestClient, machines: Machines
 ) -> None:
-    _register(client, machines["desktop"][1], agent_session_id="cc-9")
+    theirs = _register(client, machines["desktop"][1], agent_session_id="cc-9")
     r = client.post(
         "/v1/sessions",
         headers=bearer(machines["laptop"][1]),
         json={**BODY, "agent_session_id": "cc-9"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200 and r.json()["session"] != theirs
 
 
 def test_wrong_keys_skip_database(

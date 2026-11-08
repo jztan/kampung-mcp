@@ -57,22 +57,12 @@ def register(
             "printable characters.",
         )
     actor = f"machine:{machine.name}"
-    try:
-        session_id = _register(
-            conn, machine, now, actor, agent, cwd, repo, hooks, agent_session_id, suffix
-        )
-    except _Denied as e:
-        # Recorded after the rollback, so the audit row is kept.
-        audit.record(conn, now, actor, "denied", {"session": e.session_id})
-        raise KampungError("not_owner", "That session belongs to another machine.")
+    session_id = _register(
+        conn, machine, now, actor, agent, cwd, repo, hooks, agent_session_id, suffix
+    )
     session = load_session(conn, session_id)
     assert session is not None
     return session
-
-
-class _Denied(Exception):
-    def __init__(self, session_id: int) -> None:
-        self.session_id = session_id
 
 
 def _register(
@@ -90,11 +80,13 @@ def _register(
     with db.transaction(conn):
         existing = None
         if agent_session_id is not None:
-            # Checked inside the transaction, so no other machine can claim
-            # this agent session between the check and the revive.
-            existing = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
-            if existing is not None and existing.machine_id != machine.id:
-                raise _Denied(existing.id)
+            # Agent session ids are unique per machine, so another machine
+            # using the same id is a different session, never this one.
+            existing = _one(
+                conn,
+                "s.machine_id = ? AND s.agent_session_id = ?",
+                (machine.id, agent_session_id),
+            )
         if existing is None and suffix is not None:
             existing = _one(
                 conn,
@@ -205,10 +197,12 @@ def _create(
         )
     }
     cur = conn.execute(
-        "INSERT INTO sessions (mailbox_id, suffix, agent, agent_session_id, hooks, "
-        "cwd, started_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
+        "agent_session_id, hooks, cwd, started_at, last_seen) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             mailbox_id,
+            machine.id,
             new_suffix(taken),
             agent,
             agent_session_id,
@@ -228,7 +222,11 @@ def connector_session(
     """The one session a Claude app token acts as: `<machine>/claude`, created
     on first use and revived after the sweep ends it."""
     agent_session_id = f"{CONNECTOR_ID_PREFIX}{machine.id}"
-    existing = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
+    existing = _one(
+        conn,
+        "s.machine_id = ? AND s.agent_session_id = ?",
+        (machine.id, agent_session_id),
+    )
     if existing is not None and existing.agent != CONNECTOR_AGENT:
         # Registered through the hook API before that was refused: release
         # the id rather than adopt a session the connector did not make.
