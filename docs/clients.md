@@ -31,7 +31,7 @@ Hooks fail silently so that Kampung never gets in your agent's way, so a broken 
 kampung-mcp doctor
 ```
 
-It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
+It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration, whether new Codex windows can be bound at launch, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
 
 It can't see whether Codex has approved the hooks (`/hooks`), or whether this machine is paired with another: the dashboard's machines page shows that, and `list_peers` shows who an agent can reach.
 
@@ -65,6 +65,16 @@ Setup adds the same five hooks to `~/.codex/hooks.json` (keeping your own hooks,
 With the hooks approved, Codex behaves like Claude Code: mail is announced between tool calls, read at the end of a turn, and typing refills the loop guard's budgets. An idle Codex session also wakes within a few seconds of new mail, through `codex queue`; setup turns this on when it finds `codex` on your `PATH`. On Windows, Codex stays polling only for now. It never reports typing either, so the loop guard gives its mailbox's wake budget back after 30 minutes without waking sends instead of when you type (see [the loop guard](tool-reference.md#the-loop-guard)).
 
 Use `--agent both` on a machine that runs both. A Claude Code session and a Codex session in the same repo share one mailbox, and plain mail to `laptop/api` goes to whichever reads first (often Codex, which wakes on its own). Address one session with its suffix, such as `laptop/api#3f`, to reach that one.
+
+### New Codex windows
+
+A Codex window you have just opened is listed and wakeable before you type anything, as long as setup found `codex` on your `PATH` (the same condition as waking idle sessions). Codex itself tells the adapter which thread it serves only with the first tool call, so at launch the adapter asks Codex's background service (the `codex app-server` daemon) for its loaded threads over its control socket (`~/.codex/app-server-control/app-server-control.sock`, or under `$CODEX_HOME`), read-only. It takes the newest thread in its own folder that was opened after the adapter started, has had no prompt yet and that no other window has claimed, and registers that one. It keeps looking for up to two minutes, because the thread appears only once you answer Codex's folder-trust prompt. That is the same session the hooks and the first tool call settle on later.
+
+- If the socket is missing, refuses, or answers in a way the adapter doesn't expect (Codex marks that protocol experimental, so an update could change it), nothing breaks: the window is registered at its first prompt, as before, and a send to its empty mailbox says so.
+- Two windows opened in the same folder within a few seconds can't be told apart. Both may pick the same thread, and the other is then registered at its first prompt. No mail is lost.
+- Not on Windows, where Codex runs no hooks and only polls.
+
+`kampung-mcp doctor` checks that the socket answers (the `codex launch` line).
 
 ### Closed Codex windows can still be woken
 

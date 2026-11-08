@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import __version__, hook, setup
+from . import __version__, codex_launch, hook, setup
 
 OK = "ok"
 WARN = "WARN"
@@ -260,7 +260,31 @@ def _agent_checks(
         mcp = Check(FAIL, f"{agent} mcp", f"not registered with {program}", fix)
     if agent == "codex" and setup._windows():  # Codex on Windows has no hooks
         return [mcp]
+    if agent == "codex":
+        return [_hooks_check(agent, commands, fix), mcp, _codex_launch_check()]
     return [_hooks_check(agent, commands, fix), mcp]
+
+
+def _codex_launch_check() -> Check:
+    """Whether a new Codex window can be bound at launch: the daemon's control
+    socket must answer. Without it, windows still bind on their first prompt."""
+    name = "codex launch"
+    path = codex_launch.control_socket()
+    state = codex_launch.probe_socket(path) if path.exists() else "not running"
+    if state == "not running":
+        return Check(OK, name, "Codex is not running, so this went unchecked")
+    if state == "answers":
+        return Check(
+            OK, name, "new Codex windows are listed and woken before their first prompt"
+        )
+    return Check(
+        WARN,
+        name,
+        "the Codex control socket does not answer, so a new Codex window is "
+        "reachable only after its first prompt",
+        "Restart Codex. If it persists, a Codex update changed its control "
+        "protocol; windows still bind on their first prompt.",
+    )
 
 
 def _log_check() -> Check:
