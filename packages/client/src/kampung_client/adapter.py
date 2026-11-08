@@ -722,16 +722,24 @@ def _add_launch_binding(
     handlers = mcp._mcp_server.notification_handlers
     previous = handlers.get(InitializedNotification)
     started: list[asyncio.Task[None]] = []
+    # Threads created before this adapter belong to other windows.
+    not_before = time.time() - codex_launch.CREATED_SLACK
 
     async def bind_now() -> None:
+        """Look once a second until the window's thread appears, a tool call
+        binds first, or the window passes; each look is a short, bounded
+        worker call, so shutting the adapter down never waits long."""
+        end = time.monotonic() + codex_launch.LAUNCH_WINDOW
         try:
-            found = await asyncio.to_thread(
-                codex_launch.find_launch_thread, resolver.cwd
-            )
-            if found is not None and await asyncio.to_thread(
-                resolver.bind_at_launch, found
-            ):
-                waker.start()
+            while resolver.bound is None and time.monotonic() < end:
+                found = await asyncio.to_thread(
+                    codex_launch.launch_thread_once, resolver.cwd, not_before
+                )
+                if found is not None:
+                    if await asyncio.to_thread(resolver.bind_at_launch, found):
+                        waker.start()
+                    return
+                await asyncio.sleep(codex_launch.LAUNCH_DELAY)
         except Exception as e:  # noqa: BLE001 - never break the adapter
             hook._log("codex-launch", e)
 

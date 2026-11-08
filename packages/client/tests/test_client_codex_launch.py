@@ -20,7 +20,7 @@ import pytest
 
 from client_testlib import LiveServer, RawMCP, git_repo, peer_send
 from kampung_client import codex_launch, hook
-from test_client_codex_wake import WAKE, calls, fake_codex, wait_for_calls
+from test_client_codex_wake import WAKE, fake_codex, wait_for_calls
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="Codex on Windows has no launch binding"
@@ -66,6 +66,7 @@ class FakeDaemon:
     def __init__(self, home: Path, threads: list[dict[str, Any]]) -> None:
         self.threads = threads
         self.unreadable = {"gone-1"}
+        self.flood = False  # send notifications forever instead of answering
         self.dir = tempfile.mkdtemp(prefix="kcs-", dir="/tmp")
         self.path = os.path.join(self.dir, "s")
         self.sock = socket.socket(socket.AF_UNIX)
@@ -101,12 +102,16 @@ class FakeDaemon:
                 b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
                 b"Connection: Upgrade\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n"
             )
-            ids = [t["id"] for t in self.threads] + sorted(self.unreadable)
             while True:
+                ids = [t["id"] for t in self.threads] + sorted(self.unreadable)
                 msg = json.loads(_read_frame(conn))
                 if "id" not in msg:
                     continue
                 method, params = msg["method"], msg.get("params") or {}
+                if self.flood and method != "initialize":
+                    note = json.dumps({"method": "thread/status", "params": {}})
+                    while True:
+                        _write_frame(conn, note)
                 if method == "initialize":
                     result: Any = {"userAgent": "fake"}
                 elif method == "thread/loaded/list":
@@ -143,14 +148,23 @@ class FakeDaemon:
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
-def thread(tid: str, cwd: Path, created: int, turns: int = 0) -> dict[str, Any]:
+def thread(
+    tid: str, cwd: Path, created: float, preview: str = "", **extra: Any
+) -> dict[str, Any]:
+    """A thread as Codex 0.167's thread/read returns it: `turns` is always
+    empty (filled only with includeTurns); a used thread has a preview."""
     return {
         "id": tid,
         "cwd": str(cwd),
-        "createdAt": created,
+        "createdAt": int(created),
         "status": {"type": "idle"},
-        "turns": [{}] * turns,
+        "turns": [],
+        "preview": preview,
         "originator": "codex-tui",
+        "source": "vscode",
+        "ephemeral": False,
+        "parentThreadId": None,
+        **extra,
     }
 
 
@@ -167,20 +181,25 @@ def daemon_for(home: Path) -> Iterator[Any]:
         d.close()
 
 
-def test_pick_takes_the_newest_unclaimed_fresh_thread_in_this_folder(
+def test_pick_takes_the_newest_fresh_unclaimed_thread_in_this_folder(
     tmp_path: Path,
 ) -> None:
     here, other = tmp_path / "api", tmp_path / "blog"
     threads = [
-        thread("old", here, 100),
-        thread("used", here, 300, turns=2),
+        thread("before-us", here, 50),
+        thread("prompted", here, 300, preview="fix the tests"),
         thread("elsewhere", other, 400),
         thread("claimed", here, 500),
+        thread("subagent", here, 600, parentThreadId="p", source={"subAgent": {}}),
+        thread("ephemeral", here, 700, ephemeral=True),
+        thread("old-fresh", here, 150),
         thread("new", here, 200),
     ]
-    assert codex_launch.pick_launch_thread(threads, str(here), {"claimed"}) == "new"
-    assert codex_launch.pick_launch_thread(threads, str(other), set()) == "elsewhere"
-    assert codex_launch.pick_launch_thread(threads, str(tmp_path), set()) is None
+    pick = codex_launch.pick_launch_thread
+    assert pick(threads, str(here), {"claimed"}, not_before=100) == "new"
+    assert pick(threads, str(other), set(), not_before=100) == "elsewhere"
+    assert pick(threads, str(tmp_path), set(), not_before=100) is None
+    assert pick(threads, str(here), {"claimed"}, not_before=900) is None
 
 
 def test_loaded_threads_reads_every_page_and_skips_unreadable_ones(
@@ -192,7 +211,17 @@ def test_loaded_threads_reads_every_page_and_skips_unreadable_ones(
 
 
 def test_no_socket_means_no_launch_thread(home: Path, tmp_path: Path) -> None:
-    assert codex_launch.find_launch_thread(str(tmp_path), tries=1, delay=0) is None
+    assert codex_launch.launch_thread_once(str(tmp_path), not_before=0) is None
+
+
+def test_a_daemon_that_never_answers_cannot_hold_a_try_past_its_budget(
+    home: Path, tmp_path: Path, daemon_for: Any
+) -> None:
+    daemon = daemon_for([thread("a", tmp_path, time.time())])
+    daemon.flood = True
+    started = time.monotonic()
+    assert codex_launch.launch_thread_once(str(tmp_path), not_before=0) is None
+    assert time.monotonic() - started < codex_launch.TRY_BUDGET + 1
 
 
 def test_codex_home_moves_the_socket(
@@ -207,12 +236,16 @@ def test_a_new_window_is_listed_and_woken_before_its_first_prompt(
     home: Path, server: LiveServer, tmp_path: Path, daemon_for: Any
 ) -> None:
     repo = git_repo(tmp_path, "api")
-    daemon_for([thread("cx-launch", repo, 1)])
+    # An older thread in the folder that no window claimed: never ours.
+    daemon = daemon_for([thread("cx-older", repo, time.time() - 600)])
     codex, log = fake_codex(tmp_path)
     mcp = RawMCP(home, repo, "--codex-bin", str(codex), agent="codex")
     try:
         mcp.initialize()
-        end = time.monotonic() + 8
+        # The window's own thread appears only after the folder-trust prompt.
+        time.sleep(2)
+        daemon.threads.append(thread("cx-launch", repo, time.time()))
+        end = time.monotonic() + 10
         while time.monotonic() < end and hook.read_session_file("cx-launch") is None:
             time.sleep(0.2)
         data = hook.read_session_file("cx-launch")
@@ -221,26 +254,14 @@ def test_a_new_window_is_listed_and_woken_before_its_first_prompt(
         peer_send(server, f"laptop/api#{data['suffix']}", "review please")
         got = wait_for_calls(log, 1, 8)
         assert got == [["queue", "--thread", "cx-launch", "--message", WAKE]]
+        assert hook.read_session_file("cx-older") is None
     finally:
         mcp.close()
 
 
 def test_a_thread_another_window_claimed_is_left_alone(
-    home: Path, server: LiveServer, tmp_path: Path, daemon_for: Any
+    home: Path, tmp_path: Path, daemon_for: Any
 ) -> None:
-    repo = git_repo(tmp_path, "api")
-    # Another window already bound this thread; a Claude Code window keeps
-    # the mailbox open so the send below has somewhere to go.
     hook.write_session_file("cx-taken", {"session": "1", "hooks": True})
-    hook.register("claude-code", str(repo), True, "cc-1")
-    daemon_for([thread("cx-taken", repo, 1)])
-    codex, log = fake_codex(tmp_path)
-    mcp = RawMCP(home, repo, "--codex-bin", str(codex), agent="codex")
-    try:
-        mcp.initialize()
-        time.sleep(4)
-        peer_send(server, "laptop/api", "for nobody yet")
-        time.sleep(4)
-        assert calls(log) == []
-    finally:
-        mcp.close()
+    daemon_for([thread("cx-taken", tmp_path, time.time())])
+    assert codex_launch.launch_thread_once(str(tmp_path), not_before=0) is None

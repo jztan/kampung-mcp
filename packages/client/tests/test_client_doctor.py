@@ -1,6 +1,9 @@
 import json
 import os
+import shutil
+import socket
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -408,6 +411,18 @@ def test_codex_launch_check(
         assert "before their first prompt" in _by_name(checks, "codex launch").detail
     finally:
         daemon.close()
+    # Codex exited and left its socket file behind: not running, no warning.
+    stale_dir = tempfile.mkdtemp(prefix="kcs-", dir="/tmp")
+    stale = socket.socket(socket.AF_UNIX)
+    stale.bind(os.path.join(stale_dir, "s"))
+    stale.close()
+    link = home / ".codex" / "app-server-control" / "app-server-control.sock"
+    link.unlink()
+    link.symlink_to(os.path.join(stale_dir, "s"))
+    checks = doctor.run_checks(_registered)
+    assert _by_name(checks, "codex launch").status == doctor.OK
+    assert "not running" in _by_name(checks, "codex launch").detail
+    shutil.rmtree(stale_dir, ignore_errors=True)
     # A socket path that exists but refuses connections: a broken daemon.
     link = home / ".codex" / "app-server-control" / "app-server-control.sock"
     link.unlink()

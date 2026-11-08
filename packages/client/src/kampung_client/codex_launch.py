@@ -22,9 +22,14 @@ from typing import Any
 
 from . import hook
 
-CALL_TIMEOUT = 2.0  # seconds for each request on the control socket
-LAUNCH_TRIES = 10
-LAUNCH_DELAY = 0.5  # seconds between tries: the thread may appear just after us
+TRY_BUDGET = 3.0  # seconds one look at the socket may take, start to finish
+# The window's thread appears only once the folder-trust prompt is answered,
+# which can take a person a while, so the adapter keeps looking this long.
+LAUNCH_WINDOW = 120.0
+LAUNCH_DELAY = 1.0  # seconds between looks
+# A thread created before the adapter started belongs to another window or an
+# earlier run; this much slack allows for clocks rounding to the second.
+CREATED_SLACK = 5.0
 
 
 class ControlError(Exception):
@@ -37,13 +42,14 @@ def control_socket() -> Path:
 
 
 class _Conn:
-    def __init__(self, path: Path, timeout: float) -> None:
+    def __init__(self, path: Path, deadline: float) -> None:
         # Resolved first: Codex links this path to a short one under /tmp,
         # because Unix socket paths are limited to about 104 bytes.
         target = os.path.realpath(path)
         self.sock = socket.socket(socket.AF_UNIX)
-        self.sock.settimeout(timeout)
+        self.deadline = deadline
         self.next_id = 0
+        self._tick()
         try:
             self.sock.connect(target)
             key = base64.b64encode(os.urandom(16)).decode()
@@ -68,9 +74,18 @@ class _Conn:
             self.sock.close()
             raise
 
+    def _tick(self) -> None:
+        """Hold every read and write to the one deadline, however many
+        notifications the daemon sends meanwhile."""
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise ControlError("out of time")
+        self.sock.settimeout(left)
+
     def _exact(self, n: int) -> bytes:
         buf = b""
         while len(buf) < n:
+            self._tick()
             chunk = self.sock.recv(n - len(buf))
             if not chunk:
                 raise ControlError("socket closed")
@@ -125,8 +140,8 @@ class _Conn:
         self._send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
         while True:
             message = self._message()
-            if message.get("id") != rid:
-                continue  # a notification, or another request's answer
+            if "method" in message or message.get("id") != rid:
+                continue  # a notification, a request to us, or not ours
             if "error" in message:
                 raise ControlError(f"{method}: {message['error']}")
             result = message.get("result")
@@ -139,8 +154,8 @@ class _Conn:
         self.sock.close()
 
 
-def _open(path: Path, timeout: float) -> _Conn:
-    conn = _Conn(path, timeout)
+def _open(path: Path, deadline: float) -> _Conn:
+    conn = _Conn(path, deadline)
     try:
         conn.call("initialize", {"clientInfo": {"name": "kampung", "version": "1"}})
         conn.notify("initialized")
@@ -150,19 +165,26 @@ def _open(path: Path, timeout: float) -> _Conn:
     return conn
 
 
-def socket_answers(path: Path | None = None, timeout: float = CALL_TIMEOUT) -> bool:
-    """Whether the control socket accepts a client (for doctor)."""
+def probe_socket(path: Path | None = None) -> str:
+    """For doctor: "answers", "not running" (no daemon behind the socket:
+    gone, or a file left behind), or "broken" (a daemon that will not talk)."""
     try:
-        _open(path or control_socket(), timeout).close()
-        return True
-    except (ControlError, OSError):
-        return False
+        _open(path or control_socket(), time.monotonic() + TRY_BUDGET).close()
+        return "answers"
+    except ControlError as e:
+        cause = e.__cause__
+        if isinstance(cause, (FileNotFoundError, ConnectionRefusedError)):
+            return "not running"
+        return "broken"
+    except OSError:
+        return "broken"
 
 
-def loaded_threads(path: Path, timeout: float = CALL_TIMEOUT) -> list[dict[str, Any]]:
+def loaded_threads(path: Path, budget: float = TRY_BUDGET) -> list[dict[str, Any]]:
     """Every thread the daemon has loaded, as thread/read returns it. One that
-    goes away between the list and the read is skipped."""
-    conn = _open(path, timeout)
+    goes away between the list and the read is skipped. The whole call ends
+    within `budget` seconds or raises ControlError."""
+    conn = _open(path, time.monotonic() + budget)
     try:
         ids: list[str] = []
         cursor: str | None = None
@@ -189,25 +211,39 @@ def _same_folder(a: object, b: str) -> bool:
     return isinstance(a, str) and hook._norm(a) == hook._norm(b)
 
 
+def _fresh(t: dict[str, Any], cwd: str, not_before: float) -> bool:
+    """A thread nobody has prompted yet, opened in this folder since this
+    adapter started. `turns` cannot tell: Codex fills it only on request, so
+    an empty preview (the first prompt's text) stands for "no prompt yet"."""
+    source = t.get("source")
+    return (
+        _same_folder(t.get("cwd"), cwd)
+        and not t.get("preview")
+        and not t.get("ephemeral")
+        and not t.get("parentThreadId")
+        and not (isinstance(source, dict) and "subAgent" in source)
+        and isinstance(t.get("createdAt"), (int, float))
+        and t["createdAt"] >= not_before
+    )
+
+
 def pick_launch_thread(
-    threads: list[dict[str, Any]], cwd: str, claimed: set[str]
+    threads: list[dict[str, Any]], cwd: str, claimed: set[str], not_before: float
 ) -> str | None:
-    """This window's thread: in this folder, no turns yet, not bound by any
-    other window or hook; the newest, if several. Two windows opened in one
-    folder within seconds can still pick the same one (accepted: the other
-    binds on its first prompt, and no mail is lost)."""
+    """This window's thread: fresh (see _fresh), not bound by any other
+    window or hook; the newest, if several. Two windows opened in one folder
+    within seconds can still pick the same one (accepted: the other binds on
+    its first prompt, and no mail is lost)."""
     fresh = [
         t
         for t in threads
-        if _same_folder(t.get("cwd"), cwd)
-        and not t.get("turns")
-        and isinstance(t.get("id"), str)
+        if isinstance(t.get("id"), str)
         and t["id"] not in claimed
+        and _fresh(t, cwd, not_before)
     ]
     if not fresh:
         return None
-    newest = max(fresh, key=lambda t: t.get("createdAt") or 0)
-    return str(newest["id"])
+    return str(max(fresh, key=lambda t: t["createdAt"])["id"])
 
 
 def claimed_ids() -> set[str]:
@@ -218,20 +254,13 @@ def claimed_ids() -> set[str]:
         return set()
 
 
-def find_launch_thread(
-    cwd: str, tries: int = LAUNCH_TRIES, delay: float = LAUNCH_DELAY
-) -> str | None:
-    """This window's thread id, or None when the socket cannot say."""
+def launch_thread_once(cwd: str, not_before: float) -> str | None:
+    """One look at the socket: this window's thread id, or None. Never raises
+    for a socket problem, and ends within TRY_BUDGET seconds."""
     path = control_socket()
-    for attempt in range(tries):
-        if attempt:
-            time.sleep(delay)
-        if not path.exists():
-            continue
-        try:
-            found = pick_launch_thread(loaded_threads(path), cwd, claimed_ids())
-        except (ControlError, OSError):
-            continue
-        if found is not None:
-            return found
-    return None
+    if not path.exists():
+        return None
+    try:
+        return pick_launch_thread(loaded_threads(path), cwd, claimed_ids(), not_before)
+    except (ControlError, OSError):
+        return None
