@@ -62,7 +62,11 @@ CONNECTOR_WAKE_WINDOW = timedelta(minutes=10)
 MAX_ATTACHMENT_TEXT_BYTES = 256 * 1024
 MAX_ATTACHMENT_IMAGE_BYTES = 512 * 1024
 IMAGE_LONG_EDGE = 1568  # what Claude keeps of an image anyway
-IMAGE_MAX_PIXELS = 25_000_000  # checked from the header, before decoding
+# Checked from the header, before decoding: a decoded RGBA image takes 4 bytes
+# a pixel, so this holds one decode to about 32 MB, and IMAGE_DECODES of them
+# run at once. Our adapter shrinks images to IMAGE_LONG_EDGE before sending.
+IMAGE_MAX_PIXELS = 8_000_000
+IMAGE_DECODES = 2
 # Claude Code moves a text result over 50,000 characters into a file the
 # Claude app cannot open, so reads come in slices well under that.
 READ_SLICE_DEFAULT = 16 * 1024

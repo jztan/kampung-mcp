@@ -137,3 +137,45 @@ def test_header_past_pillows_own_bomb_limit_is_too_large_inline() -> None:
     with pytest.raises(KampungError) as e:
         normalize_image(_bomb_png(20000, 20000))
     assert e.value.code == "attachment_too_large"
+
+
+def test_image_over_8_megapixels_is_refused_from_its_header() -> None:
+    # 3000 x 3000 is 9 million pixels: refused before any pixel is decoded.
+    with pytest.raises(KampungError) as e:
+        normalize_image(_bomb_png(3000, 3000))
+    assert e.value.code == "attachment_too_large"
+    assert "8000000 pixels" in e.value.hint
+
+
+def test_image_just_under_the_cap_is_still_shrunk() -> None:
+    data, _ = normalize_image(_png(2800, 2800))
+    assert max(_open(data).size) == 1568
+
+
+def test_at_most_two_images_decode_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    import time
+
+    from kampung_server import images
+
+    lock = threading.Lock()
+    running = [0, 0]  # now, most seen
+    real = images.ImageOps.exif_transpose
+
+    def slow(img: Image.Image) -> Image.Image:
+        with lock:
+            running[0] += 1
+            running[1] = max(running[1], running[0])
+        time.sleep(0.05)
+        with lock:
+            running[0] -= 1
+        return real(img)
+
+    monkeypatch.setattr(images.ImageOps, "exif_transpose", slow)
+    data = _png(32, 32)
+    threads = [threading.Thread(target=normalize_image, args=(data,)) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert running[1] == 2
