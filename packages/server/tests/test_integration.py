@@ -13,7 +13,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from fastmcp.client.transports import StreamableHttpTransport
 
-from kampung_server import db, mail
+from kampung_server import __version__, db, mail
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
 from kampung_server.clock import utcnow
@@ -188,6 +188,13 @@ async def test_instructions_sent(server: Server) -> None:
     a = register(server, "laptop", "api")
     async with client_for(server, server.keys["laptop"], a) as c:
         assert c.initialize_result.instructions == SERVER_INSTRUCTIONS
+
+
+async def test_server_info_reports_kampung_version(server: Server) -> None:
+    a = register(server, "laptop", "api")
+    async with client_for(server, server.keys["laptop"], a) as c:
+        info = c.initialize_result.serverInfo
+        assert (info.name, info.version) == ("kampung", __version__)
 
 
 async def test_rate_limited_inline(server: Server) -> None:
