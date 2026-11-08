@@ -32,6 +32,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Server (`kampung-server`)
 
 - The MCP handshake (`serverInfo`) now reports Kampung's own version. It used to report the FastMCP library version.
+- A machine key can no longer act as its machine's Claude app session. Registering with the connector's session id, or with its repo and suffix, used to revive that session, and sends from it skipped the loop guard's depth check. It took a key, so it stayed inside the machine trust boundary.
 
 ## [0.2.2] - 2026-11-07
 

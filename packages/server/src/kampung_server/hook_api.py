@@ -115,6 +115,15 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 raise KampungError(
                     "invalid_agent", "claude-app sessions come from kampung connect."
                 )
+            agent_session_id = _field(b, "agent_session_id", str, False)
+            if agent_session_id is not None and agent_session_id.startswith(
+                sessions.CONNECTOR_ID_PREFIX
+            ):
+                raise KampungError(
+                    "invalid_agent_session",
+                    "agent_session_id values starting with "
+                    f"{sessions.CONNECTOR_ID_PREFIX!r} are the connector's.",
+                )
             s = sessions.register(
                 conn,
                 machine,
@@ -123,7 +132,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 cwd=_field(b, "cwd", str, True),
                 repo=_field(b, "repo", str, True),
                 hooks=_field(b, "hooks", bool, True),
-                agent_session_id=_field(b, "agent_session_id", str, False),
+                agent_session_id=agent_session_id,
                 suffix=_field(b, "suffix", str, False),
             )
             return {"session": str(s.id), "suffix": s.suffix, "mailbox": s.mailbox}

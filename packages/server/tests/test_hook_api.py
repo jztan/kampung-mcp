@@ -272,3 +272,60 @@ def test_v1_refuses_claude_app_agent(client: TestClient, machines: Machines) -> 
         headers=bearer(machines["laptop"][1]),
     )
     assert r.status_code == 400 and r.json()["error"] == "invalid_agent"
+
+
+# A machine key must never act as its Claude app connector session: those
+# sends skip the loop guard's depth check.
+
+
+def _connector_id(deps: ServerDeps, machines: Machines) -> int:
+    from kampung_server import db, sessions
+
+    conn = db.connect(deps.db_path)
+    try:
+        return sessions.connector_session(conn, machines["laptop"][0], deps.clock()).id
+    finally:
+        conn.close()
+
+
+def test_machine_key_cannot_revive_the_connector_session(
+    client: TestClient, deps: ServerDeps, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    cid = _connector_id(deps, machines)
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(key),
+        json={**BODY, "agent_session_id": f"connector:{machines['laptop'][0].id}"},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent_session"
+    conn = sqlite3.connect(deps.db_path)
+    suffix = conn.execute("SELECT suffix FROM sessions WHERE id = ?", (cid,)).fetchone()
+    conn.close()
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(key),
+        json={**BODY, "repo": "claude", "suffix": suffix[0]},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent_session"
+
+
+def test_machine_key_cannot_use_the_connector_session(
+    client: TestClient, deps: ServerDeps, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    cid = _connector_id(deps, machines)
+    for method, path in (("GET", "peek"), ("POST", "human-turn")):
+        r = client.request(method, f"/v1/sessions/{cid}/{path}", headers=bearer(key))
+        assert r.status_code == 403 and r.json()["error"] == "not_owner", path
+
+
+def test_machine_key_cannot_claim_the_connector_id_first(
+    client: TestClient, machines: Machines
+) -> None:
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(machines["laptop"][1]),
+        json={**BODY, "agent_session_id": "connector:999"},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent_session"
