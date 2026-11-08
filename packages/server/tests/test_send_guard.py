@@ -262,7 +262,8 @@ def _race(db_path: Path, sender: Session, to: str, now: object) -> list[bool]:
         c = db.connect(db_path)
         try:
             gate.wait()
-            wakes.append(mail.send(c, sender, to, str(n), None, now).wake)  # type: ignore
+            result = mail.send(c, sender, to, str(n), None, now)  # type: ignore
+            wakes.append(result.wake)
         finally:
             c.close()
 

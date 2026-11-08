@@ -3,7 +3,7 @@ import sqlite3
 from kampung_server import mail
 from kampung_server.admin import AdminService
 from kampung_server.admin_web import queries
-from kampung_server.models import Machine, Session, load_session
+from kampung_server.models import Machine, Session
 from server_testlib import FakeClock, MakeSession
 
 Machines = dict[str, tuple[Machine, str]]
