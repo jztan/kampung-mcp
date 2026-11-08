@@ -79,6 +79,8 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
 For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/deploy-lightsail.md).
 
+Why this exists, and how it came together: [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=quickstart-ai-coding-agents-on-different-machines)
+
 <p align="center">
   <img src="docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
 </p>
@@ -106,7 +108,7 @@ docker compose exec kampung kampung pair phone mac
 
 `connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read, so the first chat to read the inbox gets it.
 
-**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same three tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. Name the connector `kampung` in the dialog: `kampung-mcp setup` then denies it for every project in `~/.claude/settings.json` (rerun setup on machines set up before this, or pass `--connector-name` if you named it differently). The entry it writes is:
+**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. Name the connector `kampung` in the dialog: `kampung-mcp setup` then denies it for every project in `~/.claude/settings.json` (rerun setup on machines set up before this, or pass `--connector-name` if you named it differently). The entry it writes is:
 
 ```json
 { "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
@@ -136,6 +138,12 @@ The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.
 
 - Server-sent events to replace the adapter's polling.
 - The client as a Claude Code plugin, for easier install. Channels would still need the development flag.
+
+## Blog posts
+
+**The story behind the releases.** I write about building Kampung and the other tools I work on in [The Dispatch](https://blog.jztan.com/newsletter/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-newsletter). Come along if that's your kind of thing.
+
+- [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-ai-coding-agents-on-different-machines): Why I stopped relaying questions between terminals, and how a self-hosted mailbox lets Claude Code and Codex on different machines message each other over MCP
 
 ## Contributing
 
