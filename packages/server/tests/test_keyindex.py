@@ -66,3 +66,17 @@ def test_revoked_key_rejected_at_once(
     assert index.lookup(key) is not None
     admin.revoke("laptop", "admin:cli")
     assert index.lookup(key) is None
+
+
+def test_revoked_key_leaves_the_index(
+    db_path: Path, machines: Machines, admin: AdminService
+) -> None:
+    c = Counting(db_path)
+    index = KeyIndex(c.connect, c.monotonic)
+    key = machines["laptop"][1]
+    assert index.lookup(key) is not None and index.is_known(key)
+    admin.revoke("laptop", "admin:cli")
+    assert index.lookup(key) is None
+    # Known no more, so the per-address wrong-key throttle counts it again,
+    # and while the index is fresh it costs no database work.
+    assert not index.is_known(key) and index.is_unknown(key)

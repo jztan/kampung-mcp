@@ -20,3 +20,16 @@ ALTER TABLE messages ADD COLUMN wake_reason TEXT;
 ALTER TABLE messages ADD COLUMN spent INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN fyi INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN budget_left INTEGER;
+-- The client address a pending sign-in came from, so one address keeps only
+-- its newest few and cannot fill the cap for everyone.
+ALTER TABLE oauth_requests ADD COLUMN client TEXT NOT NULL DEFAULT '';
+CREATE INDEX oauth_requests_client ON oauth_requests (client);
+-- An agent session id is unique per machine, not across them, so a key that
+-- learns another machine's id cannot register it first. machine_id copies the
+-- mailbox's machine (mailboxes never move); sessions._create sets it.
+ALTER TABLE sessions ADD COLUMN machine_id INTEGER REFERENCES machines(id);
+UPDATE sessions SET machine_id =
+  (SELECT mb.machine_id FROM mailboxes mb WHERE mb.id = sessions.mailbox_id);
+DROP INDEX sessions_agent;
+CREATE UNIQUE INDEX sessions_agent ON sessions (machine_id, agent_session_id)
+  WHERE agent_session_id IS NOT NULL;

@@ -16,6 +16,7 @@ from .limits import (
     OAUTH_CONNECT_CODE_TTL,
     OAUTH_MAX_REQUESTS,
     OAUTH_REQUEST_TTL,
+    OAUTH_REQUESTS_PER_CLIENT,
     OAUTH_ROTATED_RETENTION,
 )
 
@@ -49,18 +50,29 @@ def take_connect_code(conn: sqlite3.Connection, code: str, now: datetime) -> int
 
 
 def save_request(
-    conn: sqlite3.Connection, request_id: str, params_json: str, now: datetime
+    conn: sqlite3.Connection,
+    request_id: str,
+    params_json: str,
+    now: datetime,
+    client: str,
 ) -> bool:
-    """False when the cap on live requests is reached."""
+    """False when the cap on live requests is reached. An address keeps only
+    its newest OAUTH_REQUESTS_PER_CLIENT requests: older ones are dropped."""
+    conn.execute(
+        "DELETE FROM oauth_requests WHERE client = ? AND request_id NOT IN "
+        "(SELECT request_id FROM oauth_requests WHERE client = ? "
+        "AND expires_at > ? ORDER BY expires_at DESC, rowid DESC LIMIT ?)",
+        (client, client, ts(now), OAUTH_REQUESTS_PER_CLIENT - 1),
+    )
     live = conn.execute(
         "SELECT count(*) FROM oauth_requests WHERE expires_at > ?", (ts(now),)
     ).fetchone()[0]
     if live >= OAUTH_MAX_REQUESTS:
         return False
     conn.execute(
-        "INSERT INTO oauth_requests (request_id, params_json, expires_at) "
-        "VALUES (?, ?, ?)",
-        (request_id, params_json, ts(now + OAUTH_REQUEST_TTL)),
+        "INSERT INTO oauth_requests (request_id, params_json, expires_at, client) "
+        "VALUES (?, ?, ?, ?)",
+        (request_id, params_json, ts(now + OAUTH_REQUEST_TTL), client),
     )
     return True
 

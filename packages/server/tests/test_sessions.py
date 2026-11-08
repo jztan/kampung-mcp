@@ -81,13 +81,19 @@ def test_clear_creates_new_session(
     assert a.id != b.id and a.mailbox == b.mailbox and a.suffix != b.suffix
 
 
-def test_register_other_machines_agent_session_id(
+def test_two_machines_may_register_the_same_agent_session_id(
     conn: sqlite3.Connection, machines: Machines, clock: FakeClock
 ) -> None:
-    _reg(conn, machines["desktop"][0], clock, agent_session_id="cc-1")
-    with pytest.raises(KampungError) as e:
-        _reg(conn, machines["laptop"][0], clock, agent_session_id="cc-1")
-    assert e.value.code == "not_owner"
+    desktop = _reg(conn, machines["desktop"][0], clock, agent_session_id="cc-1")
+    laptop = _reg(conn, machines["laptop"][0], clock, agent_session_id="cc-1")
+    assert desktop.id != laptop.id and laptop.machine == "laptop"
+    again = _reg(conn, machines["laptop"][0], clock, agent_session_id="cc-1")
+    assert again.id == laptop.id
+    assert _reg(conn, machines["desktop"][0], clock, agent_session_id="cc-1").id == (
+        desktop.id
+    )
+    denied = conn.execute("SELECT count(*) FROM audit WHERE action = 'denied'")
+    assert denied.fetchone()[0] == 0
 
 
 def test_register_bad_agent_and_repo(
@@ -116,7 +122,7 @@ def test_register_is_audited(
     ]
 
 
-def test_resolve_other_machine_is_not_owner(
+def test_resolve_other_machine_looks_missing(
     conn: sqlite3.Connection,
     machines: Machines,
     make_session: MakeSession,
@@ -125,9 +131,9 @@ def test_resolve_other_machine_is_not_owner(
     s = make_session("desktop", "blog")
     with pytest.raises(KampungError) as e:
         resolve(conn, machines["laptop"][0], s.id, clock.now())
-    assert e.value.code == "not_owner"
+    assert e.value.code == "unknown_session"
     denied = conn.execute("SELECT count(*) FROM audit WHERE action = 'denied'")
-    assert denied.fetchone()[0] == 1
+    assert denied.fetchone()[0] == 0
 
 
 def test_resolve_unknown_and_ended(
@@ -193,16 +199,6 @@ def test_revoke_ends_sessions(
     assert reloaded is not None and reloaded.ended_at is not None
 
 
-def test_register_not_owner_is_audited(
-    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
-) -> None:
-    _reg(conn, machines["desktop"][0], clock, agent_session_id="cc-1")
-    with pytest.raises(KampungError):
-        _reg(conn, machines["laptop"][0], clock, agent_session_id="cc-1")
-    denied = conn.execute("SELECT actor FROM audit WHERE action = 'denied'")
-    assert [r[0] for r in denied] == ["machine:laptop"]
-
-
 def _code(conn: sqlite3.Connection, m: Machine, clock: FakeClock, **kw: Any) -> str:
     with pytest.raises(KampungError) as e:
         _reg(conn, m, clock, **kw)
@@ -263,7 +259,7 @@ def test_register_caps_mailboxes_per_machine(
     _reg(conn, m, clock, repo="r0")
 
 
-def test_register_owner_check_inside_transaction(
+def test_another_machine_racing_for_the_same_id_does_not_block(
     conn: sqlite3.Connection,
     db_path: Path,
     machines: Machines,
@@ -283,10 +279,8 @@ def test_register_owner_check_inside_transaction(
             yield c
 
     monkeypatch.setattr(db, "transaction", racing)
-    m = machines["laptop"][0]
-    assert _code(conn, m, clock, agent_session_id="cc-race") == "not_owner"
-    denied = conn.execute("SELECT actor FROM audit WHERE action = 'denied'")
-    assert [r[0] for r in denied] == ["machine:laptop"]
+    mine = _reg(conn, machines["laptop"][0], clock, agent_session_id="cc-race")
+    assert mine.machine == "laptop"
 
 
 def test_connector_session_is_created_then_reused(
@@ -337,4 +331,4 @@ def test_connector_session_takes_back_an_id_claimed_before_the_fix(
     assert connector.id != squatter.id and connector.agent == "claude-app"
     with pytest.raises(KampungError) as e:
         sessions.resolve(conn, laptop, connector.id, clock.now())
-    assert e.value.code == "not_owner"
+    assert e.value.code == "unknown_session"

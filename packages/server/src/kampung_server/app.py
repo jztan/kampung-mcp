@@ -18,7 +18,7 @@ from .limits import SWEEP_EVERY
 from .oauth import KampungOAuth
 from .oauth_connect import ConnectLimiter, register_connect_routes
 from .sweep import start_sweeper
-from .throttle import AnyKnown, AuthFailureThrottle
+from .throttle import AnyKnown, AuthFailureThrottle, ClientAddress
 from .tools import SERVER_INSTRUCTIONS, register_tools
 
 
@@ -48,9 +48,11 @@ def build_server(deps: ServerDeps) -> FastMCP:
 
 def create_app(deps: ServerDeps) -> Starlette:
     app = build_server(deps).http_app(path="/mcp", stateless_http=True)
-    app.add_middleware(BodyLimit)
+    known = AnyKnown(deps.keys, deps.tokens)
+    app.add_middleware(BodyLimit, keys=known)
+    app.add_middleware(ClientAddress)
     # Outermost, so it sees the 401 from FastMCP's own key check on /mcp too.
-    app.add_middleware(AuthFailureThrottle, keys=AnyKnown(deps.keys, deps.tokens))
+    app.add_middleware(AuthFailureThrottle, keys=known)
     return app
 
 

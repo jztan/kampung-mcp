@@ -187,7 +187,6 @@ From the server:
 |---|---|---|
 | `unauthorized` | all | The machine key is unknown or revoked |
 | `missing_session` | all | The call didn't come through the adapter |
-| `not_owner` | all | The session belongs to another machine |
 | `busy` | all | The database was locked. Try again in a moment |
 | `empty_body` | `send` | The body is empty or only whitespace |
 | `body_too_large` | `send` | The body is over 8 KB |
@@ -196,7 +195,7 @@ From the server:
 | `machine_revoked` | `send` | The target machine was revoked |
 | `not_paired` | `send` | The two machines aren't paired. The hint gives the `kampung pair` command for the owner |
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
-| `unknown_session` | `send` | The `#xx` session has ended |
+| `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id, or it has expired, or it is not delivered yet |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |

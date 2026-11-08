@@ -8,12 +8,22 @@ the end marker).
 """
 
 import io
+import threading
 import warnings
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .errors import KampungError
-from .limits import IMAGE_LONG_EDGE, IMAGE_MAX_PIXELS, MAX_ATTACHMENT_IMAGE_BYTES
+from .limits import (
+    IMAGE_DECODES,
+    IMAGE_LONG_EDGE,
+    IMAGE_MAX_PIXELS,
+    MAX_ATTACHMENT_IMAGE_BYTES,
+)
+
+# Decoded pixels are the costly part: at most IMAGE_DECODES images hold them
+# at once, however many sends arrive together.
+_DECODE_SLOTS = threading.BoundedSemaphore(IMAGE_DECODES)
 
 
 def _unsupported() -> KampungError:
@@ -49,16 +59,19 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
         )
     source_format = opened.format
     try:
-        with warnings.catch_warnings():
+        with _DECODE_SLOTS, warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             opened.seek(0)
             opened.load()
-            img: Image.Image = ImageOps.exif_transpose(opened)
+            # In place, so there is one full-size copy, not two, and the
+            # shrink below frees it while the slot is still held.
+            ImageOps.exif_transpose(opened, in_place=True)
+            opened.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
+            img: Image.Image = opened
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as e:
         raise KampungError("attachment_too_large", "The image is too large.") from e
     except (OSError, ValueError, SyntaxError) as e:
         raise _unsupported() from e
-    img.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
     # A fresh image carries pixels only: no info, EXIF or ICC profile.
     mode = "RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB"
     clean = Image.new(mode, img.size)

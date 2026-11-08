@@ -12,20 +12,20 @@ Kampung is built for one owner per server: one container, one SQLite database, o
   <img src="docs/images/security-model.svg" alt="Each machine is a trust boundary holding one machine key in config.json. Calls go with the key over HTTPS or Tailscale to Caddy, which terminates TLS, caps request bodies, keeps /admin to loopback and the tailnet, and keeps the Claude app sign-in page to your own networks. The Claude app reaches the server through Anthropic's cloud with an OAuth token bound to one machine, issued only from a one-time kampung connect code and refused on /v1. A client with no key or a wrong key is rejected at the first check before its body is read. Inside the Kampung server every request passes six checks in order: machine key or OAuth token, ownership, pairing, limits, loop guard and the envelope that marks peer text as information only. Mail, hashed keys and tokens, and the audit log are kept in SQLite on a volume." width="860">
 </p>
 
-- **Closed by default.** Every `/mcp` and `/v1` request needs a machine key, or on `/mcp` a Claude app token. `/health` is open and returns only the version. `/admin` exists only when `KAMPUNG_ADMIN_TOKEN` is set, and the OAuth routes (`/.well-known/*`, `/authorize`, `/token`, `/revoke`, `/oauth/connect`) only when `KAMPUNG_PUBLIC_URL` is set. None of them gives mail access without a key or a grant, and the only state a stranger can create is a capped, 10-minute pending sign-in.
+- **Closed by default.** Every `/mcp` and `/v1` request needs a machine key, or on `/mcp` a Claude app token. `/health` is open and returns only the version. `/admin` exists only when `KAMPUNG_ADMIN_TOKEN` is set, and the OAuth routes (`/.well-known/*`, `/authorize`, `/token`, `/revoke`, `/oauth/connect`) only when `KAMPUNG_PUBLIC_URL` is set. None of them gives mail access without a key or a grant, and the only state a stranger can create is a pending sign-in: 10 minutes, at most 3 per client address (a fourth drops that address's oldest), so one address cannot fill the cap and lock you out.
 - **The Claude app connector** is a second credential bound to a machine. There is one fixed public OAuth client and no client registration. A grant starts only from a one-time code printed by `kampung connect` on the server and entered on the connect page, which the bundled Caddy keeps away from Anthropic's address range so it is only reachable from your own networks. Tokens are stored hashed, access tokens last an hour, refresh tokens rotate, a refresh token reused more than 60 seconds after rotation ends the grant (a rotated token is kept 7 days for that check, then simply refused), and `kampung disconnect`, `revoke` and `key rotate` end it at once. A Claude app token cannot reach `/v1`. A message from it that wakes its receiver does refill the receiver's loop-guard budgets, at most once per mailbox every 10 minutes and only toward machines the app's machine is paired with (see below).
 - **Loopback only.** The container publishes on `127.0.0.1`. Reach it from other machines through the `tls` profile (Caddy with automatic HTTPS) or over Tailscale.
 - **The client refuses plain `http://`** unless the host is loopback, because every request carries the machine key. `setup --allow-insecure-http` overrides this for a network you trust, such as Tailscale, and warns on every use. Tailscale addresses need it too: `100.64.0.0/10` is also carrier-grade NAT space, and a `*.ts.net` name falls back to public DNS when Tailscale is off.
 
 ## What Kampung protects against
 
-- **Clients without a key.** They get a 401 before any request body is read. Wrong keys are answered from memory, with no database lookup.
-- **Machines reaching mail that isn't theirs.** The machine is the trust boundary: a key can only use its own machine's mailboxes and sessions, and can only send to machines you have paired with `kampung pair`. The sender is taken from the key, never from the request.
+- **Clients without a key.** They are refused (401, or 413 for a declared body over the cap) before any request body is read or buffered. Wrong keys are answered from memory, with no database lookup, and a revoked key or token leaves that memory at its first refusal.
+- **Machines reaching mail that isn't theirs.** The machine is the trust boundary: a key can only use its own machine's mailboxes and sessions (another machine's session looks the same as one that does not exist, so ids cannot be probed, and Claude Code and Codex session ids are unique per machine, so another machine cannot claim one first), and can only send to machines you have paired with `kampung pair`. The sender is taken from the key, never from the request.
 - **A leaked database giving working keys.** Only the SHA-256 hash of each key is stored. Keys are 256 random bits, so they can't be guessed.
 - **Agents waking each other forever.** Each pair of mailboxes may wake each other 9 times in a row, with one wake back every 10 minutes, and each mailbox may wake peers 30 times until someone types in one of its sessions. Past either, mail is stored without waking anyone, and the send result says why. A stored-without-wake message makes nobody take a turn, so a runaway loop stops at the first one. A Claude app session spends neither budget but may wake peers at most 10 times in 10 minutes. The numbers are server settings. A machine key cannot act as its machine's Claude app session.
 - **Secrets sent by accident.** Every message body and text attachment is checked for private keys, common provider tokens, passwords in URLs and `.env` style lines, after folding lookalike characters, removing invisible ones and decoding one layer of base64. A hit refuses the send; the error names the kind and line, never the secret, and nothing is stored or logged. There is no override an agent could use.
 - **Attachments reading the wrong files.** The adapter attaches only from the project's `kampung-outbox` folder, refuses a folder or file that is a link, a hard link or not a plain file, and deletes only the file it sent, and only if it is still the same file. The server re-encodes every image itself and drops its metadata, GPS included.
-- **One key filling the server or a peer's mailbox.** Request bodies, unread mail per mailbox and per sending machine, sessions and mailboxes per machine, sends and registrations per minute are all capped, and sessions that ended long ago are deleted. See [Limits](#limits).
+- **One key filling the server or a peer's mailbox.** Request bodies, unread mail per mailbox and per sending machine, sessions and mailboxes per machine, sends, registrations and session calls per minute, decoded image size and decodes at once are all capped. Sessions that ended long ago are deleted, and the audit log keeps 90 days and at most 500,000 rows. See [Limits](#limits).
 - **Dashboard misuse.** The admin token must be at least 24 characters and is compared in constant time. Logins are limited to 5 failures per 15 minutes per client address, except for a browser that has already signed in with the token (it keeps a 30-day cookie derived from the token, so a flood from a shared address can't lock the owner out, and it still needs the token), sessions last 12 hours, every action needs a CSRF token, pages send a strict content security policy and can't be framed, and every change is audited.
 
 ## What it does not protect against
@@ -43,7 +43,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 
 ## Operator checklist
 
-- Deploy with `docker compose --profile tls up -d`, or keep the server on Tailscale only.
+- Deploy with `docker compose --profile tls up -d`, or keep the server on Tailscale only (see [Tailscale only](docs/server.md#tailscale-only): set `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1` when Caddy is not in front).
 - Treat the output of `kampung key add` and `kampung key rotate` as a secret: it is shown once, so keep it out of shared terminals, screen shares and CI logs. On each machine, let `kampung-mcp setup` ask for it instead of passing `--key` on the command line.
 - Generate the admin token with `openssl rand -hex 24`, or leave it unset if you don't use the dashboard.
 - If you turn on Caddy debug or access logging, leave the `Authorization` header out of the logs.
@@ -60,7 +60,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | What | Limit |
 |---|---|
 | Message body | 8 KB of UTF-8 |
-| Attachments | One per message: text up to 256 KB, or a PNG or JPEG up to 512 KB after shrinking to 1568 pixels on the long edge and 25 million pixels before decoding |
+| Attachments | One per message: text up to 256 KB, or a PNG or JPEG up to 512 KB after shrinking to 1568 pixels on the long edge and 8 million pixels before decoding, two decoded at a time |
 | Attachment reads | 16 KB per slice by default, 32 KB at most |
 | Unread attachments | 25 MB per sending machine; 500 MB stored on the server; none accepted when the data volume has under 1 GB free (`attachments_full`) |
 | Unread mail per mailbox | 1,000 (`mailbox_full`) |
@@ -68,8 +68,10 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Unread mail kept | 7 days |
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
+| Session calls per machine | `peek` 7,680 per minute (256 windows polling every 2 seconds), `end` 600 per minute |
 | Wrong keys per client address (IPv6: per /64) | 20 within a minute, then 429 for wrong keys until they age out |
 | Ended sessions kept | 30 days, then deleted up to 1,000 per cleanup pass |
+| Audit log | 90 days and at most 500,000 rows, the oldest deleted up to 1,000 per cleanup pass |
 | Live sessions | 32 per mailbox, 256 per machine |
 | Mailboxes per machine | 1,000 |
 | Session `cwd` | 1,024 printable characters |
@@ -81,6 +83,6 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Typed-prompt calls per machine | 60 per minute |
 | Claude app wakes | 10 per connector session per 10 minutes; later sends arrive with `wake: false` |
 | Connect code and pending sign-in | 10 minutes, single use; 5 wrong codes burn the sign-in; 20 wrong codes per client address in 15 minutes, then 429 |
-| Pending sign-ins | 100 live at a time |
+| Pending sign-ins | 3 per client address (IPv6: per /64), a fourth drops the oldest; 100 live at a time |
 | OAuth tokens | authorization code 5 minutes, access 1 hour, refresh 90 days renewed on use, 60 seconds of refresh retry; a rotated refresh token and an expired access token stay on record 7 days |
 | OAuth request body | 64 KB on `/token`, `/authorize`, `/revoke` and `/oauth/*` (in Caddy too); 4 KB for the connect form |

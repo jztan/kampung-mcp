@@ -125,3 +125,45 @@ def test_sweep_queries_use_indexes(
         if row["detail"].startswith("SCAN") and "INDEX" not in row["detail"]
     ]
     assert scans == []
+
+
+def _audit(conn: sqlite3.Connection, at: str, n: int) -> None:
+    conn.executemany(
+        "INSERT INTO audit (at, actor, action, detail) VALUES (?, 'x', 'send', '{}')",
+        [(at,)] * n,
+    )
+
+
+def test_old_audit_rows_are_swept_a_batch_at_a_time(
+    conn: sqlite3.Connection,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kampung_server.clock import ts
+
+    monkeypatch.setattr(sweep_module, "AUDIT_DELETE_BATCH", 2)
+    conn.execute("DELETE FROM audit")
+    _audit(conn, "2000-01-01T00:00:00.000000Z", 3)
+    _audit(conn, ts(clock.now()), 1)
+    sweep(conn, clock.now())
+    assert conn.execute("SELECT count(*) FROM audit").fetchone()[0] == 2
+    sweep(conn, clock.now())
+    sweep(conn, clock.now())
+    rows = conn.execute("SELECT at FROM audit").fetchall()
+    assert [r[0] for r in rows] == [ts(clock.now())]
+
+
+def test_audit_keeps_at_most_the_row_cap(
+    conn: sqlite3.Connection,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kampung_server.clock import ts
+
+    monkeypatch.setattr(sweep_module, "AUDIT_MAX_ROWS", 5)
+    conn.execute("DELETE FROM audit")
+    _audit(conn, ts(clock.now()), 8)
+    newest = conn.execute("SELECT max(id) FROM audit").fetchone()[0]
+    sweep(conn, clock.now())
+    ids = [r[0] for r in conn.execute("SELECT id FROM audit ORDER BY id")]
+    assert ids == list(range(newest - 4, newest + 1))

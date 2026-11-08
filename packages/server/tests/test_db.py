@@ -253,4 +253,32 @@ def test_schema_5_adds_wake_budgets_and_keeps_old_depths(tmp_path: Path) -> None
     box = old.execute("SELECT wakes_since_refill, connector_refill_at FROM mailboxes")
     assert tuple(box.fetchone()) == (0, None)
     assert old.execute("SELECT count(*) FROM pair_budgets").fetchone()[0] == 0
+    assert old.execute("SELECT machine_id FROM sessions").fetchone()[0] == 1
     old.close()
+
+
+def test_agent_session_id_is_unique_per_machine(conn: sqlite3.Connection) -> None:
+    for name, key in (("a", "x'01'"), ("b", "x'02'")):
+        conn.execute(
+            f"INSERT INTO machines (name, key_hash, created_at) VALUES ('{name}', "
+            f"{key}, 't')"
+        )
+    for machine in (1, 2):
+        conn.execute(
+            "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (?, 'r', 't')",
+            (machine,),
+        )
+
+    def add(mailbox: int, suffix: str) -> None:
+        conn.execute(
+            "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
+            "agent_session_id, cwd, hooks, started_at, last_seen) "
+            "VALUES (?, ?, ?, 'other', 'cc', '/', 0, 't', 't')",
+            (mailbox, mailbox, suffix),
+        )
+
+    add(1, "aa")
+    add(2, "aa")
+    assert [r[0] for r in conn.execute("SELECT machine_id FROM sessions")] == [1, 2]
+    with pytest.raises(sqlite3.IntegrityError):
+        add(1, "bb")

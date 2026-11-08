@@ -33,6 +33,7 @@ from starlette.concurrency import run_in_threadpool
 from . import audit, db, oauth_store
 from .clock import parse_ts
 from .keys import hash_key
+from .throttle import CLIENT_ADDRESS
 from .limits import (
     OAUTH_ACCESS_TTL,
     OAUTH_CODE_TTL,
@@ -83,6 +84,11 @@ class TokenIndex:
         """A token minted now, so the index never 401s it as stale."""
         with self._lock:
             self._hashes = self._hashes | {hash_key(token)}
+
+    def forget(self, token: str) -> None:
+        """A token the database turned down: no longer known to the throttle."""
+        with self._lock:
+            self._hashes = self._hashes - {hash_key(token)}
 
     def check(self, token: str) -> bool:
         """Whether the token is in the index after a reload if needed; blocking."""
@@ -172,13 +178,18 @@ class KampungOAuth(OAuthProvider):
             update={"scopes": list(dict.fromkeys(requested)), "resource": self.resource}
         )
         request_id = secrets.token_urlsafe(32)
+        client_address = CLIENT_ADDRESS.get()
 
         def work() -> bool:
             conn = self._deps.connect()
             try:
                 with db.transaction(conn):
                     return oauth_store.save_request(
-                        conn, request_id, pending.model_dump_json(), self._deps.clock()
+                        conn,
+                        request_id,
+                        pending.model_dump_json(),
+                        self._deps.clock(),
+                        client_address,
                     )
             finally:
                 conn.close()
@@ -393,6 +404,7 @@ class KampungOAuth(OAuthProvider):
             try:
                 loaded = oauth_store.load_token(conn, "access", token, now)
                 if loaded is None:
+                    self._deps.tokens.forget(token)
                     return None
                 record = json.loads(loaded[1])
                 revoked = conn.execute(
@@ -402,6 +414,7 @@ class KampungOAuth(OAuthProvider):
             finally:
                 conn.close()
             if revoked is None or revoked[0] is not None:
+                self._deps.tokens.forget(token)
                 return None
             return AccessToken(
                 token=token,

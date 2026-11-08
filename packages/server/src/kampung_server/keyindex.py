@@ -48,9 +48,18 @@ class KeyIndex:
                 self._reload(conn)
                 if hash_key(key) not in self._hashes:
                     return None
-            return authenticate(conn, key)
+            machine = authenticate(conn, key)
         finally:
             conn.close()
+        if machine is None:
+            # Revoked since the last load: forget it, or it would pass the
+            # per-address throttle as known until the next reload.
+            self.forget(key)
+        return machine
+
+    def forget(self, key: str) -> None:
+        with self._lock:
+            self._hashes = self._hashes - {hash_key(key)}
 
     def _fresh(self) -> bool:
         loaded = self._loaded_at

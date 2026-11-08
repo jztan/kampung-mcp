@@ -14,7 +14,9 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .outbox import OutboxError
 
-IMAGE_LONG_EDGE = 1568  # the server applies the same rules
+IMAGE_LONG_EDGE = 1568  # the server shrinks to the same edge
+# Decoded here, on the sender's own machine, so a large photo is fine: it is
+# shrunk to IMAGE_LONG_EDGE before it leaves, well under the server's cap.
 IMAGE_MAX_PIXELS = 25_000_000
 MAX_ATTACHMENT_IMAGE_BYTES = 512 * 1024
 

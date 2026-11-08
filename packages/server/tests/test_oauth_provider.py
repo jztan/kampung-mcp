@@ -398,3 +398,19 @@ async def test_access_token_is_indexed_only_once_committed(
     await provider.exchange_refresh_token(client, old, ["kampung"])
     other.close()
     assert seen == [True, True]
+
+
+async def test_rejected_tokens_leave_the_index(
+    provider: KampungOAuth,
+    deps: ServerDeps,
+    admin: AdminService,
+    machines: Machines,
+    clock: FakeClock,
+) -> None:
+    tokens = await connected(provider, machines, clock)
+    assert await provider.load_access_token(tokens.access_token) is not None
+    assert deps.tokens.is_known(tokens.access_token)
+    admin.disconnect("laptop", "admin:cli")
+    assert await provider.load_access_token(tokens.access_token) is None
+    # Known no more, so the per-address wrong-key throttle counts it again.
+    assert not deps.tokens.is_known(tokens.access_token)
