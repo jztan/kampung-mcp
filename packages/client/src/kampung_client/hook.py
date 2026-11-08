@@ -396,22 +396,24 @@ def repo_name(cwd: str) -> str:
     directory name, made valid; outside git, the folder's own name, except
     the home folder and temp folders (eval and throwaway runs), which share
     the machine's one scratch mailbox so they do not each leave one behind."""
+    return _mailbox(cwd)[1]
+
+
+def _mailbox(cwd: str) -> tuple[str, str]:
+    """The folder's pin key and its mailbox name, from one look at git."""
     folder, in_git = _folder(cwd)
-    pinned = _pins().get(_norm(folder))
-    if pinned is not None:
-        return pinned
-    return _computed_name(folder, in_git, cwd)
+    key = _norm(folder)
+    pinned = _pins().get(key)
+    return key, pinned if pinned is not None else _computed_name(folder, in_git, cwd)
 
 
-def pin_mailbox(cwd: str, repo: str) -> None:
+def pin_mailbox(key: str, repo: str) -> None:
     """Record the folder's mailbox name after its first registration. Scratch
     is never pinned: home and temp folders are throwaway, and pinning each
     would grow the file without end. Written atomically; two hooks racing
     write the same value."""
     if repo == SCRATCH_REPO:
         return
-    folder, _ = _folder(cwd)
-    key = _norm(folder)
     pins = _pins()
     if key in pins:
         return
@@ -555,10 +557,11 @@ def register(
     Without `ancestry` the file records no ancestors: Codex files are adopted
     by session id, and every Codex process shares one long-lived daemon.
     """
+    key, repo = _mailbox(cwd)
     body: dict[str, object] = {
         "agent": agent,
         "cwd": cwd,
-        "repo": repo_name(cwd),
+        "repo": repo,
         "hooks": hooks,
     }
     if agent_session_id is not None:
@@ -567,7 +570,7 @@ def register(
     if status != 200:
         raise HookError(f"register failed: HTTP {status} {data.get('error')}")
     try:
-        pin_mailbox(cwd, str(body["repo"]))
+        pin_mailbox(key, repo)
     except OSError:
         pass  # a later registration pins it; never fail a hook over this
     return {
