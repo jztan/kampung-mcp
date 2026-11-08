@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import os
+import sys
 import threading
 import time
 from typing import Any
@@ -18,7 +19,7 @@ from fastmcp.tools import ToolResult
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from mcp.types import InitializedNotification, Notification, TextContent
 
-from . import hook, images, outbox
+from . import codex_launch, hook, images, outbox
 from .hook import Ancestor
 
 # Attachments: a raw file may be large before an image is shrunk; the whole
@@ -279,6 +280,15 @@ class SessionResolver:
             self._data = found
             return found
 
+    def bind_at_launch(self, agent_session_id: str) -> bool:
+        """Codex: bind the thread found at launch, unless a tool call has
+        bound one meanwhile (its id is the authority). True when bound."""
+        with self._lock:
+            if self.bound is not None:
+                return False
+            self.bind(agent_session_id)
+            return True
+
     def target(self) -> dict[str, object] | None:
         """The session to watch for push, without ever registering or reviving.
 
@@ -371,8 +381,10 @@ def build_adapter(
         return codex_session_id(request.meta if request else None)
 
     async def session_for(ctx: Context | None) -> dict[str, object]:
-        """The session this call acts as. One Codex adapter serves several
-        windows, so it is settled per call, never once at start."""
+        """The session this call acts as. For Codex it is settled per call by
+        the call's own session id: that id is the authority, even over the
+        thread found at launch. (Codex 0.165 shared one adapter across
+        windows; 0.167 starts one per window. Per call is right for both.)"""
         if resolver.codex:
             session = await asyncio.to_thread(resolver.bind, codex_id_of(ctx))
             if waker is not None and resolver.bound is not None:
@@ -428,6 +440,8 @@ def build_adapter(
     mcp = FastMCP("kampung", instructions=INSTRUCTIONS)
     if channels:
         _add_channel_push(mcp, resolver)
+    if waker is not None and sys.platform != "win32":
+        _add_launch_binding(mcp, resolver, waker)
 
     @mcp.tool
     async def list_peers(
@@ -696,6 +710,38 @@ class CodexWaker:
                 if not isinstance(e, _QueueError):
                     delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
             await asyncio.sleep(delay)
+
+
+def _add_launch_binding(
+    mcp: FastMCP, resolver: SessionResolver, waker: CodexWaker
+) -> None:
+    """Codex: find this window's thread on the daemon's control socket once
+    the client is initialized, so the window is listed and wakeable before its
+    first prompt. Fails open: without a thread, the first tool call binds, as
+    before. Not on Windows, where Codex runs no hooks and only polls."""
+    handlers = mcp._mcp_server.notification_handlers
+    previous = handlers.get(InitializedNotification)
+    started: list[asyncio.Task[None]] = []
+
+    async def bind_now() -> None:
+        try:
+            found = await asyncio.to_thread(
+                codex_launch.find_launch_thread, resolver.cwd
+            )
+            if found is not None and await asyncio.to_thread(
+                resolver.bind_at_launch, found
+            ):
+                waker.start()
+        except Exception as e:  # noqa: BLE001 - never break the adapter
+            hook._log("codex-launch", e)
+
+    async def on_initialized(note: InitializedNotification) -> None:
+        if previous is not None:
+            await previous(note)
+        if not started:
+            started.append(asyncio.get_running_loop().create_task(bind_now()))
+
+    handlers[InitializedNotification] = on_initialized
 
 
 def _add_channel_push(mcp: FastMCP, resolver: SessionResolver) -> None:

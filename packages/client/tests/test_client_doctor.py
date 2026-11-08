@@ -388,3 +388,30 @@ def test_try_hook_finds_a_missing_script_in_the_powershell_form(
     status, detail = doctor._try_hook(setup.powershell_hook_command(str(gone)))
     assert status == doctor.FAIL
     assert "gone" in detail
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no launch binding on Windows")
+def test_codex_launch_check(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_client_codex_launch import FakeDaemon
+
+    _install_hooks(home)
+    setup._merge_codex_hooks({})
+    checks = doctor.run_checks(_registered)
+    assert _by_name(checks, "codex launch").status == doctor.OK
+    assert "not running" in _by_name(checks, "codex launch").detail
+    daemon = FakeDaemon(home, [])
+    try:
+        checks = doctor.run_checks(_registered)
+        assert _by_name(checks, "codex launch").status == doctor.OK
+        assert "before their first prompt" in _by_name(checks, "codex launch").detail
+    finally:
+        daemon.close()
+    # A socket path that exists but refuses connections: a broken daemon.
+    link = home / ".codex" / "app-server-control" / "app-server-control.sock"
+    link.unlink()
+    link.write_text("not a socket")
+    checks = doctor.run_checks(_registered)
+    launch = _by_name(checks, "codex launch")
+    assert launch.status == doctor.WARN and "first prompt" in launch.detail
