@@ -17,10 +17,16 @@ import os
 import socket
 import struct
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from . import hook
+
+try:
+    import fcntl
+except ImportError:  # Windows: no launch binding there
+    fcntl = None  # type: ignore[assignment]
 
 TRY_BUDGET = 3.0  # seconds one look at the socket may take, start to finish
 # The window's thread appears only once the folder-trust prompt is answered,
@@ -277,42 +283,46 @@ def _claims_dir() -> Path:
     return hook.cache_dir() / "codex-claims"
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # someone else's live process
-    return True
+# Claims this adapter holds: thread id -> the open, locked claim file. The
+# lock lives as long as the descriptor, so it ends with the process.
+_held: dict[str, int] = {}
 
 
 def claim_thread(tid: str) -> bool:
-    """Claim a thread for this adapter, so two adapters never bind one.
-    A claim is a file holding the adapter's pid, made exclusively; a claim
-    whose pid is gone is stale and taken over. True when the claim is ours."""
+    """Claim a thread for this adapter, so two adapters never bind one. A
+    claim is an exclusive kernel lock (flock) on a file per thread, held
+    while this process runs: the kernel drops it when the process dies, so
+    no claim goes stale and no pid is guessed at. True when it is ours."""
+    if tid in _held:
+        return True
+    if fcntl is None or tid in (".", "..") or not tid:
+        return False
     path = _claims_dir() / hook._NAME_BAD.sub("_", tid)
     path.parent.mkdir(parents=True, exist_ok=True)
-    for _ in range(2):
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            try:
-                holder = int(path.read_text().strip() or 0)
-            except (OSError, ValueError):
-                holder = 0
-            if holder == os.getpid():
-                return True
-            if holder and _alive(holder):
-                return False
-            try:
-                path.unlink()  # stale: its adapter is gone
-            except FileNotFoundError:
-                pass
-            continue
-        with os.fdopen(fd, "w") as f:
-            f.write(str(os.getpid()))
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:  # held by another adapter
+        os.close(fd)
+        return False
+    os.ftruncate(fd, 0)
+    os.write(fd, str(os.getpid()).encode())  # for people reading the folder
+    _held[tid] = fd
+    return True
+
+
+def release_claim(tid: str) -> None:
+    fd = _held.pop(tid, None)
+    if fd is not None:
+        os.close(fd)  # closing drops the lock
+
+
+def adopt(tid: str, bind: Callable[[str], bool]) -> bool:
+    """Bind a claimed thread with `bind`; if it declines (a tool call bound
+    first), give the claim back, so the thread's own window can take it."""
+    if bind(tid):
         return True
+    release_claim(tid)
     return False
 
 

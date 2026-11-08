@@ -8,6 +8,7 @@ import os
 import shutil
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -18,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from client_testlib import LiveServer, RawMCP, git_repo, peer_send
+from client_testlib import LiveServer, RawMCP, git_repo, home_env, peer_send
 from kampung_client import codex_launch, hook
 from test_client_codex_wake import WAKE, fake_codex, wait_for_calls
 
@@ -272,11 +273,15 @@ def test_a_new_window_is_listed_and_woken_before_its_first_prompt(
 def test_a_thread_another_adapter_claimed_is_left_alone(
     home: Path, tmp_path: Path, daemon_for: Any
 ) -> None:
-    claims = home / ".cache" / "kampung" / "codex-claims"
-    claims.mkdir(parents=True)
-    (claims / "cx-taken").write_text(str(os.getppid()))  # a live process
-    daemon_for([thread("cx-taken", tmp_path, time.time())])
-    assert codex_launch.launch_thread_once(str(tmp_path), not_before=0) is None
+    taken, free = uuid7(time.time() + 1), uuid7(time.time())
+    holder = hold_claim(home, taken)
+    try:
+        daemon_for([thread(taken, tmp_path, 0), thread(free, tmp_path, 0)])
+        # The newest is held by another adapter, so the next one is ours.
+        assert codex_launch.launch_thread_once(str(tmp_path), not_before=0) == free
+    finally:
+        holder.kill()
+        holder.wait()
 
 
 def uuid7(at: float) -> str:
@@ -313,18 +318,71 @@ def test_candidates_go_by_the_id_time_not_the_daemons_created_at(
     assert codex_launch.launch_candidates(threads, str(tmp_path), now - 5) == [new]
 
 
-def test_claims_are_exclusive_and_dead_claims_are_taken(home: Path) -> None:
+_HOLDER = """
+import sys, time
+from kampung_client import codex_launch
+print(codex_launch.claim_thread(sys.argv[1]), flush=True)
+time.sleep(float(sys.argv[2]))
+"""
+
+
+def hold_claim(home: Path, tid: str, seconds: float = 30) -> "subprocess.Popen[str]":
+    """Another adapter process holding a claim; returns once it answered."""
+    env = {**os.environ, **home_env(home)}
+    proc = subprocess.Popen(
+        [sys.executable, "-c", _HOLDER, tid, str(seconds)],
+        stdout=subprocess.PIPE,
+        env=env,
+        text=True,
+    )
+    assert proc.stdout is not None
+    assert proc.stdout.readline().strip() == "True"
+    return proc
+
+
+def test_a_claim_held_by_another_process_is_refused_until_it_exits(
+    home: Path,
+) -> None:
+    holder = hold_claim(home, "t-other")
+    try:
+        assert not codex_launch.claim_thread("t-other")
+    finally:
+        holder.kill()
+        holder.wait()
+    # The kernel dropped the dead process's lock; the file left behind is free.
+    assert codex_launch.claim_thread("t-other")
+    assert codex_launch.claim_thread("t-other")  # still ours
+
+
+def test_an_empty_claim_file_left_behind_is_free(home: Path) -> None:
     claims = home / ".cache" / "kampung" / "codex-claims"
+    claims.mkdir(parents=True)
+    (claims / "t-empty").write_text("")
+    assert codex_launch.claim_thread("t-empty")
+
+
+def test_two_processes_racing_for_one_claim_get_one_winner(home: Path) -> None:
+    env = {**os.environ, **home_env(home)}
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", _HOLDER, "t-race", "2"],
+            stdout=subprocess.PIPE,
+            env=env,
+            text=True,
+        )
+        for _ in range(6)
+    ]
+    answers = [p.communicate()[0].strip() for p in procs]
+    assert sorted(answers) == ["False"] * 5 + ["True"]
+
+
+def test_a_claim_is_released_when_a_tool_call_bound_first(home: Path) -> None:
     assert codex_launch.claim_thread("t-mine")
-    assert codex_launch.claim_thread("t-mine")  # still ours
-    claims.mkdir(parents=True, exist_ok=True)
-    (claims / "t-live").write_text(str(os.getppid()))  # alive, not us
-    assert not codex_launch.claim_thread("t-live")
-    dead = __import__("subprocess").Popen([sys.executable, "-c", "pass"])
-    dead.wait()
-    (claims / "t-dead").write_text(str(dead.pid))
-    assert codex_launch.claim_thread("t-dead")
-    assert (claims / "t-dead").read_text() == str(os.getpid())
+    assert not codex_launch.adopt("t-mine", lambda tid: False)
+    holder = hold_claim(home, "t-mine", 1)  # free for another window again
+    holder.wait()
+    assert codex_launch.claim_thread("t-mine")
+    assert codex_launch.adopt("t-mine", lambda tid: True)
 
 
 def test_each_look_ends_with_a_close_frame(
@@ -361,3 +419,32 @@ def test_the_windows_own_hook_session_is_adopted_and_woken(
         assert again is not None and again["session"] == hooked["session"]
     finally:
         mcp.close()
+
+
+def test_a_claim_still_being_written_is_not_taken(home: Path) -> None:
+    # Another adapter has made the claim file and holds it, but has not
+    # written its pid yet: that claim is live, not stale.
+    claims = home / ".cache" / "kampung" / "codex-claims"
+    claims.mkdir(parents=True)
+    path = claims / "t-new"
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl, os, sys, time\n"
+            "fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)\n"
+            "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+            "print('held', flush=True)\n"
+            "time.sleep(30)\n",
+            str(path),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert child.stdout is not None and child.stdout.readline().strip() == "held"
+        assert path.read_text() == ""
+        assert not codex_launch.claim_thread("t-new")
+    finally:
+        child.kill()
+        child.wait()
