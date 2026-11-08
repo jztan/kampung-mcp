@@ -58,8 +58,8 @@ def test_envelope_shape(
         "from",
         "to",
         "sent_at",
-        "depth",
         "reply_to",
+        "fyi",
         "kind",
         "body",
         "attachment",
@@ -67,19 +67,16 @@ def test_envelope_shape(
     assert env["kind"] == KIND
     assert env["from"] == pair[0].address
     assert env["to"] == "desktop/blog"
-    assert env["body"] == "hello" and env["depth"] == 0 and env["reply_to"] is None
+    assert env["body"] == "hello" and env["fyi"] is False and env["reply_to"] is None
 
 
-def test_inbox_updates_max_depth_seen(
+def test_inbox_records_delivery_but_no_depth(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
-    conn.execute("UPDATE sessions SET max_depth_seen = 1 WHERE id = ?", (pair[0].id,))
-    sender = load_session(conn, pair[0].id)
-    assert sender is not None
-    send(conn, sender, "desktop/blog", "hi", None, clock.now())
+    send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
     inbox(conn, pair[1], 20, clock.now())
     receiver = load_session(conn, pair[1].id)
-    assert receiver is not None and receiver.max_depth_seen == 2
+    assert receiver is not None and receiver.max_depth_seen == -1
     assert receiver.last_delivered_at is not None
 
 
@@ -139,10 +136,7 @@ def test_peek_counts_wakeable_and_does_not_deliver(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
     woke = send(conn, pair[0], "desktop/blog", "wake", None, clock.now()).id
-    conn.execute("UPDATE sessions SET max_depth_seen = 3 WHERE id = ?", (pair[0].id,))
-    deep = load_session(conn, pair[0].id)
-    assert deep is not None
-    send(conn, deep, "desktop/blog", "no wake", None, clock.now())
+    send(conn, pair[0], "desktop/blog", "no wake", None, clock.now(), fyi=True)
     assert peek(conn, pair[1], clock.now()) == PeekResult(2, 1, woke)
     assert peek(conn, pair[1], clock.now()).to_dict() == {
         "waiting": 2,

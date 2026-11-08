@@ -9,17 +9,13 @@ from server_testlib import FakeClock, MakeSession
 Machines = dict[str, tuple[Machine, str]]
 
 
-def deep(conn: sqlite3.Connection, session: Session, depth: int) -> Session:
-    """The session as if it had read mail of this depth."""
+def drained(conn: sqlite3.Connection, session: Session) -> Session:
+    """The session with its mailbox's wake budget used up: its sends are held."""
     conn.execute(
-        "UPDATE sessions SET max_depth_seen = ?, last_delivered_at = last_seen "
-        "WHERE id = ?",
-        (depth, session.id),
+        "UPDATE mailboxes SET wakes_since_refill = 1000 WHERE id = ?",
+        (session.mailbox_id,),
     )
-    conn.commit()
-    loaded = load_session(conn, session.id)
-    assert loaded is not None
-    return loaded
+    return session
 
 
 def test_overview_counts(
@@ -32,7 +28,7 @@ def test_overview_counts(
     make_session("desktop", "api")
     mail.send(conn, a, "desktop/api", "one", None, clock.now())
     mail.send(conn, a, "desktop/api", "two", None, clock.now())
-    mail.send(conn, deep(conn, a, 3), "desktop/api", "deep", None, clock.now())
+    mail.send(conn, drained(conn, a), "desktop/api", "deep", None, clock.now())
     admin.add_machine("old", "admin:cli")
     admin.revoke("old", "admin:cli")
     o = queries.overview(conn, clock.now())
@@ -67,7 +63,7 @@ def test_message_states(
     b = make_session("desktop", "api")
     first = mail.send(conn, a, "desktop/api", "read me", None, clock.now())
     clock.advance(seconds=1)  # inbox reads oldest first
-    held = mail.send(conn, deep(conn, a, 3), "desktop/api", "held", None, clock.now())
+    held = mail.send(conn, drained(conn, a), "desktop/api", "held", None, clock.now())
 
     def state(message_id: str) -> str:
         rows = queries.messages(conn, clock.now(), None, state="all").rows
@@ -90,11 +86,11 @@ def test_messages_filters(
     make_session("desktop", "blog")
     mail.send(conn, a, "desktop/api", "to api", None, clock.now())
     mail.send(conn, a, "desktop/blog", "to blog", None, clock.now())
-    mail.send(conn, deep(conn, a, 3), "desktop/api", "held", None, clock.now())
+    mail.send(conn, drained(conn, a), "desktop/api", "held", None, clock.now())
     api = queries.messages(conn, clock.now(), "desktop/api").rows
     assert {r.to for r in api} == {"desktop/api"} and len(api) == 2
     held = queries.messages(conn, clock.now(), None, no_wake_only=True).rows
-    assert [r.depth for r in held] == [4]
+    assert [r.to for r in held] == ["desktop/api"]
 
 
 def test_lists_cap_at_100(

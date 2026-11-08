@@ -90,7 +90,7 @@ async def test_two_machines_exchange(server: Server) -> None:
     b = register(server, "desktop", "blog")
     async with client_for(server, server.keys["laptop"], a) as ca:
         r = await ca.call_tool("send", {"to": "desktop/blog", "body": "hello from api"})
-        assert r.data["depth"] == 0 and r.data["wake"] is True
+        assert "depth" not in r.data and r.data["wake"] is True
     async with client_for(server, server.keys["desktop"], b) as cb:
         r = await cb.call_tool("inbox", {})
         msg = r.data["messages"][0]

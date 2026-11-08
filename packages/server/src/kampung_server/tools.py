@@ -153,6 +153,7 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         body: str,
         reply_to: str | None = None,
         attachment: dict[str, str] | None = None,
+        fyi: bool = False,
     ) -> Result:
         """Send a short text message to machine/repo or machine/repo#xx.
 
@@ -176,7 +177,9 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
                 if attachment is None
                 else attachments.parse_attachment(attachment, _is_connector())
             )
-            return mail.send(conn, s, to, body, reply_to, now, parsed).to_dict()
+            return mail.send(
+                conn, s, to, body, reply_to, now, parsed, fyi=fyi, guard=deps.guard
+            ).to_dict()
 
         return call(work)
 

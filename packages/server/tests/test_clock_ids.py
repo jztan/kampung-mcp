@@ -51,8 +51,6 @@ def test_limits_values() -> None:
     assert limits.INBOX_MAX == 20
     assert limits.LIVE_WINDOW == timedelta(minutes=30)
     assert limits.TARGET_FALLBACK == timedelta(hours=24)
-    assert limits.WAKE_DEPTH_LIMIT == 3
-    assert limits.NOHOOK_DEPTH_RESET == timedelta(minutes=30)
     assert limits.SEND_RATE == 60
     assert limits.SEND_RATE_WINDOW == timedelta(seconds=60)
 
