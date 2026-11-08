@@ -37,6 +37,10 @@ def _recv_exact(conn: socket.socket, n: int) -> bytes:
     return buf
 
 
+class _Closed(Exception):
+    pass
+
+
 def _read_frame(conn: socket.socket) -> bytes:
     b1, b2 = _recv_exact(conn, 2)
     n = b2 & 0x7F
@@ -46,6 +50,8 @@ def _read_frame(conn: socket.socket) -> bytes:
         n = struct.unpack(">Q", _recv_exact(conn, 8))[0]
     mask = _recv_exact(conn, 4) if b2 & 0x80 else b"\0\0\0\0"
     data = _recv_exact(conn, n)
+    if b1 & 0x0F == 0x8:
+        raise _Closed
     return bytes(b ^ mask[i % 4] for i, b in enumerate(data))
 
 
@@ -67,6 +73,7 @@ class FakeDaemon:
         self.threads = threads
         self.unreadable = {"gone-1"}
         self.flood = False  # send notifications forever instead of answering
+        self.closes = 0  # close frames received
         self.dir = tempfile.mkdtemp(prefix="kcs-", dir="/tmp")
         self.path = os.path.join(self.dir, "s")
         self.sock = socket.socket(socket.AF_UNIX)
@@ -138,6 +145,8 @@ class FakeDaemon:
                 else:
                     result = {}
                 _write_frame(conn, json.dumps({"id": msg["id"], "result": result}))
+        except _Closed:
+            self.closes += 1
         except (EOFError, OSError, IndexError, ValueError):
             pass
         finally:
@@ -181,7 +190,7 @@ def daemon_for(home: Path) -> Iterator[Any]:
         d.close()
 
 
-def test_pick_takes_the_newest_fresh_unclaimed_thread_in_this_folder(
+def test_candidates_are_fresh_threads_in_this_folder_newest_first(
     tmp_path: Path,
 ) -> None:
     here, other = tmp_path / "api", tmp_path / "blog"
@@ -195,11 +204,12 @@ def test_pick_takes_the_newest_fresh_unclaimed_thread_in_this_folder(
         thread("old-fresh", here, 150),
         thread("new", here, 200),
     ]
-    pick = codex_launch.pick_launch_thread
-    assert pick(threads, str(here), {"claimed"}, not_before=100) == "new"
-    assert pick(threads, str(other), set(), not_before=100) == "elsewhere"
-    assert pick(threads, str(tmp_path), set(), not_before=100) is None
-    assert pick(threads, str(here), {"claimed"}, not_before=900) is None
+    pick = codex_launch.launch_candidates
+    # Ids here are not UUIDv7, so the daemon's createdAt decides the time.
+    assert pick(threads, str(here), not_before=100) == ["claimed", "new", "old-fresh"]
+    assert pick(threads, str(other), not_before=100) == ["elsewhere"]
+    assert pick(threads, str(tmp_path), not_before=100) == []
+    assert pick(threads, str(here), not_before=900) == []
 
 
 def test_loaded_threads_reads_every_page_and_skips_unreadable_ones(
@@ -259,9 +269,70 @@ def test_a_new_window_is_listed_and_woken_before_its_first_prompt(
         mcp.close()
 
 
-def test_a_thread_another_window_claimed_is_left_alone(
+def test_a_thread_another_adapter_claimed_is_left_alone(
     home: Path, tmp_path: Path, daemon_for: Any
 ) -> None:
-    hook.write_session_file("cx-taken", {"session": "1", "hooks": True})
+    claims = home / ".cache" / "kampung" / "codex-claims"
+    claims.mkdir(parents=True)
+    (claims / "cx-taken").write_text(str(os.getppid()))  # a live process
     daemon_for([thread("cx-taken", tmp_path, time.time())])
     assert codex_launch.launch_thread_once(str(tmp_path), not_before=0) is None
+
+
+def uuid7(at: float) -> str:
+    """A UUIDv7-shaped thread id for a moment, as Codex makes them."""
+    ms = int(at * 1000)
+    rand = os.urandom(10).hex()
+    return (
+        f"{ms:012x}"[:8]
+        + "-"
+        + f"{ms:012x}"[8:]
+        + "-7"
+        + rand[:3]
+        + "-8"
+        + rand[3:6]
+        + "-"
+        + rand[6:18]
+    )
+
+
+def test_a_thread_id_carries_its_creation_time() -> None:
+    at = 1794153889.132
+    assert codex_launch.thread_created_at(uuid7(at)) == pytest.approx(at, abs=0.001)
+    assert codex_launch.thread_created_at("cx-launch") is None
+
+
+def test_candidates_go_by_the_id_time_not_the_daemons_created_at(
+    tmp_path: Path,
+) -> None:
+    now = time.time()
+    old = uuid7(now - 600)
+    new = uuid7(now)
+    # The daemon reports a fresh createdAt for a thread opened long ago.
+    threads = [thread(old, tmp_path, now + 5), thread(new, tmp_path, now)]
+    assert codex_launch.launch_candidates(threads, str(tmp_path), now - 5) == [new]
+
+
+def test_claims_are_exclusive_and_dead_claims_are_taken(home: Path) -> None:
+    claims = home / ".cache" / "kampung" / "codex-claims"
+    assert codex_launch.claim_thread("t-mine")
+    assert codex_launch.claim_thread("t-mine")  # still ours
+    claims.mkdir(parents=True, exist_ok=True)
+    (claims / "t-live").write_text(str(os.getppid()))  # alive, not us
+    assert not codex_launch.claim_thread("t-live")
+    dead = __import__("subprocess").Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    (claims / "t-dead").write_text(str(dead.pid))
+    assert codex_launch.claim_thread("t-dead")
+    assert (claims / "t-dead").read_text() == str(os.getpid())
+
+
+def test_each_look_ends_with_a_close_frame(
+    home: Path, tmp_path: Path, daemon_for: Any
+) -> None:
+    daemon = daemon_for([thread(uuid7(time.time()), tmp_path, time.time())])
+    codex_launch.loaded_threads(codex_launch.control_socket())
+    end = time.monotonic() + 2
+    while time.monotonic() < end and daemon.closes == 0:
+        time.sleep(0.05)
+    assert daemon.closes == 1
