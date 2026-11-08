@@ -55,26 +55,29 @@ def save_request(
     params_json: str,
     now: datetime,
     client: str,
-) -> bool:
-    """False when the cap on live requests is reached. An address keeps only
-    its newest OAUTH_REQUESTS_PER_CLIENT requests: older ones are dropped."""
+) -> None:
+    """Save a pending sign-in. An address keeps only its newest
+    OAUTH_REQUESTS_PER_CLIENT; at OAUTH_MAX_REQUESTS overall the oldest goes.
+    A sign-in is never refused, so a flood cannot lock the owner out: it can
+    only push out requests older than the owner's, one at a time."""
     conn.execute(
         "DELETE FROM oauth_requests WHERE client = ? AND request_id NOT IN "
         "(SELECT request_id FROM oauth_requests WHERE client = ? "
         "AND expires_at > ? ORDER BY expires_at DESC, rowid DESC LIMIT ?)",
         (client, client, ts(now), OAUTH_REQUESTS_PER_CLIENT - 1),
     )
-    live = conn.execute(
-        "SELECT count(*) FROM oauth_requests WHERE expires_at > ?", (ts(now),)
-    ).fetchone()[0]
-    if live >= OAUTH_MAX_REQUESTS:
-        return False
+    conn.execute("DELETE FROM oauth_requests WHERE expires_at <= ?", (ts(now),))
+    conn.execute(
+        "DELETE FROM oauth_requests WHERE rowid IN (SELECT rowid FROM oauth_requests "
+        "ORDER BY expires_at, rowid LIMIT max(0, "
+        "(SELECT count(*) FROM oauth_requests) - ?))",
+        (OAUTH_MAX_REQUESTS - 1,),
+    )
     conn.execute(
         "INSERT INTO oauth_requests (request_id, params_json, expires_at, client) "
         "VALUES (?, ?, ?, ?)",
         (request_id, params_json, ts(now + OAUTH_REQUEST_TTL), client),
     )
-    return True
 
 
 def load_request(

@@ -69,6 +69,9 @@ IMAGE_LONG_EDGE = 1568  # what Claude keeps of an image anyway
 # Our adapter shrinks images to IMAGE_LONG_EDGE before sending.
 IMAGE_MAX_PIXELS = 8_000_000
 IMAGE_DECODES = 2
+# Seconds a send waits for a decode slot before it is refused as busy, so a
+# burst of images fails fast instead of holding request threads.
+IMAGE_DECODE_WAIT = 5.0
 # Claude Code moves a text result over 50,000 characters into a file the
 # Claude app cannot open, so reads come in slices well under that.
 READ_SLICE_DEFAULT = 16 * 1024

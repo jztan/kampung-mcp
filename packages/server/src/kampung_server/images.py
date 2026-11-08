@@ -15,6 +15,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .errors import KampungError
 from .limits import (
+    IMAGE_DECODE_WAIT,
     IMAGE_DECODES,
     IMAGE_LONG_EDGE,
     IMAGE_MAX_PIXELS,
@@ -58,8 +59,12 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
             f"{IMAGE_MAX_PIXELS} pixels are accepted.",
         )
     source_format = opened.format
+    if not _DECODE_SLOTS.acquire(timeout=IMAGE_DECODE_WAIT):
+        raise KampungError(
+            "busy", "The server is decoding other images. Try again in a moment."
+        )
     try:
-        with _DECODE_SLOTS, warnings.catch_warnings():
+        with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             opened.seek(0)
             opened.load()
@@ -72,6 +77,8 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
         raise KampungError("attachment_too_large", "The image is too large.") from e
     except (OSError, ValueError, SyntaxError) as e:
         raise _unsupported() from e
+    finally:
+        _DECODE_SLOTS.release()
     # A fresh image carries pixels only: no info, EXIF or ICC profile.
     mode = "RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB"
     clean = Image.new(mode, img.size)

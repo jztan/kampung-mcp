@@ -7,6 +7,9 @@ from importlib import resources
 from pathlib import Path
 
 # schema.sql builds version 1; schema_<n>.sql upgrades version n - 1 to n.
+# A schema file is frozen once any server has run it, a develop build
+# included: a database at version n never runs schema_<n>.sql again, so a
+# later edit to it never reaches that database. Changes go in a new file.
 SCHEMA_VERSION = 5
 # Deleted attachments give space back, and the WAL is trimmed after a
 # checkpoint, so a busy week cannot leave the volume full.
