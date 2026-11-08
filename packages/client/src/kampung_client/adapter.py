@@ -463,8 +463,10 @@ def build_adapter(
 
         Messages wake the receiver within a budget: each pair of mailboxes
         gets a few wakes in a row, which come back over time, and a mailbox
-        gets more until its user types again. Past a budget the message is
-        still delivered on the receiver's next turn, but wake is false. When
+        gets more until its user types again (or, for a session whose hooks
+        never report typing, after a quiet spell with no waking sends). Past
+        a budget the message is still delivered on the receiver's next turn,
+        but wake is false. When
         wake is false, read reason and hint: they say why and who has to act.
         Don't keep sending to wake the peer; stop and tell your user.
 

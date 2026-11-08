@@ -20,7 +20,7 @@ from .deps import ServerDeps
 from .errors import KampungError
 from .guard import GuardSettings
 from .ids import parse_session_id
-from .limits import READ_SLICE_DEFAULT
+from .limits import NOHOOK_MAILBOX_REFILL, READ_SLICE_DEFAULT
 from .models import Machine, Session, machine_from_row
 
 SESSION_HEADER = "x-kampung-session"
@@ -39,6 +39,7 @@ SERVER_INSTRUCTIONS = (
 def send_description(g: GuardSettings) -> str:
     """The send tool's description, with this server's loop guard settings."""
     minutes = int(g.pair_refill.total_seconds() // 60)
+    quiet = int(NOHOOK_MAILBOX_REFILL.total_seconds() // 60)
     return f"""Send a short text message to machine/repo or machine/repo#xx.
 
 attachment is optional: {{"name": "notes.md", "text": "..."}} for up to
@@ -49,8 +50,11 @@ secrets such as API keys; a hit refuses the whole send.
 Messages wake the receiver within a budget. Two mailboxes may wake each
 other {g.pair_size} times in a row, and get one wake back
 every {minutes} minutes. A mailbox may wake peers {g.mailbox_budget} times
-until someone types in one of its sessions. Past a budget the message is still delivered
-on the receiver's next turn, but wake is false: read reason and hint, which
+until someone types in one of its sessions; a session that never reports
+typing (no hooks, or Codex on Windows) gets its mailbox's budget back
+after {quiet} minutes without waking sends instead. Past a budget the
+message is still delivered on the receiver's next turn, but wake is
+false: read reason and hint, which
 say why and who has to act. Don't keep sending to wake the peer; stop and
 tell your user. wake=true means it may wake the receiver, not that it
 will: an idle session may not see it until its next turn.
