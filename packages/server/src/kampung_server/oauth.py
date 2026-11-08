@@ -85,6 +85,11 @@ class TokenIndex:
         with self._lock:
             self._hashes = self._hashes | {hash_key(token)}
 
+    def forget(self, token: str) -> None:
+        """A token the database turned down: no longer known to the throttle."""
+        with self._lock:
+            self._hashes = self._hashes - {hash_key(token)}
+
     def check(self, token: str) -> bool:
         """Whether the token is in the index after a reload if needed; blocking."""
         if hash_key(token) in self._hashes:
@@ -399,6 +404,7 @@ class KampungOAuth(OAuthProvider):
             try:
                 loaded = oauth_store.load_token(conn, "access", token, now)
                 if loaded is None:
+                    self._deps.tokens.forget(token)
                     return None
                 record = json.loads(loaded[1])
                 revoked = conn.execute(
@@ -408,6 +414,7 @@ class KampungOAuth(OAuthProvider):
             finally:
                 conn.close()
             if revoked is None or revoked[0] is not None:
+                self._deps.tokens.forget(token)
                 return None
             return AccessToken(
                 token=token,
