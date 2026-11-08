@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -312,15 +313,44 @@ def ancestors(pid: int | None = None) -> list[Ancestor]:
 
 
 SCRATCH_REPO = "scratch"
+_TEMP_DIRS = (
+    "/tmp",
+    "/var/tmp",
+    "/private/tmp",
+    "/var/folders",
+    "/private/var/folders",
+)
+
+
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _temp_roots() -> list[str]:
+    """The system temp folders, resolved: where eval and throwaway runs live."""
+    found = [tempfile.gettempdir(), *_TEMP_DIRS]
+    found += [os.environ[v] for v in ("TMPDIR", "TEMP", "TMP") if os.environ.get(v)]
+    return [_norm(p) for p in found]
+
+
+def _is_scratch(cwd: str) -> bool:
+    """The home folder itself, or anywhere under a temp folder."""
+    here = _norm(cwd)
+    if here == _norm(str(Path.home())):
+        return True
+    return any(
+        here == root or here.startswith(root.rstrip(os.sep) + os.sep)
+        for root in _temp_roots()
+    )
 
 
 def repo_name(cwd: str) -> str:
     """The mailbox repo name: the git worktree's directory name, made valid.
 
-    A cwd outside any git worktree (a temp or eval folder, the home folder)
-    gets the machine's one shared scratch mailbox, so throwaway folders do not
-    each leave a mailbox behind."""
-    name = SCRATCH_REPO
+    Outside git, the folder's own name, except the home folder and temp
+    folders (eval and throwaway runs), which share the machine's one scratch
+    mailbox so they do not each leave a mailbox behind."""
+    name = None
     try:
         top = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
@@ -335,6 +365,10 @@ def repo_name(cwd: str) -> str:
             name = os.path.basename(top.stdout.strip())
     except (OSError, subprocess.SubprocessError):
         pass
+    if name is None:
+        if _is_scratch(cwd):
+            return SCRATCH_REPO
+        name = os.path.basename(os.path.normpath(cwd))
     cleaned = _NAME_BAD.sub("-", name)
     cleaned = re.sub(r"^[^A-Za-z0-9]+", "", cleaned)[:64]
     return cleaned or "root"

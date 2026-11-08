@@ -59,13 +59,50 @@ def test_repo_name_sanitizes(
     assert hook.repo_name(str(tmp_path)) == expected
 
 
-def test_repo_name_outside_git_is_the_shared_scratch_mailbox(
-    tmp_path: Path,
+@pytest.fixture
+def temp_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # pytest's tmp_path is itself inside the system temp dir, so the real temp
+    # roots would make every test folder scratch. Point them somewhere fixed.
+    t = tmp_path / "systemp"
+    t.mkdir()
+    monkeypatch.setattr(hook, "_temp_roots", lambda: [str(t)])
+    return t
+
+
+def test_repo_name_in_a_temp_folder_is_the_shared_scratch_mailbox(
+    temp_root: Path, home: Path
 ) -> None:
     for name in ("chess-eval-3f9a1c2b", "tmp", "work"):
-        d = tmp_path / "plain" / name
+        d = temp_root / "plain" / name
         d.mkdir(parents=True)
         assert hook.repo_name(str(d)) == "scratch"
+    assert hook.repo_name(str(temp_root)) == "scratch"
+
+
+def test_repo_name_in_the_home_folder_is_the_shared_scratch_mailbox(
+    temp_root: Path, home: Path
+) -> None:
+    assert hook.repo_name(str(home)) == "scratch"
+
+
+def test_repo_name_outside_git_elsewhere_is_the_folder_name(
+    tmp_path: Path, temp_root: Path, home: Path
+) -> None:
+    # A real project before `git init`, e.g. ~/src/reviewer, keeps its name.
+    for parent in (tmp_path / "src", home / "src"):
+        d = parent / "reviewer"
+        d.mkdir(parents=True)
+        assert hook.repo_name(str(d)) == "reviewer"
+    odd = tmp_path / "src" / "my notes"
+    odd.mkdir()
+    assert hook.repo_name(str(odd)) == "my-notes"
+
+
+def test_temp_roots_include_the_system_temp_dir() -> None:
+    import tempfile
+
+    roots = hook._temp_roots()
+    assert os.path.normcase(os.path.realpath(tempfile.gettempdir())) in roots
 
 
 def test_repo_name_uses_git_toplevel(tmp_path: Path) -> None:
