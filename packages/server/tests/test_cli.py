@@ -135,9 +135,11 @@ def test_serve_trusts_forwarded_ips_only_from_the_setting(
     monkeypatch.setattr(app, "start_sweeper", lambda *a, **kw: None)
     monkeypatch.setattr(app, "create_app", lambda deps: "asgi-app")
     monkeypatch.setattr(app.uvicorn, "run", lambda asgi, **kw: seen.update(kw))
+    monkeypatch.setattr(app, "cap_pair_debt", lambda deps: seen.update(capped=True))
     deps = SimpleNamespace(db_path=Path("unused.db"), clock=None)
     app.serve(deps, "0.0.0.0", 8000, forwarded_allow_ips="*")  # type: ignore[arg-type]
     assert seen["proxy_headers"] is True and seen["forwarded_allow_ips"] == "*"
+    assert seen["capped"] is True
 
 
 def test_missing_database_folder_gets_a_hint(

@@ -136,3 +136,13 @@ def refill_mailbox(
 def sweep_pairs(conn: sqlite3.Connection, now: datetime) -> None:
     """Drop pairs that are full again: no row means full."""
     conn.execute("DELETE FROM pair_budgets WHERE full_at <= ?", (ts(now),))
+
+
+def cap_pairs(conn: sqlite3.Connection, now: datetime, g: GuardSettings) -> None:
+    """Hold every pair's debt to what the current settings allow. full_at is
+    stored as a time, so a server restarted with a shorter refill interval
+    would otherwise keep pairs drained for the old, longer one."""
+    conn.execute(
+        "UPDATE pair_budgets SET full_at = ? WHERE full_at > ?",
+        (ts(now + g.pair_size * g.pair_refill),) * 2,
+    )

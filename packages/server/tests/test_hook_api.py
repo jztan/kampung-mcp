@@ -1,6 +1,7 @@
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -354,3 +355,49 @@ def test_machine_key_cannot_claim_the_connector_id_first(
         json={**BODY, "agent_session_id": "connector:999"},
     )
     assert r.status_code == 400 and r.json()["error"] == "invalid_agent_session"
+
+
+def test_human_turn_refill_rolls_back_when_the_audit_fails(
+    client: TestClient,
+    conn: sqlite3.Connection,
+    machines: Machines,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kampung_server import guard, hook_api
+
+    key = machines["laptop"][1]
+    s = load_session(conn, int(_register(client, key)))
+    assert s is not None
+    guard.spend_mailbox(conn, s.mailbox_id)
+
+    def broken(*_: object, **__: object) -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(hook_api.audit, "record", broken)
+    with pytest.raises(sqlite3.OperationalError):
+        client.post(f"/v1/sessions/{s.id}/human-turn", headers=bearer(key))
+    assert guard.mailbox_left(conn, s.mailbox_id, guard.GuardSettings()) == 29
+    typed = conn.execute(
+        "SELECT typed_at FROM sessions WHERE id = ?", (s.id,)
+    ).fetchone()[0]
+    assert typed is None
+
+
+def test_server_start_caps_pair_debt_to_the_settings(
+    deps: ServerDeps, conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    from kampung_server import app, guard
+
+    slow = guard.GuardSettings(pair_refill=timedelta(minutes=1440))
+    a, b = machines["laptop"][0].id, machines["desktop"][0].id
+    conn.execute(
+        "INSERT INTO mailboxes (id, machine_id, repo, created_at) VALUES "
+        "(1, ?, 'api', '2026-10-27T09:00:00.000000Z'), "
+        "(2, ?, 'blog', '2026-10-27T09:00:00.000000Z')",
+        (a, b),
+    )
+    for _ in range(9):
+        guard.spend_pair(conn, 1, 2, clock.now(), slow)
+    app.cap_pair_debt(deps)
+    clock.advance(minutes=10)
+    assert guard.pair_left(conn, 1, 2, clock.now(), deps.guard) == 1

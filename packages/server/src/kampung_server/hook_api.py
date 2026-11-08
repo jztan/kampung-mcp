@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import audit, mail, sessions
+from . import audit, db, mail, sessions
 from .auth import machine_from_request
 from .deps import ServerDeps
 from .errors import KampungError
@@ -147,14 +147,15 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             now = deps.clock()
             deps.human_turn_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
-            cleared = sessions.human_turn(conn, s, now)
-            audit.record(
-                conn,
-                now,
-                f"machine:{machine.name}",
-                "refill",
-                {"mailbox": s.mailbox, "pairs": cleared, "by": "human_turn"},
-            )
+            with db.transaction(conn):
+                cleared = sessions.human_turn(conn, s, now)
+                audit.record(
+                    conn,
+                    now,
+                    f"machine:{machine.name}",
+                    "refill",
+                    {"mailbox": s.mailbox, "pairs": cleared, "by": "human_turn"},
+                )
             return {}
 
         return await _run(deps, request, handler)

@@ -142,3 +142,27 @@ def test_sweep_deletes_full_rows_only(
     clock.advance(minutes=10)
     sweep(conn, clock.now())
     assert conn.execute("SELECT count(*) FROM pair_budgets").fetchone()[0] == 0
+
+
+def test_cap_pairs_holds_old_debt_to_the_new_interval(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = _boxes(make_session)
+    slow = GuardSettings(pair_refill=timedelta(minutes=1440))
+    for _ in range(9):
+        guard.spend_pair(conn, a, b, clock.now(), slow)
+    # Restarted with a 10 minute refill: the pair owes 90 minutes at most.
+    guard.cap_pairs(conn, clock.now(), G)
+    assert guard.pair_left(conn, a, b, clock.now(), G) == 0
+    clock.advance(minutes=10)
+    assert guard.pair_left(conn, a, b, clock.now(), G) == 1
+
+
+def test_cap_pairs_leaves_debt_within_the_interval_alone(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = _boxes(make_session)
+    for _ in range(3):
+        guard.spend_pair(conn, a, b, clock.now(), G)
+    guard.cap_pairs(conn, clock.now(), G)
+    assert guard.pair_left(conn, a, b, clock.now(), G) == 6

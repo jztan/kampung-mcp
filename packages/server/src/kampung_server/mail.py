@@ -354,6 +354,15 @@ def _connector_mailbox(
     return bool(rows) and all(r["agent"] == CONNECTOR_AGENT for r in rows)
 
 
+def _address(conn: sqlite3.Connection, mailbox_id: int) -> str:
+    row = conn.execute(
+        "SELECT ma.name, mb.repo FROM mailboxes mb "
+        "JOIN machines ma ON ma.id = mb.machine_id WHERE mb.id = ?",
+        (mailbox_id,),
+    ).fetchone()
+    return f"{row[0]}/{row[1]}"
+
+
 def _quiet_refill(conn: sqlite3.Connection, mailbox_id: int, now: datetime) -> None:
     """A mailbox with no hooks never sees a typed prompt, so its budget comes
     back after NOHOOK_MAILBOX_REFILL without a waking send. A runaway loop
@@ -399,8 +408,9 @@ def _connector_send(
     its wakes. A waking send is the owner's input, so it refills the target
     mailbox, at most once per cooldown and only toward machines it can reach."""
     woken = conn.execute(
+        # Mail to a mailbox with nobody in it woke nobody, so it does not count.
         "SELECT count(*) FROM messages WHERE from_session_id = ? AND wake = 1 "
-        "AND sent_at > ?",
+        "AND coalesce(wake_reason, '') != 'no_session' AND sent_at > ?",
         (sender.id, ts(now - CONNECTOR_WAKE_WINDOW)),
     ).fetchone()[0]
     if woken >= CONNECTOR_WAKE_BUDGET:
@@ -428,7 +438,11 @@ def _connector_send(
             now,
             f"machine:{sender.machine}",
             "refill",
-            {"mailbox": target_box, "pairs": cleared, "by": "connector"},
+            {
+                "mailbox": _address(conn, target_box),
+                "pairs": cleared,
+                "by": "connector",
+            },
         )
     return _Decision(True)
 
