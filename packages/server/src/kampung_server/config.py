@@ -2,10 +2,11 @@
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import KampungError
+from .guard import GuardSettings
 
 # https, lowercase host, no port, path, query or trailing slash: the exact
 # string the owner types into Claude, plus /mcp.
@@ -34,6 +35,7 @@ class Settings:
     forwarded_allow_ips: str = "127.0.0.1"
     # Public https address; set, it turns on the Claude app connector.
     public_url: str | None = None
+    guard: GuardSettings = field(default_factory=GuardSettings)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -47,4 +49,5 @@ class Settings:
                 "KAMPUNG_FORWARDED_ALLOW_IPS", "127.0.0.1"
             ),
             public_url=check_public_url(public) if public else None,
+            guard=GuardSettings.from_env(os.environ),
         )
