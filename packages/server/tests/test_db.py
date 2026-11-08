@@ -282,3 +282,47 @@ def test_agent_session_id_is_unique_per_machine(conn: sqlite3.Connection) -> Non
     assert [r[0] for r in conn.execute("SELECT machine_id FROM sessions")] == [1, 2]
     with pytest.raises(sqlite3.IntegrityError):
         add(1, "bb")
+
+
+def test_a_database_from_the_first_schema_5_is_repaired(tmp_path: Path) -> None:
+    # Develop ran schema 5 for a few hours before sessions.machine_id and
+    # oauth_requests.client were added to it; such a database says version 5
+    # and would never get them.
+    old = db.connect(tmp_path / "early-v5.db")
+    for version in (1, 2, 3, 4):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    folded = ("machine_id", "sessions_agent", "oauth_requests")
+    for statement in db._statements(db._script(5)):
+        if not any(word in statement for word in folded):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=5")
+    for name, key in (("a", "x'01'"), ("b", "x'02'")):
+        old.execute(
+            f"INSERT INTO machines (name, key_hash, created_at) VALUES ('{name}', "
+            f"{key}, 't')"
+        )
+    for machine in (1, 2):
+        old.execute(
+            "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (?, 'r', 't')",
+            (machine,),
+        )
+    old.execute(
+        "INSERT INTO sessions (mailbox_id, suffix, agent, agent_session_id, cwd, "
+        "hooks, started_at, last_seen) VALUES (2, 'aa', 'other', 'cc', '/', 0, "
+        "'t', 't')"
+    )
+    db.migrate(old)
+    assert old.execute("SELECT machine_id FROM sessions").fetchone()[0] == 2
+    # The per-machine index replaced the global one: machine 1 may reuse 'cc'.
+    old.execute(
+        "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
+        "agent_session_id, cwd, hooks, started_at, last_seen) "
+        "VALUES (1, 1, 'aa', 'other', 'cc', '/', 0, 't', 't')"
+    )
+    old.execute(
+        "INSERT INTO oauth_requests (request_id, params_json, expires_at, client) "
+        "VALUES ('r', '{}', 'u', '192.0.2.1')"
+    )
+    db.migrate(old)  # a repaired database is left alone
+    old.close()
