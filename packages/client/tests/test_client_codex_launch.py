@@ -336,3 +336,28 @@ def test_each_look_ends_with_a_close_frame(
     while time.monotonic() < end and daemon.closes == 0:
         time.sleep(0.05)
     assert daemon.closes == 1
+
+
+def test_the_windows_own_hook_session_is_adopted_and_woken(
+    home: Path, server: LiveServer, tmp_path: Path, daemon_for: Any
+) -> None:
+    # The sequence seen on a Mac: Codex runs the SessionStart hook as the
+    # thread starts, so its session file exists before the adapter looks.
+    from test_client_codex_wake import codex_start
+
+    repo = git_repo(tmp_path, "api")
+    tid = uuid7(time.time())
+    hooked = codex_start(home, repo, sid=tid)
+    daemon_for([thread(tid, repo, time.time())])
+    codex, log = fake_codex(tmp_path)
+    mcp = RawMCP(home, repo, "--codex-bin", str(codex), agent="codex")
+    try:
+        mcp.initialize()
+        time.sleep(3)  # the adapter finds and binds the thread
+        peer_send(server, f"laptop/api#{hooked['suffix']}", "review please")
+        got = wait_for_calls(log, 1, 10)
+        assert got == [["queue", "--thread", tid, "--message", WAKE]]
+        again = hook.read_session_file(tid)
+        assert again is not None and again["session"] == hooked["session"]
+    finally:
+        mcp.close()
