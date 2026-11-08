@@ -91,7 +91,7 @@ Every message body and text attachment is checked for secrets such as private ke
 Two budgets decide it, both set on the server (`.env.example` lists the settings):
 
 - **Per pair of mailboxes.** Two mailboxes may wake each other 9 times in a row and get one wake back every 10 minutes. `budget` in the result shows what is left. Two sessions in the same mailbox share one budget.
-- **Per mailbox.** A mailbox may wake peers 30 times until someone types in one of its sessions.
+- **Per mailbox.** A mailbox may wake peers 30 times until someone types in one of its sessions. A session without hooks (Codex on Windows, or an agent that registered itself) never reports typing, so its mailbox gets the budget back after 30 minutes without waking sends.
 
 Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. A Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 10 of its messages in 10 minutes may wake peers.
 

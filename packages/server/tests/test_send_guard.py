@@ -318,3 +318,57 @@ async def test_send_description_states_the_live_settings(
     assert "5 times in a row" in text and "every 10 minutes" in text
     assert "40" in text and "fyi" in text and "hint" in text
     assert "wake false" in SERVER_INSTRUCTIONS and "hint" in SERVER_INSTRUCTIONS
+
+
+def test_mailbox_without_hooks_gets_its_budget_back_after_quiet(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    # Windows Codex and self-registered agents never call human-turn.
+    a = make_session("laptop", "api", hooks=False)
+    for repo in ("one", "two", "three", "four"):
+        make_session("desktop", repo)
+    for _ in range(8):
+        for repo in ("one", "two", "three", "four"):
+            send(conn, a, f"desktop/{repo}", "x", None, clock.now())
+    held = send(conn, a, "desktop/one", "x", None, clock.now())
+    assert held.reason == "mailbox_budget"
+    assert held.hint and "typed" not in held.hint and "30 minutes" in held.hint
+    clock.advance(minutes=29)
+    assert send(conn, a, "desktop/two", "x", None, clock.now()).reason
+    clock.advance(minutes=31)
+    for repo in ("one", "two", "three", "four"):
+        make_session("desktop", repo)  # keep the receivers live
+    a = make_session("laptop", "api", hooks=False)
+    r = send(conn, a, "desktop/three", "x", None, clock.now())
+    assert r.wake is True and r.reason is None
+
+
+def test_hooked_mailbox_budget_never_comes_back_by_time(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    for repo in ("one", "two", "three", "four"):
+        make_session("desktop", repo)
+    conn.execute(
+        "UPDATE mailboxes SET wakes_since_refill = 30 WHERE id = ?", (a.mailbox_id,)
+    )
+    clock.advance(hours=3)
+    a = make_session("laptop", "api")
+    make_session("desktop", "one")
+    r = send(conn, a, "desktop/one", "x", None, clock.now())
+    assert r.reason == "mailbox_budget" and r.hint and "typed" in r.hint
+
+
+def test_reply_to_an_idle_connector_still_cannot_wake(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    phone = _phone(make_session)
+    clock.advance(minutes=31)
+    a = make_session("desktop", "blog")
+    r = send(conn, a, "laptop/claude", "done after a long task", None, clock.now())
+    assert r.wake is False and r.reason == "cannot_wake"
+    targeted = send(conn, a, f"laptop/claude#{phone.suffix}", "x", None, clock.now())
+    assert targeted.reason == "cannot_wake"
+    end(conn, phone.id, clock.now())
+    r = send(conn, a, "laptop/claude", "and later", None, clock.now())
+    assert r.reason == "cannot_wake"

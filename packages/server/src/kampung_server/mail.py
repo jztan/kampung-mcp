@@ -20,6 +20,7 @@ from .limits import (
     MAX_WAITING_PER_MAILBOX,
     MAX_WAITING_PER_SENDER,
     MESSAGE_TTL,
+    NOHOOK_MAILBOX_REFILL,
 )
 from .guard import GuardSettings
 from .secret_scan import scan
@@ -251,6 +252,15 @@ def _decide(
             "AND last_seen >= ?",
             (target_box, ts(now - LIVE_WINDOW)),
         ).fetchall()
+    if not live and _connector_mailbox(conn, target_box, target_session):
+        # The Claude app's own session goes stale between uses; it still
+        # cannot be woken, whatever its last_seen says.
+        return _Decision(
+            False,
+            "cannot_wake",
+            hint=f"{peer} is the Claude app, which reads mail only when its user "
+            "asks. It is in its inbox; there is nothing to wake.",
+        )
     if not live:
         # Nobody to wake now, and no loop without a live session: whoever opens
         # the mailbox next is woken for it, and nothing is spent.
@@ -269,15 +279,27 @@ def _decide(
         )
     if sender.agent == CONNECTOR_AGENT:
         return _connector_send(conn, sender, target_box, now, g)
+    if not sender.hooks:
+        _quiet_refill(conn, sender.mailbox_id, now)
     if guard.mailbox_left(conn, sender.mailbox_id, g) == 0:
-        return _Decision(
-            False,
-            "mailbox_budget",
-            hint=f"Stored without waking {peer}: {sender.machine}/{sender.repo} "
-            f"has woken peers {g.mailbox_budget} times since anyone typed in it. "
-            "It waits in their inbox. Stop and tell your user that the loop is "
-            "paused; a prompt typed in this window lets it go on.",
-        )
+        mine = f"{sender.machine}/{sender.repo}"
+        if sender.hooks:
+            held = (
+                f"Stored without waking {peer}: {mine} has woken peers "
+                f"{g.mailbox_budget} times since anyone typed in it. It waits in "
+                "their inbox. Stop and tell your user that the loop is paused; a "
+                "prompt typed in this window lets it go on."
+            )
+        else:
+            quiet = int(NOHOOK_MAILBOX_REFILL.total_seconds() // 60)
+            held = (
+                f"Stored without waking {peer}: {mine} has woken peers "
+                f"{g.mailbox_budget} times in a row. It waits in their inbox. "
+                "Stop and tell your user that the loop is paused; the budget "
+                f"comes back after {quiet} minutes without waking sends, or "
+                "from Refill on the Kampung dashboard."
+            )
+        return _Decision(False, "mailbox_budget", hint=held)
     minutes = int(g.pair_refill.total_seconds() // 60)
     if guard.pair_left(conn, sender.mailbox_id, target_box, now, g) == 0:
         return _Decision(
@@ -303,6 +325,49 @@ def _decide(
         budget=_budget(conn, sender.mailbox_id, target_box, left, now, g),
         hint=hint,
     )
+
+
+def _connector_mailbox(
+    conn: sqlite3.Connection, target_box: int, target_session: int | None
+) -> bool:
+    """Whether a send with no live receiver goes to the Claude app: the
+    targeted session, else the mailbox's open sessions, else its latest one,
+    are all claude-app."""
+    if target_session is not None:
+        rows = conn.execute(
+            "SELECT agent FROM sessions WHERE id = ?", (target_session,)
+        ).fetchall()
+    else:
+        rows = (
+            conn.execute(
+                "SELECT agent FROM sessions WHERE mailbox_id = ? AND ended_at IS NULL",
+                (target_box,),
+            ).fetchall()
+            or conn.execute(
+                "SELECT agent FROM sessions WHERE mailbox_id = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (target_box,),
+            ).fetchall()
+        )
+    return bool(rows) and all(r["agent"] == CONNECTOR_AGENT for r in rows)
+
+
+def _quiet_refill(conn: sqlite3.Connection, mailbox_id: int, now: datetime) -> None:
+    """A mailbox with no hooks never sees a typed prompt, so its budget comes
+    back after NOHOOK_MAILBOX_REFILL without a waking send. A runaway loop
+    keeps sending, so it never gets that quiet."""
+    last = conn.execute(
+        "SELECT max(msg.sent_at) FROM messages msg "
+        "JOIN sessions s ON s.id = msg.from_session_id "
+        "WHERE s.mailbox_id = ? AND msg.spent = 1",
+        (mailbox_id,),
+    ).fetchone()[0]
+    if last is None or last <= ts(now - NOHOOK_MAILBOX_REFILL):
+        conn.execute(
+            "UPDATE mailboxes SET wakes_since_refill = 0 WHERE id = ? "
+            "AND wakes_since_refill > 0",
+            (mailbox_id,),
+        )
 
 
 def _budget(

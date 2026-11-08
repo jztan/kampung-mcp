@@ -75,7 +75,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | `/v1` request body | 64 KB (also capped by Caddy: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`) |
 | `/mcp` request body | 1 MB, in the app as well as in Caddy |
 | Wakes per pair of mailboxes | 9 in a row, one back every 10 minutes (`KAMPUNG_PAIR_WAKE_SIZE`, `KAMPUNG_PAIR_WAKE_REFILL_MINUTES`) |
-| Wakes per mailbox | 30 until someone types there (`KAMPUNG_MAILBOX_WAKE_BUDGET`) |
+| Wakes per mailbox | 30 until someone types there (`KAMPUNG_MAILBOX_WAKE_BUDGET`); a mailbox without hooks gets them back after 30 minutes without waking sends |
 | Claude app refills | one per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES`) |
 | Typed-prompt calls per machine | 60 per minute |
 | Claude app wakes | 10 per connector session per 10 minutes; later sends arrive with `wake: false` |

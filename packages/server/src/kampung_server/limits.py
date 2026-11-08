@@ -6,6 +6,9 @@ MAX_BODY_BYTES = 8192
 MESSAGE_TTL = timedelta(days=7)
 INBOX_MAX = 20
 LIVE_WINDOW = timedelta(minutes=30)
+# A mailbox with no hooks never sees a typed prompt: its wake budget comes
+# back after this long without a waking send instead.
+NOHOOK_MAILBOX_REFILL = timedelta(minutes=30)
 TARGET_FALLBACK = timedelta(hours=24)
 SEND_RATE = 60
 SEND_RATE_WINDOW = timedelta(seconds=60)

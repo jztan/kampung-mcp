@@ -142,7 +142,7 @@
     <circle cx="652" cy="314" r="10" fill="#3d8a74"/>
     <text x="652" y="318" text-anchor="middle" class="num">5</text>
     <text x="672" y="318" class="row on-dark">Loop guard</text>
-    <text x="672" y="334" class="sub on-dark-sub">no wake past depth 3</text>
+    <text x="672" y="334" class="sub on-dark-sub">wake budgets per pair</text>
   </g>
   <g>
     <circle cx="652" cy="356" r="10" fill="#3d8a74"/>
