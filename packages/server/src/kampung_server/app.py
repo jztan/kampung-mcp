@@ -30,7 +30,9 @@ def build_server(deps: ServerDeps) -> FastMCP:
     if deps.public_url is not None:
         provider = KampungOAuth(deps, deps.public_url)
         auth = MultiAuth(server=provider, verifiers=[MachineKeyVerifier(deps)])
-    mcp = FastMCP("kampung", instructions=SERVER_INSTRUCTIONS, auth=auth)
+    mcp = FastMCP(
+        "kampung", instructions=SERVER_INSTRUCTIONS, version=__version__, auth=auth
+    )
     register_tools(mcp, deps)
     register_hook_routes(mcp, deps)
     admin_web.register(mcp, deps)
