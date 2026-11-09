@@ -125,6 +125,10 @@ def test_setup_replaces_hooks_from_the_old_copied_script(
     assert not old_copy.exists()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX hook command; Windows gets the PowerShell form, and cmd has no `true`",
+)
 def test_hook_command_exits_0_when_the_hook_file_is_gone(tmp_path: Path) -> None:
     # Python exits 2 for a missing script, and Claude Code reads exit 2 from a
     # hook as "block" (a UserPromptSubmit hook would block every prompt).
@@ -275,6 +279,10 @@ def test_setup_codex_says_approve_hooks_and_caveat(
     assert any("run unattended" in line for line in lines)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX hook command; Windows gets the PowerShell form, and cmd has no `true`",
+)
 def test_hook_command_codex_exits_0_when_the_hook_file_is_gone(
     tmp_path: Path,
 ) -> None:
