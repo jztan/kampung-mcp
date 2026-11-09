@@ -197,7 +197,7 @@ From the server:
 | `not_paired` | `send` | The two machines aren't paired. The hint gives the `kampung pair` command for the owner |
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
-| `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id. For `read_attachment`, also when it has expired or is not delivered yet |
+| `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id. For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |
