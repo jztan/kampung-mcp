@@ -10,6 +10,8 @@ is current and on incremental vacuum, both keys still work and the message
 arrives intact. It always tears down its containers, volume and worktree.
 
 On success it records `upgrade-rehearsal` for HEAD (see release_checks.py).
+It runs before release.py bumps the version, so /health may report the old
+number for both; the schema and vacuum checks are what prove the new code ran.
 It does not exercise the `tls` profile: Caddy needs a public domain.
 
 Usage:
