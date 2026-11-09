@@ -11,7 +11,8 @@ arrives intact. It always tears down its containers, volume and worktree.
 
 On success it records `upgrade-rehearsal` for HEAD (see release_checks.py).
 It runs before release.py bumps the version, so /health may report the old
-number for both; the schema and vacuum checks are what prove the new code ran.
+number for both; what proves the new code ran is that the container runs the
+image just built from HEAD.
 It does not exercise the `tls` profile: Caddy needs a public domain.
 
 Usage:
@@ -38,6 +39,7 @@ import release_checks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = "kampung-rehearsal"
+REHEARSAL_IMAGE = "ghcr.io/jztan/kampung-mcp:rehearsal"
 RELEASE_TAG = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
 KEY_LINE = re.compile(r"kmp_[A-Za-z0-9_-]+")
 BODY = "Rehearsal message: it must survive the upgrade unchanged. 0123456789"
@@ -105,6 +107,20 @@ class Deployment:
             encoding="utf-8",
         )
 
+    def image_id(self) -> str:
+        """The image the last `compose build` produced."""
+        return _run(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", REHEARSAL_IMAGE],
+            self.folder,
+        ).strip()
+
+    def running_image(self) -> str:
+        """The image the kampung container is actually running."""
+        container = self.compose("ps", "-q", "kampung").strip()
+        return _run(
+            ["docker", "inspect", "--format", "{{.Image}}", container], self.folder
+        ).strip()
+
     def kampung(self, *args: str) -> str:
         return self.compose("exec", "-T", "kampung", "kampung", *args)
 
@@ -167,9 +183,17 @@ def rehearse(from_tag: str, port: int, keep: bool) -> str:
     target = release.get_current_version(ROOT)
     tmp = Path(tempfile.mkdtemp(prefix="kampung-rehearsal-"))
     tree = tmp / "kampung-mcp"
+    # A run that died without its teardown (closed terminal, --keep) leaves
+    # its worktree and a volume that may already be upgraded: clear both.
+    _run(["git", "worktree", "prune"], ROOT)
+    for line in _run(["git", "worktree", "list", "--porcelain"], ROOT).splitlines():
+        old = line.removeprefix("worktree ")
+        if line.startswith("worktree ") and "/kampung-rehearsal-" in old:
+            _run(["git", "worktree", "remove", "--force", old], ROOT)
     _run(["git", "worktree", "add", "--detach", str(tree), from_tag], ROOT)
     d = Deployment(tree, port)
     try:
+        d.compose("down", "-v", "--remove-orphans")
         step(f"Starting {from_tag} from its published image")
         d.write_env(version_of(from_tag))
         d.compose("pull", "kampung")
@@ -194,6 +218,7 @@ def rehearse(from_tag: str, port: int, keep: bool) -> str:
         d.compose("up", "-d", "--wait", "kampung")
 
         step("Checking that nothing was lost")
+        expect(d.running_image() == d.image_id(), "the container is not the new build")
         expect(d.version() == target, f"/health says {d.version()}, not {target}")
         schema = d.compose("exec", "-T", "kampung", "python", "-c", SCHEMA_CHECK)
         expect(
@@ -210,13 +235,19 @@ def rehearse(from_tag: str, port: int, keep: bool) -> str:
         if keep:
             print(f"  Kept for debugging: {tree} (project {PROJECT})")
         else:
-            subprocess.run(
+            down = subprocess.run(
                 ["docker", "compose", "down", "-v", "--remove-orphans"],
                 cwd=tree,
                 env=d.env,
                 capture_output=True,
+                text=True,
                 check=False,
             )
+            if down.returncode != 0:
+                print(
+                    f"  WARNING: teardown failed; run `docker compose -p {PROJECT} "
+                    f"down -v` yourself:\n{down.stderr[-500:]}"
+                )
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(tree)],
                 cwd=ROOT,
