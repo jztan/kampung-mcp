@@ -72,7 +72,7 @@ body:
       label: Component
       description: Where does the problem show up?
       options:
-        - MCP tools (list_peers, send, inbox)
+        - MCP tools (list_peers, send, inbox, read_attachment)
         - Hooks (mail announced, read at end of turn, loop guard)
         - Idle wake (Channels or codex queue)
         - kampung-mcp setup
