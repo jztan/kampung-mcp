@@ -25,7 +25,7 @@ flowchart LR
         fw["Lightsail firewall<br/>443: your networks, plus Anthropic's range for the app<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
         ip["Lightsail static IP"]
         subgraph inst["Amazon Lightsail instance (Ubuntu 24.04 LTS)"]
-            caddy["Caddy<br/>TLS, body caps<br/>app sign-in: your networks only"]
+            caddy["Caddy<br/>TLS, body caps<br/>sign-in and hook API hidden from Anthropic's range"]
             kampung["Kampung server<br/>127.0.0.1:8803"]
             db[("SQLite<br/>kampung-data volume")]
         end
@@ -144,10 +144,10 @@ docker compose version
 
 ## 7. Get the code
 
-The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run; the default branch, `develop`, holds unreleased work:
+The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run, v0.3.0 or later for the Claude app connector (step 14); the default branch, `develop`, holds unreleased work:
 
 ```bash
-git clone --branch v0.1.0 https://github.com/jztan/kampung-mcp.git
+git clone --branch v0.3.0 https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
 ```
 
@@ -158,7 +158,7 @@ Git says you're in a "detached HEAD" state. That's normal for a release tag.
 ```bash
 cp .env.example .env
 chmod 600 .env
-nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.1.0
+nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.3.0
 ```
 
 Keep `KAMPUNG_IMAGE_TAG` on the version you cloned, so the image matches the Compose file. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
@@ -254,8 +254,8 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 | Task | How |
 |---|---|
-| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait` |
-| Upgrade a client | `uv tool upgrade kampung-mcp`, then restart Claude Code and Codex (on Windows, quit them first) |
+| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait`. If the release changed `deploy/Caddyfile`, also run `docker compose --profile tls restart caddy`: Caddy runs with its admin API off and the file is mounted read-only, so it reads it only at start. A release that changes the schema rewrites the database once on first start (0.3.0 does, from schema 2 to 5), which takes free disk about the size of the database |
+| Upgrade a client | On Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp`, rerun `kampung-mcp setup --server URL` (0.3.0 adds the Claude app connector to `deniedMcpServers`), and restart Claude Code and Codex |
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | Connect the Claude app | Step 14 |
@@ -289,7 +289,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://kampung.example.com/oauth/conne
 5. From a device on one of your allowed networks (home Wi-Fi counts; mobile data does not), in the Claude app or on claude.ai: **Customize → Connectors → Add custom connector**. Name it, paste the URL, confirm **Sign in now** and, under the OAuth client setting, **Use your own OAuth client** (Claude detects both from the server), and enter the client id with the secret left blank. If the phone's dialog hides that setting, add the connector on claude.ai in a browser instead; it belongs to your account and shows on the phone too.
 6. Claude opens Kampung's connect page in the browser. It names `claude.ai` as the destination and asks for the code. Enter it; Claude returns to its settings with the connector connected.
 
-Check: the connector lists `list_peers`, `send` and `inbox`. In a new chat with the connector on, ask Claude to list peers: `phone/claude` appears with agent `claude-app`. Then run the phone checklist and write each result down. The results from the first run, on 2026-11-07, are filled in; a later app change could still break any of them:
+Check: the connector lists `list_peers`, `send`, `inbox` and `read_attachment`. In a new chat with the connector on, ask Claude to list peers: `phone/claude` appears with agent `claude-app`. Then run the phone checklist and write each result down. The results from the first run, on 2026-11-07, are filled in; a later app change could still break any of them:
 
 | Check | Result |
 |---|---|
@@ -302,7 +302,7 @@ Check: the connector lists `list_peers`, `send` and `inbox`. In a new chat with 
 Two things seen in that run that look like faults but are not:
 
 - A chat that reads the inbox after another chat already did gets nothing. Mail is delivered on read, and every chat on the account shares the one mailbox, so the first reader takes it.
-- A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. Deny it for every project with a `deniedMcpServers` entry in `~/.claude/settings.json`; [Connecting Claude Code and Codex](clients.md#the-hook-says-mail-is-waiting-but-the-inbox-is-empty) has the exact lines and the symptom to recognise.
+- A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. `kampung-mcp setup` (0.3.0 or later) denies it for every project with a `deniedMcpServers` entry in `~/.claude/settings.json`, so rerun setup on machines set up earlier; [Connecting Claude Code and Codex](clients.md#the-hook-says-mail-is-waiting-but-the-inbox-is-empty) has the entry and the symptom to recognise.
 
 If the connector never appears, assume the code went to a flow you did not start: run `kampung disconnect phone` and connect again. The server itself does not know whose Claude account started a sign-in, and anyone on one of your allowed networks can reach `/authorize`; the code is the only thing tying a grant to you, so never enter one in a flow you did not start.
 

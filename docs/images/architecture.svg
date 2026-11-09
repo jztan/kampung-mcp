@@ -71,7 +71,7 @@
   <rect x="470" y="250" width="118" height="84" rx="8" fill="#eef1ed" stroke="#dde2dc"/>
   <text x="529" y="285" text-anchor="middle" class="title">Caddy</text>
   <text x="529" y="303" text-anchor="middle" class="sub">HTTPS, TLS certs</text>
-  <text x="529" y="319" text-anchor="middle" class="sub">/admin: tailnet only</text>
+  <text x="529" y="319" text-anchor="middle" class="sub">/admin: loopback, tailnet</text>
 
   <rect x="618" y="180" width="184" height="224" rx="10" fill="#1f6b57"/>
   <text x="710" y="212" text-anchor="middle" class="title on-dark">Kampung server</text>

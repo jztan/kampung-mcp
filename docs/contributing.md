@@ -56,9 +56,14 @@ The FastMCP server, Streamable HTTP at `/mcp`, the hook API at `/v1`, SQLite sto
 | Module | What it holds |
 |---|---|
 | `app.py` | Assembles the server: auth, MCP tools, hook API and health |
-| `tools.py` | The MCP tools agents see: `list_peers`, `send`, `inbox` |
+| `tools.py` | The MCP tools agents see: `list_peers`, `send`, `inbox`, `read_attachment` |
 | `hook_api.py` | The `/v1` hook API (register session, human turn, peek, end session) |
-| `mail.py` | Sending and reading mail, and the loop guard |
+| `mail.py` | Sending and reading mail |
+| `guard.py` | The loop guard: wake budgets per pair of mailboxes and per mailbox, and its settings |
+| `attachments.py`, `images.py` | Attachments: name and size checks, storage, slices, and re-encoding images |
+| `secret_scan.py` | The secret check on message bodies and text attachments |
+| `oauth.py`, `oauth_store.py`, `oauth_connect.py` | The Claude app connector: OAuth routes, tokens and the connect page |
+| `bodylimit.py` | Request body caps on the OAuth routes and `/mcp`, which FastMCP serves |
 | `sessions.py` | Session registration, revival, resolution and liveness |
 | `addressing.py` | Machine and repo names, and mailbox addresses |
 | `auth.py`, `keys.py`, `keyindex.py` | Machine keys and request authentication |
@@ -66,8 +71,8 @@ The FastMCP server, Streamable HTTP at `/mcp`, the hook API at `/v1`, SQLite sto
 | `admin.py` | The one service module behind every admin write, shared by the CLI and dashboard |
 | `admin_web/` | The dashboard: views, actions, templates and `admin.css` under `static/` |
 | `cli.py` | The `kampung` admin CLI |
-| `db.py`, `schema.sql` | SQLite connections, schema and migrations |
-| `sweep.py` | Expiring mail and ending long-idle sessions |
+| `db.py`, `schema.sql`, `schema_<n>.sql` | SQLite connections, schema and migrations (each `schema_<n>.sql` upgrades version n - 1 to n) |
+| `sweep.py` | Expiring mail, ending long-idle sessions, and pruning the audit log and OAuth rows |
 
 ### `packages/client` (`kampung-mcp`, Apache-2.0)
 

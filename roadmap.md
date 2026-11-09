@@ -55,7 +55,7 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 ### v0.5: operator hardening
 
 - Enforce append-only audit with a SQLite trigger.
-- Audit retention: drop routine rows after 30 days, keep notable ones.
+- Audit retention: keep notable rows past the 90-day, 500,000-row limit that v0.3 applies to all rows.
 - Write notable audit events as JSON lines to stdout.
 - Key lifetime: optional expiry, a last-used column, and a Rotate button on the dashboard.
 - CLI parity: `session end`, `session refill`, `message delete`.
