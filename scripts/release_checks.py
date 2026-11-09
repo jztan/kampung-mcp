@@ -75,8 +75,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="show each check for HEAD; exit 1 if any is missing")
-    rec = sub.add_parser("record", help="record a check as done for HEAD")
-    rec.add_argument("check", choices=CHECKS)
+    rec = sub.add_parser("record", help="record the docs review as done for HEAD")
+    # The rehearsal records itself when it passes; it is never recorded by hand.
+    rec.add_argument("check", choices=["docs-review"])
     args = parser.parse_args(argv)
     sha = head_sha(ROOT)
     if args.command == "record":

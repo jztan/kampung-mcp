@@ -75,3 +75,9 @@ def test_the_gate_passes_when_both_are_recorded(tmp_path: Path) -> None:
     for check in rc.CHECKS:
         rc.record(tmp_path, check, A, "2026-11-09")
     assert release.require_checks(tmp_path, A, dry_run=False) == []
+
+
+def test_the_rehearsal_cannot_be_recorded_by_hand() -> None:
+    with pytest.raises(SystemExit) as stop:
+        rc.main(["record", "upgrade-rehearsal"])
+    assert stop.value.code == 2
