@@ -167,6 +167,8 @@ The maintainer reviews pull requests and may ask for changes. Once CI and the CL
 
 To cut a release from `develop`, run `uv run python scripts/release.py minor` (or `patch`, `major`, or `--version X.Y.Z` for an exact version); add `--dry-run` first to preview it and save a release-notes draft you can edit. A version tag publishes the client to PyPI and the MCP Registry and the server image to GHCR.
 
+`release.py` refuses to tag a commit until two checks are recorded for that exact commit: a review of the docs against the code, and an upgrade rehearsal (`uv run python scripts/upgrade_rehearsal.py`, which upgrades the previous release to HEAD in Docker and checks nothing was lost). `uv run python scripts/release_checks.py status` shows both.
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant](../CODE_OF_CONDUCT.md). By taking part you agree to uphold it.

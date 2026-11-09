@@ -39,7 +39,7 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 - Claude app connector (new): the Claude app and claude.ai join as a peer over OAuth, with a `<name>/claude` mailbox.
 - Attachments and the `read_attachment` tool (new); the server re-encodes images.
 - A secret check on every body and text attachment (new).
-- Loop guard v2: wake budgets per pair of mailboxes and per mailbox replace message depth; `send` takes `fyi`.
+- Loop guard v2: wake budgets per pair of mailboxes and per mailbox; `send` takes `fyi`.
 - Codex windows are listed and wakeable at launch, and the wake text names the session.
 
 ### v0.4: wake idle sessions
