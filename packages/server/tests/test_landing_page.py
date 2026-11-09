@@ -38,3 +38,14 @@ def test_page_quotes_the_peers_kind(page: str) -> None:
 
 def test_page_has_no_em_dash(page: str) -> None:
     assert chr(0x2014) not in page
+
+
+def test_page_has_no_message_depth(page: str) -> None:
+    # The loop guard counts wake budgets since 2026-11-08; envelopes and send
+    # results carry no depth, so neither may the copy or the replayed JSON.
+    assert "depth" not in page.lower()
+
+
+def test_page_names_every_mcp_tool(page: str) -> None:
+    for tool in ("list_peers", "send", "inbox", "read_attachment"):
+        assert f"<code>{tool}</code>" in page, tool
