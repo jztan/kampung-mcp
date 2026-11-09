@@ -41,9 +41,9 @@ Back up first (see [Backup](#backup)). The database migrates forward on start, a
 
 - Published image: `git pull`, set the new `KAMPUNG_IMAGE_TAG` in `.env` if you pinned one, then `docker compose pull && docker compose up -d --wait`. Add `--profile tls` to both commands if you run the bundled Caddy.
 - From a checkout: `git pull && docker compose up -d --build --wait` (again with `--profile tls` for Caddy).
-- If the release changed `deploy/Caddyfile`, run `docker compose --profile tls restart caddy`. Caddy runs with its admin API off and reads the read-only file only at start, so `up -d` alone keeps the old rules.
+- If the release changed `deploy/Caddyfile` (0.3.0 does), run `docker compose --profile tls restart caddy`. Caddy runs with its admin API off and reads the read-only file only at start, so `up -d` alone keeps the old rules.
 - A release that changes the schema rewrites the database once on first start (0.3.0 does, from schema 2 to 5, and switches it to incremental vacuum). That takes free disk about the size of the database, and a large database takes a while.
-- Client: on Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp` on each machine, rerun `kampung-mcp setup --server URL` (0.3.0 adds the Claude app connector to `deniedMcpServers`), and restart the agents.
+- Client: on Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp` on each machine, rerun `kampung-mcp setup` with the same flags as before (`--agent both`, `--channels`, `--connector-name`: a flag left out goes back to its default). 0.3.0 adds the Claude app connector to `deniedMcpServers`. Setup asks for the machine key again; it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin, and restart the agents.
 
 ## Backup
 
