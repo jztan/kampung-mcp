@@ -86,6 +86,9 @@ def test_finding_never_holds_the_secret() -> None:
         "eyJ" + "a." * 131000,
         "AAAA" * 65536,
     ],
+    # Short ids: pytest puts the id in PYTEST_CURRENT_TEST, and Windows caps
+    # an environment variable at 32,767 characters.
+    ids=["begin", "letters", "sk", "capitals", "assign", "url", "jwt", "base64"],
 )
 def test_256_kb_of_adversarial_input_scans_fast(text: str) -> None:
     start = time.perf_counter()
