@@ -51,14 +51,16 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
             "busy", "The server is decoding other images. Try again in a moment."
         )
     try:
-        img, source_format = _decoded(data)
+        clean, source_format = _decoded(data)
     finally:
         _DECODE_SLOTS.release()
-    return _clean(img, source_format)
+    return _encode_best(clean, source_format)
 
 
 def _decoded(data: bytes) -> tuple[Image.Image, str | None]:
-    """Opened, checked and shrunk; called with a decode slot held."""
+    """Opened, checked, shrunk and copied to bare pixels; called with a decode
+    slot held. Only the copy is returned, so the opened image and its expanded
+    metadata (PNG text chunks can reach 64 MB) are freed before the slot is."""
     try:
         opened = Image.open(io.BytesIO(data), formats=["PNG", "JPEG"])
     except Image.DecompressionBombError as e:
@@ -88,14 +90,15 @@ def _decoded(data: bytes) -> tuple[Image.Image, str | None]:
         raise KampungError("attachment_too_large", "The image is too large.") from e
     except (OSError, ValueError, SyntaxError) as e:
         raise _unsupported() from e
-    return img, source_format
-
-
-def _clean(img: Image.Image, source_format: str | None) -> tuple[bytes, str]:
     # A fresh image carries pixels only: no info, EXIF or ICC profile.
     mode = "RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB"
     clean = Image.new(mode, img.size)
     clean.paste(img.convert(mode))
+    return clean, source_format
+
+
+def _encode_best(clean: Image.Image, source_format: str | None) -> tuple[bytes, str]:
+    mode = clean.mode
     png = _encode(clean, "PNG")
     jpeg = _encode(clean, "JPEG") if mode == "RGB" else None
     if source_format == "JPEG" and jpeg is not None:

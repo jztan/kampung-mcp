@@ -257,3 +257,31 @@ def test_nothing_is_parsed_until_a_decode_slot_is_free(
             images._DECODE_SLOTS.release()
     normalize_image(_png(32, 32))
     assert len(opened) == 1
+
+
+def test_only_bare_pixels_outlive_the_decode_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Expanded text chunks live in the opened image's info, so the opened
+    # image must be gone before the slot is released, not after encoding.
+    from PIL import Image, PngImagePlugin
+
+    from kampung_server import images
+
+    meta = PngImagePlugin.PngInfo()
+    meta.add_text("comment", "x" * 100_000, zip=True)
+    out = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(out, "PNG", pnginfo=meta)
+    seen: list[tuple[dict[str, Any], int]] = []
+    real = images._encode_best
+
+    def spy(img: Image.Image, source_format: str | None) -> tuple[bytes, str]:
+        free = sum(images._DECODE_SLOTS.acquire(blocking=False) for _ in range(2))
+        for _ in range(free):
+            images._DECODE_SLOTS.release()
+        seen.append((dict(img.info), free))
+        return real(img, source_format)
+
+    monkeypatch.setattr(images, "_encode_best", spy)
+    normalize_image(out.getvalue())
+    assert seen == [({}, 2)]
