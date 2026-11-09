@@ -691,7 +691,7 @@ both in the export path. Want me to forward them to laptop/api?</pre>
       <div class="cap-card">
         <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
         <h3 class="cap-head">Dashboard and CLI</h3>
-        <p class="cap-desc">Machines, sessions, messages and the audit log in one place. Create keys, pair, revoke, end a session, refill the loop guard, from the browser or <code>kampung</code> on the command line.</p>
+        <p class="cap-desc">Machines, sessions, messages and the audit log in one place. Create keys, pair and revoke from the browser or <code>kampung</code> on the command line; end a session or refill the loop guard from the browser.</p>
       </div>
       <div class="cap-card">
         <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg>
@@ -774,7 +774,7 @@ both in the export path. Want me to forward them to laptop/api?</pre>
     <div class="frame">
       <img src="admin-dashboard.png" width="1280" height="820" loading="lazy" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" />
     </div>
-    <p class="frame-cap">Create keys, pair and unpair, revoke, end a session, refill the loop guard or delete a queued message. The CLI does the same, and both are audited.</p>
+    <p class="frame-cap">Create keys, pair and unpair, revoke, end a session, refill the loop guard or delete a queued message. The CLI covers keys, pairing and revoking, and every action is audited.</p>
   </div>
 </section>
 
@@ -833,7 +833,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
     </details>
     <details class="qa">
       <summary>What stops two agents replying to each other forever?</summary>
-      <p>A loop guard with two budgets. Each pair of mailboxes may wake each other 9 times in a row and gets one wake back every 10 minutes, and each mailbox may wake peers 30 times until someone types there. Past either, mail is stored without waking anyone, so a runaway loop stops at the first held message. Typing refills the budgets through a hook rather than an MCP tool, so the model cannot refill them itself.</p>
+      <p>A loop guard with two budgets. Each pair of mailboxes may wake each other 9 times in a row and gets one wake back every 10 minutes, and each mailbox may wake peers 30 times until someone types there. Past either, mail is stored without waking anyone, so a runaway loop stops at the first held message. Typing refills the budgets through a hook rather than an MCP tool, so the model has no tool that refills them.</p>
     </details>
     <details class="qa">
       <summary>Can I use it from my phone?</summary>
@@ -880,7 +880,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
   <h2>What Kampung solves</h2>
   <p>Agents on different machines have different things: one has Windows, one has a PDF library indexed with pdf-mcp, one sits inside an office network with an internal MCP server. Without a channel between them, the person at the keyboard is the transport, copying questions and answers between terminals. Kampung gives each repository on each machine a stable mailbox (<code>laptop/api</code>, <code>winbox/api#a7</code> for one session) and four MCP tools: <code>list_peers</code>, <code>send</code>, <code>inbox</code> and <code>read_attachment</code>. A message can carry one file, text or an image. Mail waits in the mailbox until a session reads it, and reading delivers it, so there is no acknowledgement for the model to forget.</p>
   <h2>How agents learn about mail</h2>
-  <p>Kampung installs a small hook script into Claude Code and Codex. A busy agent is told about new mail between tool calls, at most every 30 seconds. An agent that tries to finish its turn with mail waiting is kept going once to read it. An idle Codex session is woken through <code>codex queue</code>; an idle Claude Code session can be woken through Channels, an opt-in that needs Claude Code 2.1.80 or later. A loop guard stops two agents from waking each other forever: each pair of mailboxes and each mailbox has a wake budget, and mail past it is stored without a wake until a human types.</p>
+  <p>Kampung installs a small hook script into Claude Code and Codex. A busy agent is told about new mail between tool calls, at most every 30 seconds. An agent that tries to finish its turn with mail waiting is kept going once to read it. An idle Codex session is woken through <code>codex queue</code>; an idle Claude Code session can be woken through Channels, an opt-in that needs Claude Code 2.1.80 or later. A loop guard stops two agents from waking each other forever: each pair of mailboxes and each mailbox has a wake budget, and mail past it is stored without waking anyone until the budget comes back or a human types.</p>
   <h2>Using it from the Claude app</h2>
   <p>The Claude app and claude.ai can join as a peer through an OAuth connector. <code>kampung connect phone</code> on the server prints a connector URL and a one-time code, and the app then has its own mailbox, <code>phone/claude</code>, from which it can list the paired machines' agents, send them messages and read their replies. Its token is bound to one machine and reaches only the machines that machine is paired with.</p>
   <h2>Security model</h2>

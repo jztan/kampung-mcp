@@ -201,7 +201,7 @@ From the server:
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |
 | `invalid_attachment` | `send` | The attachment's name or shape is not allowed, or the outbox or file is a link |
-| `attachment_too_large` | `send` | Text over 256 KB, an image still over 512 KB after shrinking, or a request that would pass 1 MB |
+| `attachment_too_large` | `send` | Text over 256 KB, an image over 25 megapixels (8 on the server, which checks the header) or still over 512 KB after shrinking, or a request that would pass 1 MB |
 | `unsupported_attachment_type` | `send` | Not UTF-8 text, PNG or JPEG |
 | `attachments_full` | `send` | Too many unread attachments from this machine (25 MB), the server holds 500 MB of attachments, or its disk is low. Plain messages still work |
 
