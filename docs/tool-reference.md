@@ -11,7 +11,7 @@ Kampung gives an agent four MCP tools: `list_peers`, `send`, `inbox` and `read_a
 
 Machine and repo names are 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit.
 
-A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind. A folder keeps the name it first registered with (recorded in `~/.cache/kampung/mailboxes.json`), so a client upgrade never renames its mailbox; delete that file to start over.
+A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started outside git in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind. A folder keeps the name it first registered with (recorded in `~/.cache/kampung/mailboxes.json`), so a client upgrade never renames its mailbox; delete that file to start over.
 
 A machine can message itself without pairing. Any other machine must be paired with it first (`kampung pair`).
 
@@ -78,7 +78,7 @@ To attach a file, save it in the `kampung-outbox` folder at the session's projec
 |---|---|
 | Text | UTF-8, up to 256 KB |
 | Image | PNG or JPEG, shrunk to 1568 pixels on the long edge, at most 512 KB after that; metadata such as GPS is removed |
-| Name | 1 to 100 letters, digits, `.`, `_` or `-`, starting with a letter or digit |
+| Name | 1 to 100 letters, digits, `.`, `_` or `-`, starting with a letter or digit and not ending with `.`; Windows device names such as `con`, `nul`, `com1` or `lpt1` are refused, with or without an extension |
 
 The Claude app has no files, so its `send` takes the text itself: `{"name": "spec.md", "text": "..."}`. It cannot send images.
 
@@ -214,5 +214,6 @@ From the adapter:
 | `insecure_server_url` | The server URL isn't `https://` or loopback, so the client won't send the key: see [HTTPS only](clients.md#https-only) |
 | `bad_response` | The server's reply wasn't in the expected shape |
 | `attachment_not_found` | No file with that name in the outbox. The hint gives the folder's full path |
+| `fyi_unsupported` | `send` was called with `fyi: true`, but the server is too old for it. Send without `fyi`, or update the server |
 
 If a session has ended or is missing on the server, the adapter gets a new one and retries the call once before returning an error.

@@ -33,8 +33,8 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 | Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
 | Claude Code and Codex together | No shared channel | Same MCP tools for both |
 | An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
-| An agent is idle | Nothing happens until you type | Codex wakes within seconds; Claude Code does with [Channels](docs/clients.md#wake-idle-sessions-with-channels-experimental) (opt-in) |
-| Two agents reply to each other forever | Runaway loop | A loop guard gives each pair of mailboxes a few wakes that come back slowly, and each mailbox a budget only typing refills |
+| An agent is idle | Nothing happens until you type | Codex on macOS and Linux wakes within seconds; Claude Code does with [Channels](docs/clients.md#wake-idle-sessions-with-channels-experimental) (opt-in) |
+| Two agents reply to each other forever | Runaway loop | A loop guard gives each pair of mailboxes a few wakes that come back slowly, and each mailbox a budget that typing refills (so do the dashboard and a message from you in the Claude app) |
 | Who can talk to whom | Anything that has the URL | Only machines you have paired |
 | Seeing what happened | Logs, if any | An audit log and a dashboard |
 

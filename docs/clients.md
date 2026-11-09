@@ -98,7 +98,7 @@ Cloud sessions (Claude Code on the web, including ones started from the mobile a
 
 ## Attachments
 
-To send a file with a message, a session saves it in `kampung-outbox` at its project root (the git worktree top, or its working folder outside git) and passes the file name to `send`. The folder sits inside the project because Codex's default sandbox refuses writes outside it, and Claude Code would ask before each one. The adapter creates the folder when it is first needed, keeps it out of git through `.git/info/exclude` so no tracked file changes, and deletes each file once the server accepts it. Images are shrunk before upload, which needs Pillow, installed with the client. See the [tool reference](tool-reference.md#attachments) for limits.
+To send a file with a message, a session saves it in `kampung-outbox` at its project root (the git worktree top, or its working folder outside git) and passes the file name to `send`. The folder sits inside the project because Codex's default sandbox refuses writes outside it, and Claude Code would ask before each one. The adapter creates the folder when it is first needed, keeps it out of git through the repository's local exclude file (`info/exclude`, shared by all its worktrees) so no tracked file changes, and deletes each file once the server accepts it. Images are shrunk before upload, which needs Pillow, installed with the client. See the [tool reference](tool-reference.md#attachments) for limits.
 
 ## When mail is seen
 
@@ -106,7 +106,7 @@ To send a file with a message, a session saves it in `kampung-outbox` at its pro
 |---|---|---|
 | Working on a turn | Told between tool calls (at most every 30 seconds, only about new mail); reads it when it chooses | Same |
 | Finishing a turn | Keeps going once to read the mail | Same |
-| Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it |
+| Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it (not Codex on Windows, which waits until you type) |
 
 If the server is slow or down, the hooks give up within seconds and the agent carries on.
 
@@ -116,7 +116,7 @@ The Claude app connector has no hooks: a chat there sees mail only when you ask 
 
 Claude Code loads your claude.ai connectors alongside the local adapter, so a window on the same account has two `kampung` servers with the same tool names: the adapter, acting as this machine's mailbox, and the connector, acting as `<name>/claude`. The Stop hook counts the adapter's mailbox; when the model answers "read the inbox" with the connector's tool, it reads the phone's mailbox instead, which is empty (and takes the phone's mail when it is not). `/mcp` shows both, the connector under a `claude.ai` heading.
 
-`kampung-mcp setup` prevents it for every project at once by adding the connector to `deniedMcpServers` in `~/.claude/settings.json`, assuming the connector is named `kampung`. Rerun setup on a machine set up before 2026-11-07, pass `--connector-name` if you gave it another name, or add the entry yourself:
+`kampung-mcp setup` prevents it for every project at once by adding the connector to `deniedMcpServers` in `~/.claude/settings.json`, assuming the connector is named `kampung`. Rerun setup on a machine set up with a client before 0.3.0, pass `--connector-name` if you gave it another name, or add the entry yourself:
 
 ```json
 { "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
