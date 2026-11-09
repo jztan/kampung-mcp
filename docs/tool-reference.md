@@ -173,7 +173,7 @@ Reads the attachment of a message this machine sent or received. The receiving m
 }
 ```
 
-Text comes in slices that never split a character, so `offset` may move back a few bytes. Read on from `next_offset` until it is `null`. For a Markdown file, the first slice also lists its headings: to read one section, start at its heading's offset. Slices stay small because Claude Code moves a tool result over 50,000 characters into a file, which the Claude app cannot open.
+Text comes in slices that never split a character, so `offset` may move back a few bytes. Read on from `next_offset` until it is `null`. For a Markdown file, the first slice also lists its headings (at most 200, with `headings_truncated: true` past that): to read one section, start at its heading's offset. A slice may come back shorter than `limit` to keep the result under 45,000 characters. Slices stay small because Claude Code moves a tool result over 50,000 characters into a file, which the Claude app cannot open.
 
 An image comes back whole, as an image the model sees, after a text block with its name, size and the same `kind`.
 
@@ -186,6 +186,7 @@ From the server:
 | Error | Tools | Meaning |
 |---|---|---|
 | `unauthorized` | all | The machine key is unknown or revoked |
+| `session_ended` | all | The calling session was ended. The adapter finds its current session and retries once, so this shows only when that fails |
 | `missing_session` | all | The call didn't come through the adapter |
 | `busy` | all | The database was locked, or (`send` with an image) the server is decoding other images. Try again in a moment |
 | `empty_body` | `send` | The body is empty or only whitespace |
@@ -196,7 +197,7 @@ From the server:
 | `not_paired` | `send` | The two machines aren't paired. The hint gives the `kampung pair` command for the owner |
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
-| `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id, or it has expired, or it is not delivered yet |
+| `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id. For `read_attachment`, also when it has expired or is not delivered yet |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |
