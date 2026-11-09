@@ -85,6 +85,9 @@ The per-session stdio adapter and the hooks for Claude Code and Codex.
 | `setup.py` | `kampung-mcp setup`: writes the config and hook entries |
 | `doctor.py` | `kampung-mcp doctor`: read-only checks of a machine's setup |
 | `cli.py` | The `kampung-mcp` command: run the adapter, or set up or check a machine |
+| `outbox.py` | Reads and checks an attachment from the project's `kampung-outbox` folder |
+| `images.py` | Shrinks PNG and JPEG attachments before they are sent |
+| `codex_launch.py` | Finds and claims a new Codex window's thread at launch |
 
 ## Development workflow
 

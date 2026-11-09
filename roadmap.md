@@ -47,7 +47,6 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 - Find the flaky test. One full run failed on a test that looks like `test_waker_backs_off_while_server_is_down`, whose process-wide `asyncio.sleep` patch is now narrowed. Close this if it does not come back.
 - `asyncRewake` spike (new), run before the SSE work. The docs describe a background hook that can wake Claude on exit code 2, which might wake an idle session without Channels. Untested, and which events support it is still unconfirmed.
 - SSE `/v1/events` to replace the adapter's `peek` polling.
-- Have `peek` return the newest wakeable id, so a read plus a new arrival between polls still pushes.
 - Fix the double nudge from parallel tool calls, and treat a NaN `checked` as 0.
 - Package the client as a Claude Code plugin, for easier install only.
 - Codex waker bound, if headless turns or stolen mail show up in daily use.
@@ -74,5 +73,4 @@ Freeze the four MCP tools and `/v1` once these hold:
 ## Not scheduled
 
 - **On demand only:** Postgres, OIDC, a broker for multiple replicas, live dashboard updates, session summaries for `list_peers`.
-- **Remove `claim_task`:** it contradicts the task-board non-goal and the rejected claim and ack design.
 - **Keep the FastMCP 3 pin:** Claude Code still does not register a channel server on protocol revision 2026-07-28.

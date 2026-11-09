@@ -85,7 +85,7 @@ With Docker, settings go in `.env` (see [`.env.example`](../.env.example)):
 | `KAMPUNG_IMAGE_TAG` | `latest` | Release to pull from `ghcr.io/jztan/kampung-mcp`, such as `0.1.0`; a local `--build` is tagged with it too |
 | `KAMPUNG_DOMAIN` | | Public hostname for the `tls` profile (required for it) |
 | `KAMPUNG_ADMIN_TOKEN` | | Turns on `/admin`; at least 24 characters |
-| `KAMPUNG_PUBLIC_URL` | | Public `https://` address with no path or trailing slash; turns on the Claude app connector (OAuth routes and `kampung connect`). The connector URL is this plus `/mcp` |
+| `KAMPUNG_PUBLIC_URL` | | Public `https://` address with a lowercase host and no port, path or trailing slash; turns on the Claude app connector (OAuth routes and `kampung connect`). The connector URL is this plus `/mcp` |
 | `KAMPUNG_FORWARDED_ALLOW_IPS` | `*` | Proxies whose `X-Forwarded-For` the server trusts for client addresses; `*` is safe only behind the bundled Caddy (see above) |
 | `KAMPUNG_PAIR_WAKE_SIZE` | `9` | Wakes two mailboxes may give each other in a row (1 to 100) |
 | `KAMPUNG_PAIR_WAKE_REFILL_MINUTES` | `10` | Minutes for one of those wakes to come back (1 to 1440) |

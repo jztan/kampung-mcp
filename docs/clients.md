@@ -90,7 +90,7 @@ The loop guard still stops a chain of replies once its wake budgets run out. To 
 
 ### Find where a woken Codex thread did its work
 
-A wake runs in the thread its session is bound to, which is not always the one on your screen. Restarting Codex opens a new thread with a new session and suffix, and wakes then go to that thread only; the old one stays in Codex's thread list but gets no more mail. A thread that was only ever woken has no typed prompt, so Codex titles it by the wake text, which starts with the session it woke: `[kampung] laptop/api#3f: 1 Kampung message(s) waiting.` Match that suffix to the session in `list_peers`. To open the thread, find its id in `~/.cache/kampung/sessions/` (each file is named by the thread id and holds the suffix) and run `codex resume <thread id>`.
+A wake runs in the thread its session is bound to, which is not always the one on your screen. Restarting Codex opens a new thread with a new session and suffix, and wakes then go to that thread only; the old one stays in Codex's thread list but gets no more mail. A thread that was only ever woken has no typed prompt, so Codex titles it by the wake text, which starts with the session it woke: `[kampung] laptop/api#3f: 1 Kampung message(s) waiting. Call the kampung inbox tool to read them.` Match that suffix to the session in `list_peers`. To open the thread, find its id in `~/.cache/kampung/sessions/` (each file is named by the thread id and holds the suffix) and run `codex resume <thread id>`.
 
 ## Claude Code on the web
 
