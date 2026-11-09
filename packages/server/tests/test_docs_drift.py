@@ -5,6 +5,7 @@ still runs before each release; these are what it should never have to find.
 """
 
 import re
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,11 @@ RETIRED = [
 ]
 
 
+def _names_tool(text: str, name: str) -> bool:
+    """`name` as a code span of its own, or a call such as `name(...)`."""
+    return re.search(rf"`{re.escape(name)}[`(]", text) is not None
+
+
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -50,6 +56,13 @@ async def _tool_names(tmp_path: Path) -> list[str]:
         return sorted(t.name for t in await c.list_tools())
 
 
+def test_a_tool_name_inside_a_longer_name_does_not_count() -> None:
+    assert not _names_tool("call `sender` or `inboxes`", "send")
+    assert not _names_tool("call `inboxes`", "inbox")
+    assert _names_tool("call `send(to, body)` then `inbox`", "send")
+    assert _names_tool("call `inbox`", "inbox")
+
+
 async def test_every_registered_tool_is_documented(tmp_path: Path) -> None:
     names = await _tool_names(tmp_path)
     assert names, "no tools registered"
@@ -58,8 +71,8 @@ async def test_every_registered_tool_is_documented(tmp_path: Path) -> None:
     )
     page = _read(ROOT / "pages" / "index.html")
     for name in names:
-        assert f"`{name}" in readme, f"README.md never names the {name} tool"
-        assert f"`{name}" in reference, f"tool-reference.md never names {name}"
+        assert _names_tool(readme, name), f"README.md never names the {name} tool"
+        assert _names_tool(reference, name), f"tool-reference.md never names {name}"
         assert f"<code>{name}</code>" in page, f"the landing page never names {name}"
 
 
@@ -67,10 +80,22 @@ def _thousands(n: int) -> str:
     return f"{n:,}"
 
 
+def _minutes(span: timedelta) -> int:
+    return int(span.total_seconds() // 60)
+
+
+def _per(window: timedelta) -> str:
+    """The table says "per minute"; any other window must change the text."""
+    return "per minute" if window == timedelta(minutes=1) else f"per {window}"
+
+
+WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
+
+
 SECURITY_PHRASES = {
     "MAX_BODY_BYTES": f"{L.MAX_BODY_BYTES // 1024} KB of UTF-8",
     "MESSAGE_TTL": f"| Unread mail kept | {L.MESSAGE_TTL.days} days |",
-    "SEND_RATE": f"| Sends per machine | {L.SEND_RATE} per minute |",
+    "SEND_RATE": f"| Sends per machine | {L.SEND_RATE} {_per(L.SEND_RATE_WINDOW)} |",
     "REGISTER_RATE": f"| Session registrations per machine | {L.REGISTER_RATE} per",
     "PEEK_RATE": f"`peek` {_thousands(L.PEEK_RATE)} per minute",
     "END_RATE": f"`end` {L.END_RATE} per minute",
@@ -88,7 +113,11 @@ SECURITY_PHRASES = {
     "MAX_CWD_CHARS": f"{_thousands(L.MAX_CWD_CHARS)} printable characters",
     "ENDED_SESSION_RETENTION": f"| Ended sessions kept | "
     f"{L.ENDED_SESSION_RETENTION.days} days",
-    "AUTH_FAILURE_LIMIT": f"{L.AUTH_FAILURE_LIMIT} within a minute",
+    "AUTH_FAILURE_LIMIT": (
+        f"{L.AUTH_FAILURE_LIMIT} within a minute"
+        if L.AUTH_FAILURE_WINDOW == timedelta(minutes=1)
+        else f"{L.AUTH_FAILURE_LIMIT} within {L.AUTH_FAILURE_WINDOW}"
+    ),
     "MAX_ATTACHMENT_TEXT_BYTES": f"text up to {L.MAX_ATTACHMENT_TEXT_BYTES // 1024} KB",
     "MAX_ATTACHMENT_IMAGE_BYTES": f"PNG or JPEG up to "
     f"{L.MAX_ATTACHMENT_IMAGE_BYTES // 1024} KB",
@@ -103,6 +132,30 @@ SECURITY_PHRASES = {
     "CONNECTOR_WAKE": f"{L.CONNECTOR_WAKE_BUDGET} per connector session per "
     f"{int(L.CONNECTOR_WAKE_WINDOW.total_seconds() // 60)} minutes",
     "OAUTH_REQUESTS": f"{L.OAUTH_REQUESTS_PER_CLIENT} per client address",
+    "PEEK_WINDOWS": f"({L.PEEK_RATE // 30} windows polling every 2 seconds)",
+    "IMAGE_DECODES": f"{WORDS.get(L.IMAGE_DECODES, L.IMAGE_DECODES)} decoded at a time",
+    "IMAGE_DECODE_WAIT": f"waits {L.IMAGE_DECODE_WAIT:g} seconds for a decode",
+    "MIN_FREE_DISK_BYTES": f"under {L.MIN_FREE_DISK_BYTES // 2**30} GB free",
+    "SESSION_DELETE_BATCH": f"days, then deleted up to "
+    f"{_thousands(L.SESSION_DELETE_BATCH)} per cleanup pass",
+    "AUDIT_DELETE_BATCH": f"the oldest deleted up to "
+    f"{_thousands(L.AUDIT_DELETE_BATCH)} per cleanup pass",
+    "NOHOOK_MAILBOX_REFILL": f"they come back after "
+    f"{_minutes(L.NOHOOK_MAILBOX_REFILL)} minutes without waking sends",
+    "OAUTH_CONNECT_CODE_TTL": f"| Connect code and pending sign-in | "
+    f"{_minutes(L.OAUTH_CONNECT_CODE_TTL)} minutes, single use",
+    "OAUTH_REQUEST_TTL": f"{_minutes(L.OAUTH_REQUEST_TTL)} minutes, single use",
+    "OAUTH_CONNECT_ATTEMPTS": f"{L.OAUTH_CONNECT_ATTEMPTS} wrong codes burn",
+    "CONNECT_FAILURE": f"{L.CONNECT_FAILURE_LIMIT} wrong codes per client address "
+    f"in {_minutes(L.CONNECT_FAILURE_WINDOW)} minutes",
+    "OAUTH_MAX_REQUESTS": f"and {L.OAUTH_MAX_REQUESTS} in all",
+    "OAUTH_CODE_TTL": f"authorization code {_minutes(L.OAUTH_CODE_TTL)} minutes",
+    "OAUTH_ACCESS_TTL": f"access {_minutes(L.OAUTH_ACCESS_TTL) // 60} hour",
+    "OAUTH_REFRESH_TTL": f"refresh {L.OAUTH_REFRESH_TTL.days} days renewed on use",
+    "OAUTH_REFRESH_REUSE": f"{int(L.OAUTH_REFRESH_REUSE.total_seconds())} seconds "
+    "of refresh retry",
+    "OAUTH_ROTATED_RETENTION": f"stay on record {L.OAUTH_ROTATED_RETENTION.days} days",
+    "MAX_OAUTH_BODY_BYTES": f"{L.MAX_OAUTH_BODY_BYTES // 1024} KB on `/token`",
 }
 
 
