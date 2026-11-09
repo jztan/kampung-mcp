@@ -44,6 +44,21 @@ def _encode(img: Image.Image, fmt: str) -> bytes:
 
 def normalize_image(data: bytes) -> tuple[bytes, str]:
     """The image re-encoded with no metadata, and its media type."""
+    # The slot is taken before Pillow sees a byte: opening a PNG already
+    # expands its text chunks (up to 64 MB), so opening counts as decoding.
+    if not _DECODE_SLOTS.acquire(timeout=IMAGE_DECODE_WAIT):
+        raise KampungError(
+            "busy", "The server is decoding other images. Try again in a moment."
+        )
+    try:
+        img, source_format = _decoded(data)
+    finally:
+        _DECODE_SLOTS.release()
+    return _clean(img, source_format)
+
+
+def _decoded(data: bytes) -> tuple[Image.Image, str | None]:
+    """Opened, checked and shrunk; called with a decode slot held."""
     try:
         opened = Image.open(io.BytesIO(data), formats=["PNG", "JPEG"])
     except Image.DecompressionBombError as e:
@@ -59,10 +74,6 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
             f"{IMAGE_MAX_PIXELS} pixels are accepted.",
         )
     source_format = opened.format
-    if not _DECODE_SLOTS.acquire(timeout=IMAGE_DECODE_WAIT):
-        raise KampungError(
-            "busy", "The server is decoding other images. Try again in a moment."
-        )
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -77,8 +88,10 @@ def normalize_image(data: bytes) -> tuple[bytes, str]:
         raise KampungError("attachment_too_large", "The image is too large.") from e
     except (OSError, ValueError, SyntaxError) as e:
         raise _unsupported() from e
-    finally:
-        _DECODE_SLOTS.release()
+    return img, source_format
+
+
+def _clean(img: Image.Image, source_format: str | None) -> tuple[bytes, str]:
     # A fresh image carries pixels only: no info, EXIF or ICC profile.
     mode = "RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB"
     clean = Image.new(mode, img.size)

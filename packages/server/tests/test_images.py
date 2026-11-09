@@ -2,6 +2,7 @@ import io
 import os
 import struct
 import zlib
+from typing import Any
 
 import pytest
 from PIL import Image, PngImagePlugin
@@ -228,3 +229,31 @@ def test_a_burst_waits_briefly_for_a_decode_slot_then_is_busy(
         for _ in held:
             images._DECODE_SLOTS.release()
     normalize_image(_png(32, 32))
+
+
+def test_nothing_is_parsed_until_a_decode_slot_is_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Pillow expands PNG text chunks while opening, so opening counts as decoding.
+    from kampung_server import images
+
+    monkeypatch.setattr(images, "IMAGE_DECODE_WAIT", 0.1)
+    opened: list[object] = []
+    real_open = images.Image.open
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        opened.append(args)
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(images.Image, "open", spy)
+    held = [images._DECODE_SLOTS.acquire(blocking=False) for _ in range(2)]
+    try:
+        with pytest.raises(KampungError) as e:
+            normalize_image(_png(32, 32))
+        assert e.value.code == "busy"
+        assert opened == []
+    finally:
+        for _ in held:
+            images._DECODE_SLOTS.release()
+    normalize_image(_png(32, 32))
+    assert len(opened) == 1

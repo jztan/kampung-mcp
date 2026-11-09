@@ -364,3 +364,19 @@ def test_a_database_from_the_first_schema_5_is_repaired(tmp_path: Path) -> None:
     )
     db.migrate(old)  # a repaired database is left alone
     old.close()
+
+
+def test_incremental_vacuum_is_retried_when_the_first_vacuum_failed(
+    tmp_path: Path,
+) -> None:
+    # The version is saved before the VACUUM, so a failed VACUUM (disk full,
+    # a crash) must not leave the file without incremental vacuum for good.
+    conn = db.connect(tmp_path / "k.db")
+    for version in range(1, db.SCHEMA_VERSION + 1):
+        for statement in db._statements(db._script(version)):
+            conn.execute(statement)
+    conn.execute(f"PRAGMA user_version={db.SCHEMA_VERSION}")
+    assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 0
+    db.migrate(conn)
+    assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
+    conn.close()

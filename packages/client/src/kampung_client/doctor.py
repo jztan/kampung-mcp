@@ -270,7 +270,11 @@ def _codex_launch_check() -> Check:
     socket must answer. Without it, windows still bind on their first prompt."""
     name = "codex launch"
     path = codex_launch.control_socket()
-    state = codex_launch.probe_socket(path) if path.exists() else "not running"
+    try:
+        exists = path.exists()
+    except OSError:  # a sandbox or odd permissions: say so, never crash doctor
+        exists = True
+    state = codex_launch.probe_socket(path) if exists else "not running"
     if state == "not running":
         return Check(OK, name, "Codex is not running, so this went unchecked")
     if state == "answers":

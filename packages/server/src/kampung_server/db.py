@@ -29,6 +29,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
 def migrate(conn: sqlite3.Connection) -> None:
     if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
         _repair_early_schema_5(conn)
+        _ensure_incremental_vacuum(conn)
         return
     with transaction(conn):
         # Read again under the write lock: another process may have migrated.
@@ -37,6 +38,13 @@ def migrate(conn: sqlite3.Connection) -> None:
             for statement in _statements(_script(target)):
                 conn.execute(statement)
         conn.execute(f"PRAGMA user_version={max(version, SCHEMA_VERSION)}")
+    _ensure_incremental_vacuum(conn)
+
+
+def _ensure_incremental_vacuum(conn: sqlite3.Connection) -> None:
+    """Checked on every start, not only after a migration: the version is
+    saved before the VACUUM, so a VACUUM that failed (disk full, a crash)
+    is retried next time instead of leaving the file without it for good."""
     if conn.execute("PRAGMA auto_vacuum").fetchone()[0] != 2:
         # Switching an existing file to incremental vacuum needs a VACUUM,
         # which cannot run inside a transaction. A new file gets it at once.
