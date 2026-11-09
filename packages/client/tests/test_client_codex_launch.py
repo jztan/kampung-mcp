@@ -21,7 +21,7 @@ import pytest
 
 from client_testlib import LiveServer, RawMCP, git_repo, home_env, peer_send
 from kampung_client import codex_launch, hook
-from test_client_codex_wake import WAKE, fake_codex, wait_for_calls
+from test_client_codex_wake import fake_codex, wait_for_calls, wake
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="Codex on Windows has no launch binding"
@@ -264,7 +264,7 @@ def test_a_new_window_is_listed_and_woken_before_its_first_prompt(
         # No tool call yet, and the waker still wakes the window.
         peer_send(server, f"laptop/api#{data['suffix']}", "review please")
         got = wait_for_calls(log, 1, 8)
-        assert got == [["queue", "--thread", "cx-launch", "--message", WAKE]]
+        assert got == [["queue", "--thread", "cx-launch", "--message", wake(data)]]
         assert hook.read_session_file("cx-older") is None
     finally:
         mcp.close()
@@ -414,7 +414,7 @@ def test_the_windows_own_hook_session_is_adopted_and_woken(
         time.sleep(3)  # the adapter finds and binds the thread
         peer_send(server, f"laptop/api#{hooked['suffix']}", "review please")
         got = wait_for_calls(log, 1, 10)
-        assert got == [["queue", "--thread", tid, "--message", WAKE]]
+        assert got == [["queue", "--thread", tid, "--message", wake(hooked)]]
         again = hook.read_session_file(tid)
         assert again is not None and again["session"] == hooked["session"]
     finally:

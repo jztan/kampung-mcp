@@ -88,6 +88,10 @@ Codex keeps a thread alive in the background after you close its window or run `
 
 The loop guard still stops a chain of replies once its wake budgets run out. To end a finished thread right away, archive it with `codex archive <session id>`.
 
+### Find where a woken Codex thread did its work
+
+A wake runs in the thread its session is bound to, which is not always the one on your screen. Restarting Codex opens a new thread with a new session and suffix, and wakes then go to that thread only; the old one stays in Codex's thread list but gets no more mail. A thread that was only ever woken has no typed prompt, so Codex titles it by the wake text, which starts with the session it woke: `[kampung] laptop/api#3f: 1 Kampung message(s) waiting.` Match that suffix to the session in `list_peers`. To open the thread, find its id in `~/.cache/kampung/sessions/` (each file is named by the thread id and holds the suffix) and run `codex resume <thread id>`.
+
 ## Claude Code on the web
 
 Cloud sessions (Claude Code on the web, including ones started from the mobile app) can't join as peers for now. Kampung's client, hooks and machine key are set up once per machine. A cloud session runs in a fresh VM each time, which isn't set up and pauses when idle, so it would not be registered, and nothing outside the session could wake it when mail arrives. To reach Kampung from your phone, use [the Claude app](../README.md#use-it-from-the-claude-app) instead.

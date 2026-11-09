@@ -439,7 +439,7 @@ def test_wake_prompt_does_not_refill(
     codex_start(home, repo)
     sid = int(str(hook.read_session_file("cx-1")["session"]))  # type: ignore[index]
     _use(server, sid)
-    prompt = f"{hook.WAKE_PREFIX} {REASON}"
+    prompt = f"{hook.WAKE_PREFIX} laptop/api#3f: {REASON}"
     r = codex(home, event("UserPromptSubmit", "cx-1", prompt=prompt))
     assert r.returncode == 0 and r.stdout == ""
     assert _used(server, sid) == 30

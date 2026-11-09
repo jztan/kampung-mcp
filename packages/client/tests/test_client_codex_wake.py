@@ -13,10 +13,15 @@ import pytest
 from client_testlib import LiveServer, RawMCP, git_repo, peer_send, run_hook
 from kampung_client import hook
 
-WAKE = (
-    "[kampung] 1 Kampung message(s) waiting. Call the kampung inbox tool to "
-    "read them."
-)
+
+def wake(data: dict[str, object]) -> str:
+    """The queued text: the woken session's own address leads, so a Codex
+    thread list (which titles a thread by its first prompt) tells apart
+    threads that were only ever woken."""
+    return (
+        f"[kampung] {data['mailbox']}#{data['suffix']}: 1 Kampung message(s) "
+        "waiting. Call the kampung inbox tool to read them."
+    )
 
 
 def fake_codex(
@@ -110,7 +115,7 @@ def test_waker_queues_once_per_new_wakeable_mail(
         call_inbox(mcp, "cx-1")
         peer_send(server, f"laptop/api#{data['suffix']}", "wake up")
         got = wait_for_calls(log, 1, 8)
-        assert got == [["queue", "--thread", "cx-1", "--message", WAKE]]
+        assert got == [["queue", "--thread", "cx-1", "--message", wake(data)]]
         time.sleep(5)
         assert len(calls(log)) == 1  # same mail, no repeat
     finally:
@@ -296,7 +301,7 @@ def test_waker_waits_for_a_busy_turn_to_end(
         assert calls(log) == []
         hook_event("Stop", stop_hook_active=True)  # turn ends, mail still unread
         assert wait_for_calls(log, 1, 8) == [
-            ["queue", "--thread", "cx-1", "--message", WAKE]
+            ["queue", "--thread", "cx-1", "--message", wake(data)]
         ]
     finally:
         mcp.close()
@@ -322,7 +327,7 @@ def test_waker_wakes_for_mail_that_arrives_late_in_a_wake_turn(
         call_inbox(mcp, "cx-1")
         peer_send(server, to, "first")
         assert len(wait_for_calls(log, 1, 8)) == 1
-        hook_event("UserPromptSubmit", prompt=WAKE)
+        hook_event("UserPromptSubmit", prompt=wake(data))
         call_inbox(mcp, "cx-1", "c2")
         time.sleep(3)
         peer_send(server, to, "second")
@@ -367,7 +372,7 @@ async def test_waker_wakes_when_one_message_replaces_another(
     monkeypatch.setattr(adapter, "asyncio", fake_asyncio)
     waker = CodexWaker(resolver, "/bin/false")
 
-    async def fake_queue(thread: str, wakeable: int) -> None:
+    async def fake_queue(thread: str, wakeable: int, address: str) -> None:
         queued.append(thread)
 
     monkeypatch.setattr(waker, "_queue", fake_queue)
