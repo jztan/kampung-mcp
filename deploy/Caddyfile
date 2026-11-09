@@ -30,8 +30,8 @@
 
 	# The hook API, dashboard and OAuth routes take small JSON and forms;
 	# the app caps /v1 and the OAuth routes at 64 KB too, the dashboard
-	# only here. MCP calls carry message bodies of up to 8 KB and attachments of up
-	# to 512 KB, which JSON escaping can grow, so /mcp gets more room.
+	# only here. MCP calls carry bodies of up to 8 KB and attachments of up to
+	# 512 KB, which escaping and base64 grow, so /mcp gets more room.
 	@small_bodies path /v1/* /admin/* /token /authorize /revoke /oauth/*
 	request_body @small_bodies {
 		max_size 64KB
