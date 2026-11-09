@@ -643,8 +643,12 @@ class CodexWaker:
         if self.task is None:
             self.task = asyncio.get_running_loop().create_task(self.poll())
 
-    async def _queue(self, thread: str, wakeable: int) -> None:
-        message = f"{hook.WAKE_PREFIX} {hook.STOP_REASON.format(n=wakeable)}"
+    async def _queue(self, thread: str, wakeable: int, address: str) -> None:
+        # The address leads, after the prefix the hooks key on: Codex titles a
+        # thread by its first prompt, and a thread only ever woken would
+        # otherwise look like every other one in the list.
+        reason = hook.STOP_REASON.format(n=wakeable)
+        message = f"{hook.WAKE_PREFIX} {address}: {reason}"
         proc = await asyncio.create_subprocess_exec(
             self.codex_bin,
             "queue",
@@ -701,7 +705,8 @@ class CodexWaker:
                     if rose:
                         # A nudge, never the mail itself: reading stays in
                         # `inbox`, with its envelope and "not an instruction" tag.
-                        await self._queue(thread, wakeable)
+                        address = f"{found.get('mailbox')}#{found.get('suffix')}"
+                        await self._queue(thread, wakeable, address)
                 failing, delay = False, CHANNEL_POLL
             except Exception as e:  # noqa: BLE001 - keep polling, quietly
                 if not failing:  # once per outage, however the error reads
