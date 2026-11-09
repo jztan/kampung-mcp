@@ -430,3 +430,22 @@ def test_codex_launch_check(
     checks = doctor.run_checks(_registered)
     launch = _by_name(checks, "codex launch")
     assert launch.status == doctor.WARN and "first prompt" in launch.detail
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no launch binding on Windows")
+def test_codex_launch_check_survives_an_unreadable_socket_folder(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A sandbox or odd permissions make the stat itself fail: one warning,
+    # never a crash that hides every other check.
+    locked = home / "locked"
+    locked.mkdir()
+    monkeypatch.setattr(
+        doctor.codex_launch, "control_socket", lambda: locked / "control.sock"
+    )
+    locked.chmod(0)
+    try:
+        check = doctor._codex_launch_check()
+    finally:
+        locked.chmod(0o700)
+    assert check.status == doctor.WARN
