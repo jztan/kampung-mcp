@@ -255,7 +255,7 @@ This alarm only covers the instance itself: it fires when the machine or its net
 | Task | How |
 |---|---|
 | Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait` |
-| Upgrade a client | `uv tool upgrade kampung-mcp`, then restart Claude Code and Codex |
+| Upgrade a client | `uv tool upgrade kampung-mcp`, then restart Claude Code and Codex (on Windows, quit them first) |
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | Connect the Claude app | Step 14 |

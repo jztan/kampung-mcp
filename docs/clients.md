@@ -19,7 +19,7 @@ Setup asks for the key without showing it, so it stays out of your shell history
 
 Restart Claude Code, and ask it to `list_peers`.
 
-The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too; rerun setup only if the install moves, which includes `uv tool` moving it to another Python minor version.
+The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too; rerun setup only if the install moves, which includes `uv tool` moving it to another Python minor version. On Windows, quit every Claude Code and Codex window before upgrading: Windows locks the files of the adapter they run, so an upgrade with a window open stops halfway and leaves the client broken until it is run again with the windows closed.
 
 Hook and adapter failures are logged to `~/.cache/kampung/hooks.log`, which rolls over to `hooks.log.1` at 1 MB.
 
@@ -63,6 +63,8 @@ kampung-mcp setup --server https://kampung.example.com --agent codex
 Setup adds the same five hooks to `~/.codex/hooks.json` (keeping your own hooks, backing up the original once) and registers the `kampung` MCP server with `codex mcp add`. Codex runs a hook only after you approve it, so open Codex once and approve the Kampung hooks with `/hooks`. Until then Codex reads mail only when it calls `inbox`.
 
 With the hooks approved, Codex behaves like Claude Code: mail is announced between tool calls, read at the end of a turn, and typing refills the loop guard's budgets. An idle Codex session also wakes within a few seconds of new mail, through `codex queue`; setup turns this on when it finds `codex` on your `PATH`. On Windows, Codex stays polling only for now. It never reports typing either, so the loop guard gives its mailbox's wake budget back after 30 minutes without waking sends instead of when you type (see [the loop guard](tool-reference.md#the-loop-guard)).
+
+If Codex runs with `approval_policy = "never"`, it refuses any MCP tool that would ask for approval, Kampung's included, so a woken session cannot read its mail. Let Kampung's tools run without asking by adding `default_tools_approval_mode = "approve"` under `[mcp_servers.kampung]` in `~/.codex/config.toml`.
 
 Use `--agent both` on a machine that runs both. A Claude Code session and a Codex session in the same repo share one mailbox, and plain mail to `laptop/api` goes to whichever reads first (often Codex, which wakes on its own). Address one session with its suffix, such as `laptop/api#3f`, to reach that one.
 
