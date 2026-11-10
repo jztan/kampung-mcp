@@ -290,6 +290,117 @@ def test_mcp_server_that_will_not_start_fails(home: Path, server: LiveServer) ->
     )
 
 
+def _registered_as(python: str, probe: tuple[int, str] | Exception) -> doctor.Query:
+    """claude has kampung registered with this interpreter; running it gives
+    probe. codex has nothing registered."""
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, (
+                f"kampung:\n  Status: ✘ Failed to connect\n  Type: stdio\n"
+                f"  Command: {python}\n"
+                "  Args: -m kampung_client adapter --agent claude-code\n"
+            )
+        if cmd[0] == python:
+            if isinstance(probe, Exception):
+                raise probe
+            return probe
+        return _unregistered(cmd)
+
+    return query
+
+
+PIL_MISSING = (
+    1,
+    "Traceback (most recent call last):\n"
+    '  File "images.py", line 9, in <module>\n'
+    "ModuleNotFoundError: No module named 'PIL'\n",
+)
+
+
+def test_checkout_interpreter_missing_a_module_says_uv_sync(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    checkout = tmp_path / "src" / "kampung mcp"
+    python = str(checkout / ".venv" / "bin" / "python")
+    mcp = _by_name(
+        _healthy(server, home, _registered_as(python, PIL_MISSING)), "claude-code mcp"
+    )
+    assert mcp.status == doctor.FAIL
+    assert "No module named 'PIL'" in mcp.detail and python in mcp.detail
+    assert "uv sync" in mcp.fix and str(checkout) in mcp.fix
+
+
+def test_installed_interpreter_missing_a_module_says_upgrade(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "tools" / "kampung-mcp" / "bin" / "python3")
+    mcp = _by_name(
+        _healthy(server, home, _registered_as(python, PIL_MISSING)), "claude-code mcp"
+    )
+    assert mcp.status == doctor.FAIL
+    assert "uv tool upgrade kampung-mcp" in mcp.fix
+
+
+def test_gone_registered_interpreter_fails(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "gone" / "python")
+    query = _registered_as(python, FileNotFoundError(python))
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.FAIL
+    assert "does not exist" in mcp.detail
+
+
+def test_registered_interpreter_on_another_version_warns(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "old" / "python")
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  Status: Connected\n  Command: {python}\n"
+        if cmd[0] == python:
+            return 0, "0.2.1\n"
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.WARN
+    assert "0.2.1" in mcp.detail and __version__ in mcp.detail
+
+
+def test_registered_interpreter_that_imports_the_adapter_passes(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "ok" / "python")
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  Status: Connected\n  Command: {python}\n"
+        if cmd[0] == python:
+            assert cmd[1] == "-c" and "kampung_client.adapter" in cmd[2]
+            return 0, f"{__version__}\n"
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.OK
+
+
+def test_real_interpreter_probe_runs(home: Path, server: LiveServer) -> None:
+    """The probe against this test run's own interpreter, through the real
+    default_query: the adapter imports and the version matches."""
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  Status: Connected\n  Command: {sys.executable}\n"
+        if cmd[0] == sys.executable:
+            return doctor.default_query(cmd)
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.OK, mcp.detail
+
+
 def test_disabled_codex_server_fails(home: Path, server: LiveServer) -> None:
     def disabled(cmd: list[str]) -> tuple[int, str]:
         return 0, "kampung\n  enabled: false\n"

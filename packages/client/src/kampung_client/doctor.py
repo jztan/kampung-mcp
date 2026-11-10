@@ -34,6 +34,12 @@ LOG_WINDOW = timedelta(hours=24)
 LOG_EXPECTED = "no session file for this session"
 LOG_LINE_MAX = 120
 MCP_BROKEN = re.compile(r"failed to connect|enabled:\s*false", re.IGNORECASE)
+REGISTERED_COMMAND = re.compile(r"^\s*command:\s*(.+?)\s*$", re.I | re.M)
+MISSING_MODULE = re.compile(r"No module named '([^']+)'")
+# What the adapter imports at start, and the version it would run.
+INTERPRETER_PROBE = (
+    "import kampung_client, kampung_client.adapter; print(kampung_client.__version__)"
+)
 POWERSHELL_HOOK = re.compile(r"& '((?:[^']|'')+)' '((?:[^']|'')+)'; exit 0")
 
 
@@ -236,11 +242,69 @@ def _mcp_check(agent: str, program: str, query: Query, fix: str) -> Check | None
         return Check(WARN, name, f"could not ask {program}: {e}")
     if code != 0:
         return None
+    registered = REGISTERED_COMMAND.search(output)
+    if registered is not None:
+        problem = _interpreter_problem(name, registered.group(1).strip(), query)
+        if problem is not None:
+            return problem
     if MCP_BROKEN.search(output):
         return Check(
             FAIL, name, f"registered, but {program} reports it as not working", fix
         )
     return Check(OK, name, f"registered with {program}")
+
+
+def _interpreter_problem(name: str, python: str, query: Query) -> Check | None:
+    """Run the registered interpreter the way the adapter starts: an agent
+    shows only "connection closed" when the import fails, so name the cause."""
+    if "python" not in Path(python).name.lower():
+        return None  # not what setup registers; nothing to say about it
+    checkout = _checkout_of(python)
+    fix = (
+        f"Run uv sync in {checkout}."
+        if checkout is not None
+        else "Run uv tool upgrade kampung-mcp, then kampung-mcp setup."
+    )
+    try:
+        code, output = query([python, "-c", INTERPRETER_PROBE])
+    except FileNotFoundError:
+        return Check(
+            FAIL,
+            name,
+            f"the registered interpreter {python} does not exist",
+            "Run kampung-mcp setup --server URL with the flags you used before.",
+        )
+    except OSError as e:
+        return Check(WARN, name, f"could not run {python}: {e}")
+    if code != 0:
+        missing = MISSING_MODULE.search(output)
+        cause = (
+            f"No module named '{missing.group(1)}'"
+            if missing
+            else (output.strip().splitlines() or [f"exit {code}"])[-1][:LOG_LINE_MAX]
+        )
+        return Check(
+            FAIL, name, f"the adapter cannot start under {python}: {cause}", fix
+        )
+    version = output.strip().splitlines()[-1] if output.strip() else ""
+    if version != __version__:
+        return Check(
+            WARN,
+            name,
+            f"{python} runs kampung-mcp {version or 'of an unknown version'}, "
+            f"but this doctor is {__version__}",
+            fix,
+        )
+    return None
+
+
+def _checkout_of(python: str) -> Path | None:
+    """The folder holding the .venv the interpreter is in, if any: a checkout
+    run with uv, whose dependencies lag until uv sync."""
+    parts = Path(python).parts
+    if ".venv" not in parts:
+        return None
+    return Path(*parts[: parts.index(".venv")])
 
 
 def _agent_checks(
