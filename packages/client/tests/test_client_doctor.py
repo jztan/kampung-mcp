@@ -43,12 +43,67 @@ def _by_name(checks: list[doctor.Check], name: str) -> doctor.Check:
     return next(c for c in checks if c.name == name)
 
 
+def _set_denied(home: Path, entries: list[dict[str, str]]) -> None:
+    path = setup._claude_settings_path()
+    data = json.loads(path.read_text())
+    data["deniedMcpServers"] = entries
+    path.write_text(json.dumps(data))
+
+
 def _healthy(
     server: LiveServer, home: Path, query: doctor.Query = _claude_registered
 ) -> list[doctor.Check]:
     _install_hooks(home)
+    _set_denied(home, [{"serverUrl": setup.connector_url_pattern(server.url)}])
     (home / ".config" / "kampung" / "config.json").chmod(0o600)
     return doctor.run_checks(query)
+
+
+def test_an_undenied_connector_warns(home: Path, server: LiveServer) -> None:
+    _healthy(server, home)
+    _set_denied(home, [])
+    check = _by_name(doctor.run_checks(_claude_registered), "claude-code connector")
+    assert check.status == doctor.WARN
+    assert "phone's mail" in check.detail
+    assert "kampung-mcp setup" in check.fix
+
+
+def test_a_connector_denied_only_by_name_warns(home: Path, server: LiveServer) -> None:
+    _healthy(server, home)
+    _set_denied(home, [{"serverName": "claude.ai kampung"}])
+    check = _by_name(doctor.run_checks(_claude_registered), "claude-code connector")
+    assert check.status == doctor.WARN
+    assert "another name" in check.detail
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"deniedMcpServers": [{"serverUrl": "http://127.0.0.1:*/*"}]},
+        {"disableClaudeAiConnectors": True},
+    ],
+)
+def test_a_wider_deny_or_no_connectors_passes(
+    home: Path, server: LiveServer, settings: dict[str, object]
+) -> None:
+    _healthy(server, home)
+    path = setup._claude_settings_path()
+    data = json.loads(path.read_text())
+    data.pop("deniedMcpServers")
+    data.update(settings)
+    path.write_text(json.dumps(data))
+    check = _by_name(doctor.run_checks(_claude_registered), "claude-code connector")
+    assert check.status == doctor.OK
+
+
+def test_codex_only_machine_skips_the_connector_check(
+    home: Path, server: LiveServer
+) -> None:
+    def codex_only(cmd: list[str]) -> tuple[int, str]:
+        return _registered(cmd) if cmd[0] == "codex" else _unregistered(cmd)
+
+    checks = doctor.run_checks(codex_only)
+    assert "claude-code connector" not in [c.name for c in checks]
 
 
 def test_a_healthy_machine_passes_every_check(home: Path, server: LiveServer) -> None:
@@ -62,6 +117,7 @@ def test_a_healthy_machine_passes_every_check(home: Path, server: LiveServer) ->
         "version",
         "claude-code hooks",
         "claude-code mcp",
+        "claude-code connector",
         "hooks.log",
     ]
 
@@ -347,6 +403,7 @@ def test_cli_exits_0_when_healthy(
 ) -> None:
     monkeypatch.setattr(doctor, "default_query", _claude_registered)
     _install_hooks(home)
+    _set_denied(home, [{"serverUrl": setup.connector_url_pattern(server.url)}])
     (home / ".config" / "kampung" / "config.json").chmod(0o600)
     assert cli.main(["doctor"]) == 0
     out = capsys.readouterr().out

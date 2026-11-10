@@ -31,7 +31,7 @@ Hooks fail silently so that Kampung never gets in your agent's way, so a broken 
 kampung-mcp doctor
 ```
 
-It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration, whether new Codex windows can be bound at launch, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
+It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration, whether Claude Code is kept from loading the Claude app connector, whether new Codex windows can be bound at launch, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
 
 It can't see whether Codex has approved the hooks (`/hooks`), or whether this machine is paired with another: the dashboard's machines page shows that, and `list_peers` shows who an agent can reach.
 
@@ -116,10 +116,10 @@ The Claude app connector has no hooks: a chat there sees mail only when you ask 
 
 Claude Code loads your claude.ai connectors alongside the local adapter, so a window on the same account has two `kampung` servers with the same tool names: the adapter, acting as this machine's mailbox, and the connector, acting as `<name>/claude`. The Stop hook counts the adapter's mailbox; when the model answers "read the inbox" with the connector's tool, it reads the phone's mailbox instead, which is empty (and takes the phone's mail when it is not). `/mcp` shows both, the connector under a `claude.ai` heading.
 
-`kampung-mcp setup` prevents it for every project at once by adding the connector to `deniedMcpServers` in `~/.claude/settings.json`, assuming the connector is named `kampung`. Rerun setup on a machine set up with a client before 0.3.0, pass `--connector-name` if you gave it another name, or add the entry yourself:
+`kampung-mcp setup` prevents it for every project at once by adding two entries to `deniedMcpServers` in `~/.claude/settings.json`: the connector's name (`claude.ai kampung`, or the name given with `--connector-name`) and the server's URL, which catches the connector whatever you named it. `kampung-mcp doctor` warns on the `claude-code connector` line when neither is there. Rerun setup on a machine set up with an older client, or add the entry yourself, with your server's address:
 
 ```json
-{ "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
+{ "deniedMcpServers": [{ "serverUrl": "https://kampung.example.com/*" }] }
 ```
 
 `/mcp` Disable does the same for one project only. `disableClaudeAiConnectors: true` turns off every claude.ai connector in Claude Code, which is more than you want if you use others there.

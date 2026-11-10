@@ -10,6 +10,13 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - The Claude app may now wake each mailbox 60 times per 10 minutes, counted per receiving mailbox, instead of 10 times in total. When you drive several sessions by voice, a busy one no longer uses up the wakes for the rest. The number is a new setting, `KAMPUNG_CONNECTOR_WAKE_BUDGET` (1 to 1000, see `.env.example`). The app is never woken itself, so it cannot be half of a loop, and agent-to-agent loop protection is unchanged.
 
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp setup` now also denies the Claude app connector in Claude Code by your server's URL, not only by the name `claude.ai kampung`. A connector with another name, including the ` (2)` Claude adds when two connectors share a name, no longer loads in Claude Code windows as a second `kampung` that reads and takes the phone's mail. Rerun setup on each machine.
+- `kampung-mcp doctor` has a `claude-code connector` line that warns when nothing keeps Claude Code from loading the Claude app connector.
+
 ## [0.3.1] - 2026-11-10
 
 0.3.1 is the first published release of everything in 0.3.0 below, for both packages: v0.3.0 was tagged, but the image scan stopped it before anything was published.
