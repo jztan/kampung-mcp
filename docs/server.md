@@ -43,7 +43,7 @@ Back up first (see [Backup](#backup)). The database migrates forward on start, a
 - From a checkout: `git pull && docker compose up -d --build --wait` (again with `--profile tls` for Caddy).
 - If the release changed `deploy/Caddyfile` (0.3 does), run `docker compose --profile tls restart caddy`. Caddy runs with its admin API off and reads the read-only file only at start, so `up -d` alone keeps the old rules.
 - A release that changes the schema rewrites the database once on first start (0.3 does, from schema 2 to 5, and switches it to incremental vacuum). That takes free disk about the size of the database, and a large database takes a while.
-- Client: on Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp` on each machine, rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
+- Client: on Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp` on each machine, rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`, and 0.3.2 adds a second entry for your server's URL). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
 
 ## Backup
 
@@ -105,4 +105,4 @@ Compose pins the server's own settings to match the container. Without Docker, t
 | `KAMPUNG_ADMIN_TOKEN` | unset (dashboard off) |
 | `KAMPUNG_PUBLIC_URL` | unset (connector off) |
 | `KAMPUNG_FORWARDED_ALLOW_IPS` | `127.0.0.1` |
-| The four loop-guard settings above | as above |
+| The five loop-guard settings above | as above |

@@ -102,7 +102,7 @@ A session that never reports typing gets its mailbox's budget back after 30 minu
 
 A runaway loop still stops: it keeps sending, so its mailbox is never quiet for 30 minutes, and once its budget is spent its messages wake nobody. The `mailbox_budget` hint for such a session says to wait or press Refill instead of telling it to type.
 
-Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. A Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 10 of its messages in 10 minutes may wake peers.
+Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. A Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 60 of its messages to one mailbox in 10 minutes may wake it (`KAMPUNG_CONNECTOR_WAKE_BUDGET`).
 
 | `reason` | Meaning |
 |---|---|

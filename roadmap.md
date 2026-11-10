@@ -34,7 +34,7 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 - Write `docs/tool-reference.md`.
 - Add "back up first" to the upgrade docs.
 
-### v0.3: the Claude app (releasing 2026-11)
+### v0.3: the Claude app (released 2026-11-10)
 
 - Claude app connector (new): the Claude app and claude.ai join as a peer over OAuth, with a `<name>/claude` mailbox.
 - Attachments and the `read_attachment` tool (new); the server re-encodes images.
