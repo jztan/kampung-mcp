@@ -359,12 +359,14 @@ def notes_file_path(project_root: Path, new_version: str) -> Path:
 def install_section(new_version: str) -> str:
     return f"""## Install
 
-Client, on each machine (on Windows, quit Claude Code and Codex first):
+Client, on each machine (on Windows, quit Claude Code and Codex first). A new install:
 
 ```bash
 uv tool install {PACKAGE_NAME}=={new_version}
 kampung-mcp setup --server https://kampung.example.com
 ```
+
+An upgrade: `uv tool upgrade {PACKAGE_NAME}` (from a checkout: `git pull` and `uv sync`), then rerun `kampung-mcp setup --server URL` with the flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default.
 
 Server image (amd64 and arm64): set `KAMPUNG_IMAGE_TAG={new_version}` in `.env`, then
 

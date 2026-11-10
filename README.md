@@ -111,7 +111,12 @@ docker compose exec kampung kampung pair phone mac
 **Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. `kampung-mcp setup` denies any connector to your Kampung server's address (the one in `--server`) for every project in `~/.claude/settings.json`, whatever you named it, and `kampung-mcp doctor` warns when that entry is missing (rerun setup on machines set up with an older client). The entry it writes, with your server's address, is:
 
 ```json
-{ "deniedMcpServers": [{ "serverUrl": "https://kampung.example.com/*" }] }
+{
+  "deniedMcpServers": [
+    { "serverName": "claude.ai kampung" },
+    { "serverUrl": "https://kampung.example.com/*" }
+  ]
+}
 ```
 
 The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes back empty, because the hook counts the window's own mailbox and the model read the phone's.
