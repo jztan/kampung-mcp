@@ -42,6 +42,13 @@ ENV PATH="/opt/venv/bin:$PATH" \
     KAMPUNG_HTTP_PORT=8000 \
     KAMPUNG_DB_PATH=/data/kampung.db
 
+# Debian security fixes land before the python image is rebuilt with them,
+# and the release scan refuses an image with a fixed HIGH or CRITICAL
+# vulnerability, so take them at build time.
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --gid 1000 kampung && \
     useradd --uid 1000 --gid kampung --shell /bin/sh --create-home kampung
 
