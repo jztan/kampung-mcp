@@ -265,6 +265,55 @@ def _agent_checks(
     return [_hooks_check(agent, commands, fix), mcp]
 
 
+def _url_denied(pattern: object, url: str) -> bool:
+    """Whether a deniedMcpServers serverUrl pattern (with * wildcards) covers
+    url. Close enough for a check: hosts and paths are compared without case,
+    and ports are not treated specially."""
+    if not isinstance(pattern, str) or not pattern:
+        return False
+    if pattern.rstrip("/").count("/") == 2:  # no path: Claude matches any path
+        pattern = pattern.rstrip("/") + "/*"
+    regex = ".*".join(re.escape(part) for part in pattern.split("*"))
+    return re.fullmatch(regex, url, re.IGNORECASE) is not None
+
+
+def _connector_check(server: str) -> Check:
+    """Whether Claude Code is kept from loading the Claude app connector, which
+    would act as <name>/claude in this window and take the phone's mail."""
+    name = "claude-code connector"
+    fix = "Rerun kampung-mcp setup --server URL with the flags you used before."
+    try:
+        data = setup._load_claude_settings()
+    except setup.SetupError as e:
+        return Check(WARN, name, str(e))
+    if data.get("disableClaudeAiConnectors") is True:
+        return Check(OK, name, "Claude Code loads no claude.ai connectors")
+    denied = [d for d in data.get("deniedMcpServers", []) if isinstance(d, dict)]
+    url = f"{server.rstrip('/')}/mcp"
+    if any(_url_denied(d.get("serverUrl"), url) for d in denied):
+        return Check(OK, name, f"a claude.ai connector to {server} is denied")
+    names = [
+        d["serverName"]
+        for d in denied
+        if str(d.get("serverName", "")).startswith("claude.ai ")
+    ]
+    if names:
+        return Check(
+            WARN,
+            name,
+            f"only {', '.join(names)} is denied, so a Kampung connector under "
+            "another name still loads here and can take the phone's mail",
+            fix,
+        )
+    return Check(
+        WARN,
+        name,
+        "nothing denies the Claude app connector, so if you added one, every "
+        "window loads it as a second kampung that can take the phone's mail",
+        fix,
+    )
+
+
 def _codex_launch_check() -> Check:
     """Whether a new Codex window can be bound at launch: the daemon's control
     socket must answer. Without it, windows still bind on their first prompt."""
@@ -326,6 +375,10 @@ def run_checks(query: Query) -> list[Check]:
     agents = _agent_checks(
         "claude-code", "claude", setup._claude_settings_path(), query
     ) + _agent_checks("codex", "codex", setup._codex_hooks_path(), query)
+    names = [c.name for c in agents]
+    if config is not None and "claude-code mcp" in names:
+        at = names.index("claude-code mcp") + 1
+        agents.insert(at, _connector_check(config["server"]))
     if not agents:
         agents = [
             Check(

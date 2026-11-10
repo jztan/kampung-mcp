@@ -108,10 +108,10 @@ docker compose exec kampung kampung pair phone mac
 
 `connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read, so the first chat to read the inbox gets it.
 
-**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. Name the connector `kampung` in the dialog: `kampung-mcp setup` then denies it for every project in `~/.claude/settings.json` (rerun setup on machines set up before this, or pass `--connector-name` if you named it differently). The entry it writes is:
+**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. `kampung-mcp setup` denies any connector to your Kampung server for every project in `~/.claude/settings.json`, whatever you named it, and `kampung-mcp doctor` warns when that entry is missing (rerun setup on machines set up with an older client). The entry it writes, with your server's address, is:
 
 ```json
-{ "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
+{ "deniedMcpServers": [{ "serverUrl": "https://kampung.example.com/*" }] }
 ```
 
 The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes back empty, because the hook counts the window's own mailbox and the model read the phone's.
