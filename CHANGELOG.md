@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Changed
+
+#### Server (`kampung-server`)
+
+- The Claude app may now wake each mailbox 60 times per 10 minutes, counted per receiving mailbox, instead of 10 times in total. When you drive several sessions by voice, a busy one no longer uses up the wakes for the rest. The number is a new setting, `KAMPUNG_CONNECTOR_WAKE_BUDGET` (1 to 1000, see `.env.example`). The app is never woken itself, so it cannot be half of a loop, and agent-to-agent loop protection is unchanged.
+
 ### Fixed
 
 #### Client (`kampung-mcp`)

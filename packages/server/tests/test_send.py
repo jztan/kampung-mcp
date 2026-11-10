@@ -7,6 +7,7 @@ from server_testlib import FakeClock, MakeSession
 from kampung_server.admin import AdminService
 from kampung_server.clock import ts
 from kampung_server.errors import KampungError
+from kampung_server.guard import GuardSettings
 from kampung_server import mail
 from kampung_server.limits import MAX_WAITING_PER_MAILBOX, MAX_WAITING_PER_SENDER
 from kampung_server.mail import inbox, send
@@ -224,18 +225,41 @@ def _phone(make_session: MakeSession) -> Session:
     )
 
 
-def test_eleventh_wake_in_ten_minutes_is_stored_without_wake(
+SMALL = GuardSettings(connector_wake_budget=3)
+
+
+def test_wake_past_the_budget_is_stored_without_wake(
     conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
 ) -> None:
     phone = _phone(make_session)
     peer = make_session("desktop", "blog")
-    for _ in range(10):
-        r = send(conn, phone, "desktop/blog", "x", None, clock.now())
+    for _ in range(3):
+        r = send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=SMALL)
         assert r.wake is True and r.reason is None
-    r = send(conn, phone, "desktop/blog", "x", None, clock.now())
+    r = send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=SMALL)
     assert r.wake is False and r.reason == "wake_budget"
     assert r.to_dict()["reason"] == "wake_budget"
-    assert len(inbox(conn, peer, 20, clock.now()).messages) == 11
+    assert "3 times in 10 minutes" in str(r.to_dict()["hint"])
+    assert "desktop/blog" in str(r.to_dict()["hint"])
+    assert len(inbox(conn, peer, 20, clock.now()).messages) == 4
+
+
+def test_default_budget_is_sixty_per_target() -> None:
+    assert GuardSettings().connector_wake_budget == 60
+
+
+def test_budget_is_counted_per_target_mailbox(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    phone = _phone(make_session)
+    make_session("desktop", "blog")
+    make_session("desktop", "api")
+    for _ in range(3):
+        send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=SMALL)
+    blocked = send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=SMALL)
+    assert blocked.wake is False
+    other = send(conn, phone, "desktop/api", "x", None, clock.now(), guard=SMALL)
+    assert other.wake is True
 
 
 def test_budget_frees_after_the_window(
@@ -243,11 +267,13 @@ def test_budget_frees_after_the_window(
 ) -> None:
     phone = _phone(make_session)
     make_session("desktop", "blog")
-    for _ in range(10):
-        send(conn, phone, "desktop/blog", "x", None, clock.now())
-    assert send(conn, phone, "desktop/blog", "x", None, clock.now()).wake is False
+    for _ in range(3):
+        send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=SMALL)
+    assert not send(
+        conn, phone, "desktop/blog", "x", None, clock.now(), guard=SMALL
+    ).wake
     clock.advance(minutes=11)
-    assert send(conn, phone, "desktop/blog", "x", None, clock.now()).wake is True
+    assert send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=SMALL).wake
 
 
 def test_budget_does_not_apply_to_adapters(

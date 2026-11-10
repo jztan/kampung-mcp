@@ -14,6 +14,7 @@ from fastmcp import Client
 from kampung_server import limits as L
 from kampung_server.app import build_server
 from kampung_server.deps import ServerDeps
+from kampung_server.guard import GuardSettings
 from kampung_server.ratelimit import RateLimiter
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -129,8 +130,9 @@ SECURITY_PHRASES = {
     f"per sending machine; {L.MAX_ATTACHMENT_BYTES_TOTAL // 2**20} MB",
     "MAX_MCP_BODY_BYTES": f"| `/mcp` request body | {L.MAX_MCP_BODY_BYTES // 2**20} MB",
     "MAX_REQUEST_BYTES": f"| `/v1` request body | {L.MAX_REQUEST_BYTES // 1024} KB",
-    "CONNECTOR_WAKE": f"{L.CONNECTOR_WAKE_BUDGET} per connector session per "
-    f"{int(L.CONNECTOR_WAKE_WINDOW.total_seconds() // 60)} minutes",
+    "CONNECTOR_WAKE": f"{GuardSettings().connector_wake_budget} per receiving "
+    f"mailbox per {int(L.CONNECTOR_WAKE_WINDOW.total_seconds() // 60)} minutes "
+    "(`KAMPUNG_CONNECTOR_WAKE_BUDGET`)",
     "OAUTH_REQUESTS": f"{L.OAUTH_REQUESTS_PER_CLIENT} per client address",
     "PEEK_WINDOWS": f"({L.PEEK_RATE // 30} windows polling every 2 seconds)",
     "IMAGE_DECODES": f"{WORDS.get(L.IMAGE_DECODES, L.IMAGE_DECODES)} decoded at a time",

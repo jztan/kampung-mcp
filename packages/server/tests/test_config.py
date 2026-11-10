@@ -58,6 +58,7 @@ def test_guard_settings_defaults() -> None:
     g = GuardSettings.from_env({})
     assert (g.pair_size, g.pair_refill) == (9, timedelta(minutes=10))
     assert (g.mailbox_budget, g.connector_cooldown) == (30, timedelta(minutes=10))
+    assert g.connector_wake_budget == 60
     assert g == GuardSettings()
 
 
@@ -72,10 +73,12 @@ def test_guard_settings_from_env() -> None:
             "KAMPUNG_PAIR_WAKE_REFILL_MINUTES": "3",
             "KAMPUNG_MAILBOX_WAKE_BUDGET": "12",
             "KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES": "20",
+            "KAMPUNG_CONNECTOR_WAKE_BUDGET": "7",
         }
     )
     assert g.pair_size == 5 and g.pair_refill == timedelta(minutes=3)
     assert g.mailbox_budget == 12 and g.connector_cooldown == timedelta(minutes=20)
+    assert g.connector_wake_budget == 7
 
 
 @pytest.mark.parametrize(
@@ -89,6 +92,8 @@ def test_guard_settings_from_env() -> None:
         ("KAMPUNG_PAIR_WAKE_REFILL_MINUTES", "1441"),
         ("KAMPUNG_MAILBOX_WAKE_BUDGET", "1001"),
         ("KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES", "0"),
+        ("KAMPUNG_CONNECTOR_WAKE_BUDGET", "0"),
+        ("KAMPUNG_CONNECTOR_WAKE_BUDGET", "1001"),
     ],
 )
 def test_guard_settings_rejects(name: str, value: str) -> None:
