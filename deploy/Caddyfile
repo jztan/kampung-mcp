@@ -18,13 +18,14 @@
 	}
 	respond @admin_outside 404
 
-	# The Claude app connector: Anthropic's cloud (160.79.104.0/21) needs
-	# /mcp, /.well-known/*, /token and /revoke. The hook API and the pages
-	# where the owner signs in are for the owner's own networks only, so
-	# that range gets a 404 from them.
+	# The Claude app connector: Anthropic's cloud (160.79.104.0/21 and
+	# 153.61.208.0/20, its outbound ranges for MCP tool calls) needs /mcp,
+	# /.well-known/*, /token and /revoke. The hook API and the pages where
+	# the owner signs in are for the owner's own networks only, so those
+	# ranges get a 404 from them.
 	@anthropic_private {
 		path /authorize /oauth/* /v1/*
-		remote_ip 160.79.104.0/21
+		remote_ip 160.79.104.0/21 153.61.208.0/20
 	}
 	respond @anthropic_private 404
 

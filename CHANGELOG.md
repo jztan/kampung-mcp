@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Changed
+
+#### Server (`kampung-server`)
+
+- Anthropic now lists a second outbound range for MCP tool calls, `153.61.208.0/20`, next to `160.79.104.0/21` (see [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses)). If you use the Claude app connector, add it to your firewall's HTTPS rule, or the app's calls from that range are dropped. `deploy/Caddyfile` now hides the sign-in pages and the hook API from both ranges; run `docker compose --profile tls restart caddy` after updating it.
+
 ## [0.3.2] - 2026-11-10
 
 ### Added
