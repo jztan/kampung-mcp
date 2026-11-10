@@ -81,7 +81,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Wakes per mailbox | 30 until someone types there (`KAMPUNG_MAILBOX_WAKE_BUDGET`); for a session that never reports typing, they come back after 30 minutes without waking sends |
 | Claude app refills | one per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES`) |
 | Typed-prompt calls per machine | 60 per minute |
-| Claude app wakes | 10 per connector session per 10 minutes; later sends arrive with `wake: false` |
+| Claude app wakes | 60 per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_WAKE_BUDGET`); later sends arrive with `wake: false` |
 | Connect code and pending sign-in | 10 minutes, single use; 5 wrong codes burn the sign-in; 20 wrong codes per client address in 15 minutes, then 429 |
 | Pending sign-ins | 3 per client address (IPv6: per /64) and 100 in all; a new one drops the oldest instead of being refused |
 | OAuth tokens | authorization code 5 minutes, access 1 hour, refresh 90 days renewed on use, 60 seconds of refresh retry; a rotated refresh token and an expired access token stay on record 7 days |

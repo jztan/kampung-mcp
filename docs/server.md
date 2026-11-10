@@ -91,6 +91,7 @@ With Docker, settings go in `.env` (see [`.env.example`](../.env.example)):
 | `KAMPUNG_PAIR_WAKE_REFILL_MINUTES` | `10` | Minutes for one of those wakes to come back (1 to 1440) |
 | `KAMPUNG_MAILBOX_WAKE_BUDGET` | `30` | Wakes a mailbox may send until someone types there (1 to 1000) |
 | `KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES` | `10` | How often a Claude app message may refill a mailbox's budgets (1 to 1440) |
+| `KAMPUNG_CONNECTOR_WAKE_BUDGET` | `60` | Wakes the Claude app may send to one mailbox per 10 minutes (1 to 1000) |
 
 A loop-guard value outside its range stops the server at start with a message naming the setting.
 

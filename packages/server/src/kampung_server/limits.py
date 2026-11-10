@@ -57,7 +57,6 @@ OAUTH_CONNECT_ATTEMPTS = 5
 CONNECT_FAILURE_LIMIT = 20  # wrong codes per client address
 CONNECT_FAILURE_WINDOW = timedelta(minutes=15)
 MAX_OAUTH_BODY_BYTES = 64 * 1024
-CONNECTOR_WAKE_BUDGET = 10
 CONNECTOR_WAKE_WINDOW = timedelta(minutes=10)
 # Attachments: one per message, stored apart from the body.
 MAX_ATTACHMENT_TEXT_BYTES = 256 * 1024
