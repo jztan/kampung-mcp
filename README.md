@@ -121,7 +121,7 @@ docker compose exec kampung kampung pair phone mac
 
 The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes back empty, because the hook counts the window's own mailbox and the model read the phone's.
 
-`kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21`), so allow that range on port 443; the [deployment runbook](docs/deploy-lightsail.md) has the firewall and the checks.
+`kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21` and `153.61.208.0/20`, listed on [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses)), so allow both ranges on port 443; the [deployment runbook](docs/deploy-lightsail.md) has the firewall and the checks.
 
 ## Security
 

@@ -17,12 +17,12 @@ flowchart LR
         win["Windows<br/>Claude Code<br/>kampung-mcp"]
     end
     app["Claude app<br/>iPhone or claude.ai<br/>(optional, step 14)"]
-    anth["Anthropic cloud<br/>160.79.104.0/21"]
+    anth["Anthropic cloud<br/>160.79.104.0/21, 153.61.208.0/20"]
     le["Let's Encrypt"]
     ghcr["GitHub Container Registry<br/>server image"]
 
     subgraph aws["AWS Cloud (your region)"]
-        fw["Lightsail firewall<br/>443: your networks, plus Anthropic's range for the app<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
+        fw["Lightsail firewall<br/>443: your networks, plus Anthropic's ranges for the app<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
         ip["Lightsail static IP"]
         subgraph inst["Amazon Lightsail instance (Ubuntu 24.04 LTS)"]
             caddy["Caddy<br/>TLS, body caps<br/>sign-in and hook API hidden from Anthropic's range"]
@@ -78,7 +78,7 @@ On the instance's **Networking** tab, set the **IPv4 firewall** to exactly these
 
 | Application | Port | Source |
 |---|---|---|
-| HTTPS | 443 | **Restrict to IP address**: the address of each of your networks (one rule can list several), plus `160.79.104.0/21` if you use the Claude app connector (step 14) |
+| HTTPS | 443 | **Restrict to IP address**: the address of each of your networks (one rule can list several), plus `160.79.104.0/21` and `153.61.208.0/20` if you use the Claude app connector (step 14) |
 | HTTP | 80 | All IP addresses |
 | SSH | 22 | **Restrict to IP address**: your own network's IP address, and tick **Allow Lightsail browser SSH/RDP** |
 
@@ -270,7 +270,7 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 The Claude app and claude.ai call MCP servers from Anthropic's cloud, so they need OAuth and a reachable public address. Kampung gives the app its own mailbox, `phone/claude` below, which every chat on your Claude account shares.
 
-1. Add `160.79.104.0/21` to the HTTPS rule in step 3. Your own networks stay on it: the connect page only answers them, and the Caddyfile hides it, the hook API and `/authorize` from Anthropic's range.
+1. Add `160.79.104.0/21` and `153.61.208.0/20` to the HTTPS rule in step 3. These are Anthropic's outbound ranges for MCP tool calls; check [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses) for changes. Your own networks stay on the rule: the connect page only answers them, and the Caddyfile hides it, the hook API and `/authorize` from Anthropic's ranges.
 2. In `.env` set `KAMPUNG_PUBLIC_URL=https://kampung.example.com` (the same name as `KAMPUNG_DOMAIN`, in lowercase, with no port, path or trailing slash), then `docker compose --profile tls up -d --wait`.
 3. Check from one of your networks:
 
