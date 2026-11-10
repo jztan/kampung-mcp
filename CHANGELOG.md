@@ -16,6 +16,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - `kampung-mcp setup` now also denies the Claude app connector in Claude Code by your server's URL, not only by the name `claude.ai kampung`. A connector with another name, including the ` (2)` Claude adds when two connectors share a name, no longer loads in Claude Code windows as a second `kampung` that reads and takes the phone's mail. Rerun setup on each machine.
 - `kampung-mcp doctor` has a `claude-code connector` line that warns when nothing keeps Claude Code from loading the Claude app connector.
+- `kampung-mcp doctor` now runs the interpreter each agent has registered for Kampung. When the adapter cannot start there, for example a checkout whose `.venv` still lacks Pillow after an upgrade, the agent shows only "connection closed"; doctor now names the missing module and says to run `uv sync` in that checkout (or `uv tool upgrade kampung-mcp` for an installed client). It also warns when that interpreter runs a different kampung-mcp version than doctor.
 
 ## [0.3.1] - 2026-11-10
 
