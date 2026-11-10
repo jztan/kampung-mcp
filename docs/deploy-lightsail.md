@@ -144,10 +144,10 @@ docker compose version
 
 ## 7. Get the code
 
-The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run, v0.3.0 or later for the Claude app connector (step 14); the default branch, `develop`, holds unreleased work:
+The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run, v0.3.1 or later for the Claude app connector (step 14); the default branch, `develop`, holds unreleased work:
 
 ```bash
-git clone --branch v0.3.0 https://github.com/jztan/kampung-mcp.git
+git clone --branch v0.3.1 https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
 ```
 
@@ -158,7 +158,7 @@ Git says you're in a "detached HEAD" state. That's normal for a release tag.
 ```bash
 cp .env.example .env
 chmod 600 .env
-nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.3.0
+nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.3.1
 ```
 
 Keep `KAMPUNG_IMAGE_TAG` on the version you cloned, so the image matches the Compose file. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
@@ -254,8 +254,8 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 | Task | How |
 |---|---|
-| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait`. If the release changed `deploy/Caddyfile` (0.3.0 does), also run `docker compose --profile tls restart caddy`: Caddy runs with its admin API off and the file is mounted read-only, so it reads it only at start. A release that changes the schema rewrites the database once on first start (0.3.0 does, from schema 2 to 5, and switches it to incremental vacuum), which takes free disk about the size of the database |
-| Upgrade a client | On Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp`, rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3.0 adds the Claude app connector to `deniedMcpServers`). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart Claude Code and Codex |
+| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait`. If the release changed `deploy/Caddyfile` (0.3 does), also run `docker compose --profile tls restart caddy`: Caddy runs with its admin API off and the file is mounted read-only, so it reads it only at start. A release that changes the schema rewrites the database once on first start (0.3 does, from schema 2 to 5, and switches it to incremental vacuum), which takes free disk about the size of the database |
+| Upgrade a client | On Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp`, rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart Claude Code and Codex |
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | Connect the Claude app | Step 14 |
@@ -302,7 +302,7 @@ Check: the connector lists `list_peers`, `send`, `inbox` and `read_attachment`. 
 Two things seen in that run that look like faults but are not:
 
 - A chat that reads the inbox after another chat already did gets nothing. Mail is delivered on read, and every chat on the account shares the one mailbox, so the first reader takes it.
-- A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. `kampung-mcp setup` (0.3.0 or later) denies it for every project with a `deniedMcpServers` entry in `~/.claude/settings.json`, so rerun setup on machines set up earlier; [Connecting Claude Code and Codex](clients.md#the-hook-says-mail-is-waiting-but-the-inbox-is-empty) has the entry and the symptom to recognise.
+- A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. `kampung-mcp setup` (0.3.1 or later) denies it for every project with a `deniedMcpServers` entry in `~/.claude/settings.json`, so rerun setup on machines set up earlier; [Connecting Claude Code and Codex](clients.md#the-hook-says-mail-is-waiting-but-the-inbox-is-empty) has the entry and the symptom to recognise.
 
 If the connector never appears, assume the code went to a flow you did not start: run `kampung disconnect phone` and connect again. The server itself does not know whose Claude account started a sign-in, and anyone on one of your allowed networks can reach `/authorize`; the code is the only thing tying a grant to you, so never enter one in a flow you did not start.
 
