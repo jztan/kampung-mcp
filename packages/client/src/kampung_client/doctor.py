@@ -243,15 +243,20 @@ def _mcp_check(agent: str, program: str, query: Query, fix: str) -> Check | None
     if code != 0:
         return None
     registered = REGISTERED_COMMAND.search(output)
-    if registered is not None:
-        problem = _interpreter_problem(name, registered.group(1).strip(), query)
-        if problem is not None:
-            return problem
+    problem = (
+        _interpreter_problem(name, registered.group(1).strip(), query)
+        if registered is not None
+        else None
+    )
+    if problem is not None and problem.status == FAIL:
+        return problem
     if MCP_BROKEN.search(output):
-        return Check(
-            FAIL, name, f"registered, but {program} reports it as not working", fix
-        )
-    return Check(OK, name, f"registered with {program}")
+        # A version warning must not turn a broken registration into a pass.
+        detail = f"registered, but {program} reports it as not working"
+        if problem is not None:
+            return Check(FAIL, name, f"{detail}; {problem.detail}", problem.fix)
+        return Check(FAIL, name, detail, fix)
+    return problem or Check(OK, name, f"registered with {program}")
 
 
 def _interpreter_problem(name: str, python: str, query: Query) -> Check | None:
@@ -331,14 +336,22 @@ def _agent_checks(
 
 def _url_denied(pattern: object, url: str) -> bool:
     """Whether a deniedMcpServers serverUrl pattern (with * wildcards) covers
-    url. Close enough for a check: hosts and paths are compared without case,
-    and ports are not treated specially."""
+    url. Like Claude Code, scheme and host ignore case and paths keep it;
+    ports are not treated specially, which is close enough for a check."""
     if not isinstance(pattern, str) or not pattern:
         return False
     if pattern.rstrip("/").count("/") == 2:  # no path: Claude matches any path
         pattern = pattern.rstrip("/") + "/*"
-    regex = ".*".join(re.escape(part) for part in pattern.split("*"))
-    return re.fullmatch(regex, url, re.IGNORECASE) is not None
+
+    def wild(part: str) -> str:
+        return ".*".join(re.escape(piece) for piece in part.split("*"))
+
+    scheme, sep, rest = pattern.partition("://")
+    if not sep:
+        return False  # not a URL pattern; Claude Code would not match it either
+    host, slash, path = rest.partition("/")
+    regex = f"(?i:{wild(scheme + sep + host)}){wild(slash + path)}"
+    return re.fullmatch(regex, url) is not None
 
 
 def _connector_check(server: str) -> Check:

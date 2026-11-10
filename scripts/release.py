@@ -359,7 +359,7 @@ def notes_file_path(project_root: Path, new_version: str) -> Path:
 def install_section(new_version: str) -> str:
     return f"""## Install
 
-Client, on each machine:
+Client, on each machine (on Windows, quit Claude Code and Codex first):
 
 ```bash
 uv tool install {PACKAGE_NAME}=={new_version}
@@ -369,7 +369,7 @@ kampung-mcp setup --server https://kampung.example.com
 Server image (amd64 and arm64): set `KAMPUNG_IMAGE_TAG={new_version}` in `.env`, then
 
 ```bash
-docker compose pull && docker compose --profile tls up -d --wait
+docker compose --profile tls pull && docker compose --profile tls up -d --wait
 ```
 
 ## Links

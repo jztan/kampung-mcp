@@ -617,3 +617,38 @@ def test_codex_launch_check_survives_an_unreadable_socket_folder(
     finally:
         locked.chmod(0o700)
     assert check.status == doctor.WARN
+
+
+@pytest.mark.parametrize(
+    "status_line", ["Status: ✘ Failed to connect", "enabled: false"]
+)
+def test_a_broken_registration_still_fails_when_the_version_differs(
+    home: Path, server: LiveServer, tmp_path: Path, status_line: str
+) -> None:
+    python = str(tmp_path / "old" / "python")
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  {status_line}\n  Command: {python}\n"
+        if cmd[0] == python:
+            return 0, "0.2.1\n"
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.FAIL
+    assert "not working" in mcp.detail and "0.2.1" in mcp.detail
+
+
+@pytest.mark.parametrize(
+    "pattern, denied",
+    [
+        ("https://mail.example.com/MCP", False),  # paths keep their case
+        ("https://mail.example.com/mcp", True),
+        ("HTTPS://Mail.Example.COM/*", True),  # scheme and host do not
+        ("https://mail.example.com", True),  # no path: any path
+        ("https://*.example.com/*", True),
+        ("https://other.example.com/*", False),
+    ],
+)
+def test_url_deny_matching_follows_claude_code(pattern: str, denied: bool) -> None:
+    assert doctor._url_denied(pattern, "https://mail.example.com/mcp") is denied
