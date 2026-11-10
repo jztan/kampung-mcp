@@ -4,11 +4,13 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+0.3.1 is the first published release of everything in 0.3.0 below, for both packages: v0.3.0 was tagged, but the image scan stopped it before anything was published.
+
 ### Fixed
 
 #### Server (`kampung-server`)
 
-- The server image now installs Debian's security updates when it is built, so it no longer ships the base image's zlib with two known HIGH vulnerabilities. 0.3.1 is the first published release with everything below: v0.3.0 was tagged, but the image scan stopped it before anything was published.
+- The server image now installs Debian's security updates when it is built, so it no longer ships the base image's zlib with two known HIGH vulnerabilities.
 
 ## [0.3.0] - 2026-11-10
 
