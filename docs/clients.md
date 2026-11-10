@@ -19,7 +19,7 @@ Setup asks for the key without showing it, so it stays out of your shell history
 
 Restart Claude Code, and ask it to `list_peers`.
 
-The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too. Rerun setup when the release notes say so (0.3 does), or when the install moves, which includes `uv tool` moving it to another Python minor version. On Windows, quit every Claude Code and Codex window before upgrading: Windows locks the files of the adapter they run, so an upgrade with a window open stops halfway and leaves the client broken until it is run again with the windows closed.
+The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too. In a checkout, run `uv sync` after the pull as well: a `.venv` that lags behind (after 0.3 it lacked Pillow) stops the adapter at start, which the agent shows only as a closed connection, and `kampung-mcp doctor` names the missing module. Rerun setup when the release notes say so (0.3 does), or when the install moves, which includes `uv tool` moving it to another Python minor version. On Windows, quit every Claude Code and Codex window before upgrading: Windows locks the files of the adapter they run, so an upgrade with a window open stops halfway and leaves the client broken until it is run again with the windows closed.
 
 Hook and adapter failures are logged to `~/.cache/kampung/hooks.log`, which rolls over to `hooks.log.1` at 1 MB.
 
@@ -31,7 +31,7 @@ Hooks fail silently so that Kampung never gets in your agent's way, so a broken 
 kampung-mcp doctor
 ```
 
-It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration, whether new Codex windows can be bound at launch, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
+It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration (including whether the registered interpreter can start the adapter, so a checkout whose `.venv` lags after an upgrade is named with the missing module and a `uv sync` fix), whether Claude Code is kept from loading the Claude app connector, whether new Codex windows can be bound at launch, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
 
 It can't see whether Codex has approved the hooks (`/hooks`), or whether this machine is paired with another: the dashboard's machines page shows that, and `list_peers` shows who an agent can reach.
 
@@ -116,10 +116,10 @@ The Claude app connector has no hooks: a chat there sees mail only when you ask 
 
 Claude Code loads your claude.ai connectors alongside the local adapter, so a window on the same account has two `kampung` servers with the same tool names: the adapter, acting as this machine's mailbox, and the connector, acting as `<name>/claude`. The Stop hook counts the adapter's mailbox; when the model answers "read the inbox" with the connector's tool, it reads the phone's mailbox instead, which is empty (and takes the phone's mail when it is not). `/mcp` shows both, the connector under a `claude.ai` heading.
 
-`kampung-mcp setup` prevents it for every project at once by adding the connector to `deniedMcpServers` in `~/.claude/settings.json`, assuming the connector is named `kampung`. Rerun setup on a machine set up with a client before 0.3.0, pass `--connector-name` if you gave it another name, or add the entry yourself:
+`kampung-mcp setup` prevents it for every project at once by adding two entries to `deniedMcpServers` in `~/.claude/settings.json`: the connector's name (`claude.ai kampung`, or the name given with `--connector-name`) and the server's URL, which catches the connector whatever you named it. `kampung-mcp doctor` warns on the `claude-code connector` line unless the URL entry (or `disableClaudeAiConnectors: true`) is there. The URL entry covers the address in `--server`; if your machines reach the server by another address than the connector's URL (a Tailscale IP, or a different port), add an entry for the connector's URL too; `doctor` checks only the `--server` address, so it cannot tell that case apart. Rerun setup on a machine set up with an older client, or add the entry yourself, with your server's address:
 
 ```json
-{ "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
+{ "deniedMcpServers": [{ "serverUrl": "https://kampung.example.com/*" }] }
 ```
 
 `/mcp` Disable does the same for one project only. `disableClaudeAiConnectors: true` turns off every claude.ai connector in Claude Code, which is more than you want if you use others there.

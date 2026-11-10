@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -125,13 +126,23 @@ def _load_claude_settings() -> dict[str, Any]:
     return data
 
 
-def _deny_connector(data: dict[str, Any], connector_name: str) -> str:
-    """Add the Claude app connector to deniedMcpServers (in place) so Claude
-    Code never loads a second kampung next to the adapter; return the name."""
+def connector_url_pattern(server: str) -> str:
+    """A deniedMcpServers serverUrl pattern for every URL on the Kampung server,
+    so the Claude app connector is denied whatever the user named it."""
+    parts = urllib.parse.urlsplit(server)
+    host = parts.netloc.rpartition("@")[2].lower()
+    return f"{parts.scheme.lower()}://{host}/*"
+
+
+def _deny_connector(data: dict[str, Any], connector_name: str, server: str) -> str:
+    """Add the Claude app connector to deniedMcpServers (in place), by its
+    name and by the server's URL, so Claude Code never loads a second kampung
+    next to the adapter; return the name."""
     name = f"claude.ai {connector_name}"
     denied = data.setdefault("deniedMcpServers", [])
-    if not any(isinstance(d, dict) and d.get("serverName") == name for d in denied):
-        denied.append({"serverName": name})
+    for entry in ({"serverName": name}, {"serverUrl": connector_url_pattern(server)}):
+        if entry not in denied:
+            denied.append(entry)
     return name
 
 
@@ -339,12 +350,12 @@ def run_setup(
 
     if "claude-code" in agents:
         assert claude_settings is not None
-        denied = _deny_connector(claude_settings, connector_name)
+        denied = _deny_connector(claude_settings, connector_name, server)
         settings = _merge_claude_hooks(claude_settings)
         lines.append(
             f"Claude Code hooks added to {settings}, and the Claude app "
-            f"connector ({denied}) is denied there so a window never loads a "
-            "second kampung. Named it differently? Rerun with --connector-name."
+            f"connector ({denied}, or any connector to {server}) is denied "
+            "there so a window never loads a second kampung."
         )
         manual = _register(
             ["claude", "mcp", "remove", "--scope", "user", "kampung"],

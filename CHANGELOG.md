@@ -4,6 +4,27 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-10
+
+### Added
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp doctor` has a `claude-code connector` line that warns unless a URL entry (or `disableClaudeAiConnectors`) keeps Claude Code from loading the Claude app connector.
+- `kampung-mcp doctor` now runs the interpreter each agent has registered for Kampung. When the adapter cannot start there, for example a checkout whose `.venv` still lacks Pillow after an upgrade, the agent shows only "connection closed"; doctor now names the missing module and says to run `uv sync` in that checkout (or `uv tool upgrade kampung-mcp` for an installed client). It fails when that interpreter no longer exists, and warns when it runs a different kampung-mcp version than doctor.
+
+### Changed
+
+#### Server (`kampung-server`)
+
+- The Claude app may now wake each mailbox 60 times per 10 minutes, counted per receiving mailbox, instead of 10 times in total. When you drive several sessions by voice, a busy one no longer uses up the wakes for the rest. The number is a new setting, `KAMPUNG_CONNECTOR_WAKE_BUDGET` (1 to 1000, see `.env.example`). The app is never woken itself, so it cannot be half of a loop, and agent-to-agent loop protection is unchanged.
+
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp setup` now also denies the Claude app connector in Claude Code by your server's URL, not only by the name `claude.ai kampung`. A connector with another name, including the ` (2)` Claude adds when two connectors share a name, no longer loads in Claude Code windows as a second `kampung` that reads and takes the phone's mail. Rerun setup on each machine.
+
 ## [0.3.1] - 2026-11-10
 
 0.3.1 is the first published release of everything in 0.3.0 below, for both packages: v0.3.0 was tagged, but the image scan stopped it before anything was published.
@@ -181,6 +202,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.3.2]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.2
 [0.3.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.0
 [0.2.2]: https://github.com/jztan/kampung-mcp/releases/tag/v0.2.2

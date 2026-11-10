@@ -43,12 +43,67 @@ def _by_name(checks: list[doctor.Check], name: str) -> doctor.Check:
     return next(c for c in checks if c.name == name)
 
 
+def _set_denied(home: Path, entries: list[dict[str, str]]) -> None:
+    path = setup._claude_settings_path()
+    data = json.loads(path.read_text())
+    data["deniedMcpServers"] = entries
+    path.write_text(json.dumps(data))
+
+
 def _healthy(
     server: LiveServer, home: Path, query: doctor.Query = _claude_registered
 ) -> list[doctor.Check]:
     _install_hooks(home)
+    _set_denied(home, [{"serverUrl": setup.connector_url_pattern(server.url)}])
     (home / ".config" / "kampung" / "config.json").chmod(0o600)
     return doctor.run_checks(query)
+
+
+def test_an_undenied_connector_warns(home: Path, server: LiveServer) -> None:
+    _healthy(server, home)
+    _set_denied(home, [])
+    check = _by_name(doctor.run_checks(_claude_registered), "claude-code connector")
+    assert check.status == doctor.WARN
+    assert "phone's mail" in check.detail
+    assert "kampung-mcp setup" in check.fix
+
+
+def test_a_connector_denied_only_by_name_warns(home: Path, server: LiveServer) -> None:
+    _healthy(server, home)
+    _set_denied(home, [{"serverName": "claude.ai kampung"}])
+    check = _by_name(doctor.run_checks(_claude_registered), "claude-code connector")
+    assert check.status == doctor.WARN
+    assert "another name" in check.detail
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"deniedMcpServers": [{"serverUrl": "http://127.0.0.1:*/*"}]},
+        {"disableClaudeAiConnectors": True},
+    ],
+)
+def test_a_wider_deny_or_no_connectors_passes(
+    home: Path, server: LiveServer, settings: dict[str, object]
+) -> None:
+    _healthy(server, home)
+    path = setup._claude_settings_path()
+    data = json.loads(path.read_text())
+    data.pop("deniedMcpServers")
+    data.update(settings)
+    path.write_text(json.dumps(data))
+    check = _by_name(doctor.run_checks(_claude_registered), "claude-code connector")
+    assert check.status == doctor.OK
+
+
+def test_codex_only_machine_skips_the_connector_check(
+    home: Path, server: LiveServer
+) -> None:
+    def codex_only(cmd: list[str]) -> tuple[int, str]:
+        return _registered(cmd) if cmd[0] == "codex" else _unregistered(cmd)
+
+    checks = doctor.run_checks(codex_only)
+    assert "claude-code connector" not in [c.name for c in checks]
 
 
 def test_a_healthy_machine_passes_every_check(home: Path, server: LiveServer) -> None:
@@ -62,6 +117,7 @@ def test_a_healthy_machine_passes_every_check(home: Path, server: LiveServer) ->
         "version",
         "claude-code hooks",
         "claude-code mcp",
+        "claude-code connector",
         "hooks.log",
     ]
 
@@ -234,6 +290,117 @@ def test_mcp_server_that_will_not_start_fails(home: Path, server: LiveServer) ->
     )
 
 
+def _registered_as(python: str, probe: tuple[int, str] | Exception) -> doctor.Query:
+    """claude has kampung registered with this interpreter; running it gives
+    probe. codex has nothing registered."""
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, (
+                f"kampung:\n  Status: ✘ Failed to connect\n  Type: stdio\n"
+                f"  Command: {python}\n"
+                "  Args: -m kampung_client adapter --agent claude-code\n"
+            )
+        if cmd[0] == python:
+            if isinstance(probe, Exception):
+                raise probe
+            return probe
+        return _unregistered(cmd)
+
+    return query
+
+
+PIL_MISSING = (
+    1,
+    "Traceback (most recent call last):\n"
+    '  File "images.py", line 9, in <module>\n'
+    "ModuleNotFoundError: No module named 'PIL'\n",
+)
+
+
+def test_checkout_interpreter_missing_a_module_says_uv_sync(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    checkout = tmp_path / "src" / "kampung mcp"
+    python = str(checkout / ".venv" / "bin" / "python")
+    mcp = _by_name(
+        _healthy(server, home, _registered_as(python, PIL_MISSING)), "claude-code mcp"
+    )
+    assert mcp.status == doctor.FAIL
+    assert "No module named 'PIL'" in mcp.detail and python in mcp.detail
+    assert "uv sync" in mcp.fix and str(checkout) in mcp.fix
+
+
+def test_installed_interpreter_missing_a_module_says_upgrade(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "tools" / "kampung-mcp" / "bin" / "python3")
+    mcp = _by_name(
+        _healthy(server, home, _registered_as(python, PIL_MISSING)), "claude-code mcp"
+    )
+    assert mcp.status == doctor.FAIL
+    assert "uv tool upgrade kampung-mcp" in mcp.fix
+
+
+def test_gone_registered_interpreter_fails(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "gone" / "python")
+    query = _registered_as(python, FileNotFoundError(python))
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.FAIL
+    assert "does not exist" in mcp.detail
+
+
+def test_registered_interpreter_on_another_version_warns(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "old" / "python")
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  Status: Connected\n  Command: {python}\n"
+        if cmd[0] == python:
+            return 0, "0.2.1\n"
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.WARN
+    assert "0.2.1" in mcp.detail and __version__ in mcp.detail
+
+
+def test_registered_interpreter_that_imports_the_adapter_passes(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    python = str(tmp_path / "ok" / "python")
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  Status: Connected\n  Command: {python}\n"
+        if cmd[0] == python:
+            assert cmd[1] == "-c" and "kampung_client.adapter" in cmd[2]
+            return 0, f"{__version__}\n"
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.OK
+
+
+def test_real_interpreter_probe_runs(home: Path, server: LiveServer) -> None:
+    """The probe against this test run's own interpreter, through the real
+    default_query: the adapter imports and the version matches."""
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  Status: Connected\n  Command: {sys.executable}\n"
+        if cmd[0] == sys.executable:
+            return doctor.default_query(cmd)
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.OK, mcp.detail
+
+
 def test_disabled_codex_server_fails(home: Path, server: LiveServer) -> None:
     def disabled(cmd: list[str]) -> tuple[int, str]:
         return 0, "kampung\n  enabled: false\n"
@@ -347,6 +514,7 @@ def test_cli_exits_0_when_healthy(
 ) -> None:
     monkeypatch.setattr(doctor, "default_query", _claude_registered)
     _install_hooks(home)
+    _set_denied(home, [{"serverUrl": setup.connector_url_pattern(server.url)}])
     (home / ".config" / "kampung" / "config.json").chmod(0o600)
     assert cli.main(["doctor"]) == 0
     out = capsys.readouterr().out
@@ -449,3 +617,38 @@ def test_codex_launch_check_survives_an_unreadable_socket_folder(
     finally:
         locked.chmod(0o700)
     assert check.status == doctor.WARN
+
+
+@pytest.mark.parametrize(
+    "status_line", ["Status: ✘ Failed to connect", "enabled: false"]
+)
+def test_a_broken_registration_still_fails_when_the_version_differs(
+    home: Path, server: LiveServer, tmp_path: Path, status_line: str
+) -> None:
+    python = str(tmp_path / "old" / "python")
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd[0] == "claude":
+            return 0, f"kampung:\n  {status_line}\n  Command: {python}\n"
+        if cmd[0] == python:
+            return 0, "0.2.1\n"
+        return _unregistered(cmd)
+
+    mcp = _by_name(_healthy(server, home, query), "claude-code mcp")
+    assert mcp.status == doctor.FAIL
+    assert "not working" in mcp.detail and "0.2.1" in mcp.detail
+
+
+@pytest.mark.parametrize(
+    "pattern, denied",
+    [
+        ("https://mail.example.com/MCP", False),  # paths keep their case
+        ("https://mail.example.com/mcp", True),
+        ("HTTPS://Mail.Example.COM/*", True),  # scheme and host do not
+        ("https://mail.example.com", True),  # no path: any path
+        ("https://*.example.com/*", True),
+        ("https://other.example.com/*", False),
+    ],
+)
+def test_url_deny_matching_follows_claude_code(pattern: str, denied: bool) -> None:
+    assert doctor._url_denied(pattern, "https://mail.example.com/mcp") is denied

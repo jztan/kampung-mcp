@@ -43,7 +43,7 @@ Back up first (see [Backup](#backup)). The database migrates forward on start, a
 - From a checkout: `git pull && docker compose up -d --build --wait` (again with `--profile tls` for Caddy).
 - If the release changed `deploy/Caddyfile` (0.3 does), run `docker compose --profile tls restart caddy`. Caddy runs with its admin API off and reads the read-only file only at start, so `up -d` alone keeps the old rules.
 - A release that changes the schema rewrites the database once on first start (0.3 does, from schema 2 to 5, and switches it to incremental vacuum). That takes free disk about the size of the database, and a large database takes a while.
-- Client: on Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp` on each machine, rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
+- Client: on Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp` on each machine (a client run from a checkout: `git pull` and `uv sync`), rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`, and 0.3.2 adds a second entry for your server's URL). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
 
 ## Backup
 
@@ -91,6 +91,7 @@ With Docker, settings go in `.env` (see [`.env.example`](../.env.example)):
 | `KAMPUNG_PAIR_WAKE_REFILL_MINUTES` | `10` | Minutes for one of those wakes to come back (1 to 1440) |
 | `KAMPUNG_MAILBOX_WAKE_BUDGET` | `30` | Wakes a mailbox may send until someone types there (1 to 1000) |
 | `KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES` | `10` | How often a Claude app message may refill a mailbox's budgets (1 to 1440) |
+| `KAMPUNG_CONNECTOR_WAKE_BUDGET` | `60` | Wakes the Claude app may send to one mailbox per 10 minutes (1 to 1000) |
 
 A loop-guard value outside its range stops the server at start with a message naming the setting.
 
@@ -104,4 +105,4 @@ Compose pins the server's own settings to match the container. Without Docker, t
 | `KAMPUNG_ADMIN_TOKEN` | unset (dashboard off) |
 | `KAMPUNG_PUBLIC_URL` | unset (connector off) |
 | `KAMPUNG_FORWARDED_ALLOW_IPS` | `127.0.0.1` |
-| The four loop-guard settings above | as above |
+| The five loop-guard settings above | as above |

@@ -36,6 +36,10 @@ class GuardSettings:
     pair_refill: timedelta = timedelta(minutes=10)
     mailbox_budget: int = 30
     connector_cooldown: timedelta = timedelta(minutes=10)
+    # Wakes the Claude app may send to one mailbox per CONNECTOR_WAKE_WINDOW.
+    # The app is never woken, so it cannot be half of a loop; this only stops
+    # a runaway app turn or scheduled task from waking one peer without end.
+    connector_wake_budget: int = 60
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "GuardSettings":
@@ -49,6 +53,9 @@ class GuardSettings:
                 minutes=_int_setting(
                     env, "KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES", 10, 1440
                 )
+            ),
+            connector_wake_budget=_int_setting(
+                env, "KAMPUNG_CONNECTOR_WAKE_BUDGET", 60, 1000
             ),
         )
 

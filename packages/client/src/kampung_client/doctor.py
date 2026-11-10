@@ -34,6 +34,12 @@ LOG_WINDOW = timedelta(hours=24)
 LOG_EXPECTED = "no session file for this session"
 LOG_LINE_MAX = 120
 MCP_BROKEN = re.compile(r"failed to connect|enabled:\s*false", re.IGNORECASE)
+REGISTERED_COMMAND = re.compile(r"^\s*command:\s*(.+?)\s*$", re.I | re.M)
+MISSING_MODULE = re.compile(r"No module named '([^']+)'")
+# What the adapter imports at start, and the version it would run.
+INTERPRETER_PROBE = (
+    "import kampung_client, kampung_client.adapter; print(kampung_client.__version__)"
+)
 POWERSHELL_HOOK = re.compile(r"& '((?:[^']|'')+)' '((?:[^']|'')+)'; exit 0")
 
 
@@ -236,11 +242,74 @@ def _mcp_check(agent: str, program: str, query: Query, fix: str) -> Check | None
         return Check(WARN, name, f"could not ask {program}: {e}")
     if code != 0:
         return None
+    registered = REGISTERED_COMMAND.search(output)
+    problem = (
+        _interpreter_problem(name, registered.group(1).strip(), query)
+        if registered is not None
+        else None
+    )
+    if problem is not None and problem.status == FAIL:
+        return problem
     if MCP_BROKEN.search(output):
+        # A version warning must not turn a broken registration into a pass.
+        detail = f"registered, but {program} reports it as not working"
+        if problem is not None:
+            return Check(FAIL, name, f"{detail}; {problem.detail}", problem.fix)
+        return Check(FAIL, name, detail, fix)
+    return problem or Check(OK, name, f"registered with {program}")
+
+
+def _interpreter_problem(name: str, python: str, query: Query) -> Check | None:
+    """Run the registered interpreter the way the adapter starts: an agent
+    shows only "connection closed" when the import fails, so name the cause."""
+    if "python" not in Path(python).name.lower():
+        return None  # not what setup registers; nothing to say about it
+    checkout = _checkout_of(python)
+    fix = (
+        f"Run uv sync in {checkout}."
+        if checkout is not None
+        else "Run uv tool upgrade kampung-mcp, then kampung-mcp setup."
+    )
+    try:
+        code, output = query([python, "-c", INTERPRETER_PROBE])
+    except FileNotFoundError:
         return Check(
-            FAIL, name, f"registered, but {program} reports it as not working", fix
+            FAIL,
+            name,
+            f"the registered interpreter {python} does not exist",
+            "Run kampung-mcp setup --server URL with the flags you used before.",
         )
-    return Check(OK, name, f"registered with {program}")
+    except OSError as e:
+        return Check(WARN, name, f"could not run {python}: {e}")
+    if code != 0:
+        missing = MISSING_MODULE.search(output)
+        cause = (
+            f"No module named '{missing.group(1)}'"
+            if missing
+            else (output.strip().splitlines() or [f"exit {code}"])[-1][:LOG_LINE_MAX]
+        )
+        return Check(
+            FAIL, name, f"the adapter cannot start under {python}: {cause}", fix
+        )
+    version = output.strip().splitlines()[-1] if output.strip() else ""
+    if version != __version__:
+        return Check(
+            WARN,
+            name,
+            f"{python} runs kampung-mcp {version or 'of an unknown version'}, "
+            f"but this doctor is {__version__}",
+            fix,
+        )
+    return None
+
+
+def _checkout_of(python: str) -> Path | None:
+    """The folder holding the .venv the interpreter is in, if any: a checkout
+    run with uv, whose dependencies lag until uv sync."""
+    parts = Path(python).parts
+    if ".venv" not in parts:
+        return None
+    return Path(*parts[: parts.index(".venv")])
 
 
 def _agent_checks(
@@ -263,6 +332,63 @@ def _agent_checks(
     if agent == "codex":
         return [_hooks_check(agent, commands, fix), mcp, _codex_launch_check()]
     return [_hooks_check(agent, commands, fix), mcp]
+
+
+def _url_denied(pattern: object, url: str) -> bool:
+    """Whether a deniedMcpServers serverUrl pattern (with * wildcards) covers
+    url. Like Claude Code, scheme and host ignore case and paths keep it;
+    ports are not treated specially, which is close enough for a check."""
+    if not isinstance(pattern, str) or not pattern:
+        return False
+    if pattern.rstrip("/").count("/") == 2:  # no path: Claude matches any path
+        pattern = pattern.rstrip("/") + "/*"
+
+    def wild(part: str) -> str:
+        return ".*".join(re.escape(piece) for piece in part.split("*"))
+
+    scheme, sep, rest = pattern.partition("://")
+    if not sep:
+        return False  # not a URL pattern; Claude Code would not match it either
+    host, slash, path = rest.partition("/")
+    regex = f"(?i:{wild(scheme + sep + host)}){wild(slash + path)}"
+    return re.fullmatch(regex, url) is not None
+
+
+def _connector_check(server: str) -> Check:
+    """Whether Claude Code is kept from loading the Claude app connector, which
+    would act as <name>/claude in this window and take the phone's mail."""
+    name = "claude-code connector"
+    fix = "Rerun kampung-mcp setup --server URL with the flags you used before."
+    try:
+        data = setup._load_claude_settings()
+    except setup.SetupError as e:
+        return Check(WARN, name, str(e))
+    if data.get("disableClaudeAiConnectors") is True:
+        return Check(OK, name, "Claude Code loads no claude.ai connectors")
+    denied = [d for d in data.get("deniedMcpServers", []) if isinstance(d, dict)]
+    url = f"{server.rstrip('/')}/mcp"
+    if any(_url_denied(d.get("serverUrl"), url) for d in denied):
+        return Check(OK, name, f"a claude.ai connector to {server} is denied")
+    names = [
+        d["serverName"]
+        for d in denied
+        if str(d.get("serverName", "")).startswith("claude.ai ")
+    ]
+    if names:
+        return Check(
+            WARN,
+            name,
+            f"only {', '.join(names)} is denied, so a Kampung connector under "
+            "another name still loads here and can take the phone's mail",
+            fix,
+        )
+    return Check(
+        WARN,
+        name,
+        "nothing denies the Claude app connector, so if you added one, every "
+        "window loads it as a second kampung that can take the phone's mail",
+        fix,
+    )
 
 
 def _codex_launch_check() -> Check:
@@ -326,6 +452,10 @@ def run_checks(query: Query) -> list[Check]:
     agents = _agent_checks(
         "claude-code", "claude", setup._claude_settings_path(), query
     ) + _agent_checks("codex", "codex", setup._codex_hooks_path(), query)
+    names = [c.name for c in agents]
+    if config is not None and "claude-code mcp" in names:
+        at = names.index("claude-code mcp") + 1
+        agents.insert(at, _connector_check(config["server"]))
     if not agents:
         agents = [
             Check(

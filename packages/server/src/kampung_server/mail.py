@@ -12,7 +12,6 @@ from .errors import KampungError
 from .identity import is_paired
 from .ids import new_message_id
 from .limits import (
-    CONNECTOR_WAKE_BUDGET,
     CONNECTOR_WAKE_WINDOW,
     INBOX_MAX,
     LIVE_WINDOW,
@@ -408,23 +407,25 @@ def _connector_send(
     now: datetime,
     g: GuardSettings,
 ) -> _Decision:
-    """The Claude app spends no pair or mailbox budget; its own budget caps
-    its wakes. A waking send is the owner's input, so it refills the target
-    mailbox, at most once per cooldown and only toward machines it can reach."""
+    """The Claude app spends no pair or mailbox budget; its own budget, per
+    target mailbox, caps its wakes. A waking send is the owner's input, so it
+    refills the target mailbox, at most once per cooldown and only toward
+    machines it can reach."""
     woken = conn.execute(
         # Mail to a mailbox with nobody in it woke nobody, so it does not count.
-        "SELECT count(*) FROM messages WHERE from_session_id = ? AND wake = 1 "
+        "SELECT count(*) FROM messages WHERE from_session_id = ? "
+        "AND to_mailbox_id = ? AND wake = 1 "
         "AND coalesce(wake_reason, '') != 'no_session' AND sent_at > ?",
-        (sender.id, ts(now - CONNECTOR_WAKE_WINDOW)),
+        (sender.id, target_box, ts(now - CONNECTOR_WAKE_WINDOW)),
     ).fetchone()[0]
-    if woken >= CONNECTOR_WAKE_BUDGET:
+    if woken >= g.connector_wake_budget:
         return _Decision(
             False,
             "wake_budget",
-            hint=f"Stored without waking: the Claude app may wake peers at most "
-            f"{CONNECTOR_WAKE_BUDGET} times in "
-            f"{int(CONNECTOR_WAKE_WINDOW.total_seconds() // 60)} minutes. It "
-            "still arrives on their next inbox.",
+            hint=f"Stored without waking: the Claude app may wake "
+            f"{_address(conn, target_box)} at most {g.connector_wake_budget} "
+            f"times in {int(CONNECTOR_WAKE_WINDOW.total_seconds() // 60)} "
+            "minutes. It still arrives on their next inbox.",
         )
     last = conn.execute(
         "SELECT connector_refill_at FROM mailboxes WHERE id = ?", (target_box,)

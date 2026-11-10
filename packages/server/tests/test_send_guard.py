@@ -2,6 +2,7 @@
 the connector, and the reasons a send reports."""
 
 import sqlite3
+from datetime import timedelta
 import threading
 from pathlib import Path
 
@@ -148,11 +149,12 @@ def test_connector_sends_spend_no_pair_or_mailbox_budget(
 ) -> None:
     phone = _phone(make_session)
     b = make_session("desktop", "blog")
-    for _ in range(10):
-        assert send(conn, phone, "desktop/blog", "x", None, clock.now()).wake
+    small = GuardSettings(connector_wake_budget=12)
+    for _ in range(12):
+        assert send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=small)
     assert guard.pair_left(conn, phone.mailbox_id, b.mailbox_id, clock.now(), G) == 9
     assert guard.mailbox_left(conn, phone.mailbox_id, G) == 30
-    r = send(conn, phone, "desktop/blog", "x", None, clock.now())
+    r = send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=small)
     assert r.reason == "wake_budget"
 
 
@@ -206,14 +208,19 @@ def test_connector_refill_skips_unpaired_machines(
 def test_held_or_fyi_connector_send_refills_nothing(
     conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
 ) -> None:
+    # Budget 2 per mailbox; a 1 minute cooldown, so after 2 minutes only the
+    # hold (or fyi) can stop a refill.
+    g = GuardSettings(connector_wake_budget=2, connector_cooldown=timedelta(minutes=1))
     phone = _phone(make_session)
     blog = make_session("desktop", "blog")
     scratch = make_session("desktop", "scratch")
-    for _ in range(10):
-        send(conn, phone, "desktop/scratch", "x", None, clock.now())
+    for _ in range(2):
+        send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=g)
+    clock.advance(minutes=2)
     _drain(conn, blog, scratch, clock.now())
-    assert send(conn, phone, "desktop/blog", "x", None, clock.now()).wake is False
-    send(conn, phone, "desktop/blog", "x", None, clock.now(), fyi=True)
+    held = send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=g)
+    assert held.wake is False and held.reason == "wake_budget"
+    send(conn, phone, "desktop/blog", "x", None, clock.now(), fyi=True, guard=g)
     assert (
         guard.pair_left(conn, blog.mailbox_id, scratch.mailbox_id, clock.now(), G) == 0
     )
@@ -297,7 +304,7 @@ def test_racing_connector_sends_for_the_last_wake(
 ) -> None:
     phone = _phone(make_session)
     make_session("desktop", "blog")
-    for _ in range(9):
+    for _ in range(GuardSettings().connector_wake_budget - 1):
         send(conn, phone, "desktop/blog", "x", None, clock.now())
     assert _race(db_path, phone, "desktop/blog", clock.now()) == [False, True]
 
