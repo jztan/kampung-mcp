@@ -27,6 +27,8 @@ docker compose --profile tls up -d
 
 ### Tailscale only
 
+[Across your machines, with Tailscale](tailscale.md) walks through this setup with `tailscale serve`, step by step.
+
 Without Caddy, set `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1` in `.env`. The default, `*`, trusts the `X-Forwarded-For` header from any peer, which is only safe because Caddy replaces that header. Without Caddy, a client could send its own and pick the address that the wrong-key limit, the dashboard login limit and the connect-code limit count against. Inside the container, no outside client connects from `127.0.0.1`, so this setting trusts the header from nobody. Leaving the value empty does not work: compose replaces an empty value with `*`.
 
 Then either keep the port on loopback and put `tailscale serve` in front, or publish it on the machine's tailnet address (`KAMPUNG_HOST_PORT` is published on `127.0.0.1`; change the `ports` line to `<tailnet address>:8803:8000`). Through `tailscale serve`, every client reaches the container from the same address, so those limits are shared: wrong tries from one machine count for all of them, which can lock the dashboard login or the connect page for everyone for up to 15 minutes. Requests with a valid key are never held back, and a browser that has signed in to the dashboard before keeps its access.

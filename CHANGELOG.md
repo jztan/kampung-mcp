@@ -11,6 +11,10 @@ All notable changes for people who run a Kampung server or use it from their age
 - `kampung-mcp try` runs a trial server on this machine in one step: it starts the server in Docker (listening on `127.0.0.1:8803` only), makes this machine's key and connects whichever of Claude Code and Codex it finds, then says how to send the first message, between two folders of one agent or between Claude Code and Codex. `kampung-mcp try --stop` removes the server, its mail and the setup it made. It needs Docker, and it refuses to touch a machine already connected to another server.
 - `kampung-mcp uninstall` undoes setup: it removes Kampung's hooks and the connector deny entries setup added (anyone else's entries stay), Codex's approvals of those hooks in its `config.toml`, both MCP registrations, the saved server and key, and the session cache. It checks every settings file before it changes any.
 
+#### Docs
+
+- An [Across your machines, with Tailscale](docs/tailscale.md) guide: the one-machine server reached from your other computers over Tailscale with `tailscale serve`, with no domain or open port. Not yet tested live.
+
 ### Changed
 
 #### Client (`kampung-mcp`)
