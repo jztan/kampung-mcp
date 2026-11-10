@@ -553,8 +553,19 @@ def test_setup_denies_the_claude_app_connector_in_claude_code(
     assert settings(home)["deniedMcpServers"] == [
         {"serverName": "other"},
         {"serverName": "claude.ai kampung"},
+        {"serverUrl": f"{server.url}/*"},
     ]
     assert any("claude.ai kampung" in line for line in lines)
+
+
+def test_connector_pattern_covers_the_server_whatever_the_connector_is_named() -> None:
+    assert setup.connector_url_pattern("https://mail.example.com") == (
+        "https://mail.example.com/*"
+    )
+    assert setup.connector_url_pattern("https://Mail.Example.com:8443/") == (
+        "https://mail.example.com:8443/*"
+    )
+    assert setup.connector_url_pattern("http://[::1]:8000") == "http://[::1]:8000/*"
 
 
 def test_setup_denies_the_connector_by_its_given_name(
@@ -568,7 +579,10 @@ def test_setup_denies_the_connector_by_its_given_name(
         Recorder(),
         connector_name="Home mail",
     )
-    assert settings(home)["deniedMcpServers"] == [{"serverName": "claude.ai Home mail"}]
+    assert settings(home)["deniedMcpServers"] == [
+        {"serverName": "claude.ai Home mail"},
+        {"serverUrl": f"{server.url}/*"},
+    ]
 
 
 def test_setup_refuses_malformed_denied_servers_before_changing_anything(
