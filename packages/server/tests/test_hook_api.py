@@ -1,6 +1,7 @@
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ import kampung_server
 from server_testlib import FakeClock
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
+from kampung_server.clock import utcnow
 from kampung_server.deps import ServerDeps
 from kampung_server.limits import AUTH_FAILURE_LIMIT, MAX_REQUEST_BYTES
 from kampung_server.models import Machine, load_session
@@ -72,12 +74,22 @@ def test_register_then_peek(client: TestClient, machines: Machines) -> None:
     assert peek.json() == {"waiting": 0, "wakeable": 0, "newest": None}
 
 
-def test_other_machines_session_403(client: TestClient, machines: Machines) -> None:
+def test_other_machines_session_looks_missing(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
     sid = _register(client, machines["laptop"][1])
-    r = client.get(f"/v1/sessions/{sid}/peek", headers=bearer(machines["desktop"][1]))
-    assert r.status_code == 403 and r.json()["error"] == "not_owner"
-    r = client.post(f"/v1/sessions/{sid}/end", headers=bearer(machines["desktop"][1]))
-    assert r.status_code == 403
+    desktop = bearer(machines["desktop"][1])
+    missing = client.get("/v1/sessions/9999/peek", headers=desktop)
+    r = client.get(f"/v1/sessions/{sid}/peek", headers=desktop)
+    assert r.status_code == missing.status_code == 404
+    assert r.json() == missing.json()
+    r = client.post(f"/v1/sessions/{sid}/end", headers=desktop)
+    assert (
+        r.status_code == 404
+        and r.json() == client.post("/v1/sessions/9999/end", headers=desktop).json()
+    )
+    denied = conn.execute("SELECT count(*) FROM audit WHERE action = 'denied'")
+    assert denied.fetchone()[0] == 0
 
 
 def test_unknown_session_404(client: TestClient, machines: Machines) -> None:
@@ -87,16 +99,40 @@ def test_unknown_session_404(client: TestClient, machines: Machines) -> None:
     assert r.status_code == 404
 
 
-def test_human_turn_resets_depth(
+def test_human_turn_refills_pairs_and_mailbox_budget(
     client: TestClient, conn: sqlite3.Connection, machines: Machines
 ) -> None:
+    from kampung_server import guard
+
     key = machines["laptop"][1]
     sid = _register(client, key)
-    conn.execute("UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", (int(sid),))
+    s = load_session(conn, int(sid))
+    assert s is not None
+    peer = load_session(conn, int(_register(client, machines["desktop"][1])))
+    assert peer is not None
+    g = guard.GuardSettings()
+    now = utcnow()
+    for _ in range(9):
+        guard.spend_pair(conn, s.mailbox_id, peer.mailbox_id, now, g)
+        guard.spend_mailbox(conn, s.mailbox_id)
     r = client.post(f"/v1/sessions/{sid}/human-turn", headers=bearer(key))
     assert r.status_code == 200 and r.json() == {}
-    s = load_session(conn, int(sid))
-    assert s is not None and s.max_depth_seen == -1
+    assert guard.pair_left(conn, s.mailbox_id, peer.mailbox_id, now, g) == 9
+    assert guard.mailbox_left(conn, s.mailbox_id, g) == 30
+    row = conn.execute(
+        "SELECT actor, detail FROM audit WHERE action = 'refill'"
+    ).fetchone()
+    assert row[0] == "machine:laptop" and '"pairs": 1' in row[1]
+
+
+def test_human_turn_rate_limited(client: TestClient, machines: Machines) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    codes = [
+        client.post(f"/v1/sessions/{sid}/human-turn", headers=bearer(key)).status_code
+        for _ in range(61)
+    ]
+    assert codes[:60] == [200] * 60 and codes[60] == 429
 
 
 def test_ended_session_409_then_revive(client: TestClient, machines: Machines) -> None:
@@ -167,16 +203,16 @@ def test_register_deep_json_400(client: TestClient, machines: Machines) -> None:
     assert r.status_code == 400 and r.json()["error"] == "bad_request"
 
 
-def test_register_other_machines_agent_session_403(
+def test_another_machines_agent_session_id_does_not_block_registration(
     client: TestClient, machines: Machines
 ) -> None:
-    _register(client, machines["desktop"][1], agent_session_id="cc-9")
+    theirs = _register(client, machines["desktop"][1], agent_session_id="cc-9")
     r = client.post(
         "/v1/sessions",
         headers=bearer(machines["laptop"][1]),
         json={**BODY, "agent_session_id": "cc-9"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200 and r.json()["session"] != theirs
 
 
 def test_wrong_keys_skip_database(
@@ -205,17 +241,14 @@ def test_end_is_audited(
 ) -> None:
     sid = _register(client, machines["laptop"][1])
     r = client.post(f"/v1/sessions/{sid}/end", headers=bearer(machines["desktop"][1]))
-    assert r.status_code == 403
+    assert r.status_code == 404
     r = client.post(f"/v1/sessions/{sid}/end", headers=bearer(machines["laptop"][1]))
     assert r.status_code == 200
     rows = conn.execute(
         "SELECT actor, action FROM audit WHERE action IN ('denied', 'end_session') "
         "ORDER BY id"
     ).fetchall()
-    assert [tuple(r) for r in rows] == [
-        ("machine:desktop", "denied"),
-        ("machine:laptop", "end_session"),
-    ]
+    assert [tuple(r) for r in rows] == [("machine:laptop", "end_session")]
 
 
 def test_register_is_rate_limited(
@@ -263,3 +296,146 @@ def test_session_id_out_of_range_is_404(
     headers = bearer(machines["laptop"][1])
     assert client.get(f"/v1/sessions/{raw}/peek", headers=headers).status_code == 404
     assert client.post(f"/v1/sessions/{raw}/end", headers=headers).status_code == 404
+
+
+def test_v1_refuses_claude_app_agent(client: TestClient, machines: Machines) -> None:
+    r = client.post(
+        "/v1/sessions",
+        json={**BODY, "agent": "claude-app"},
+        headers=bearer(machines["laptop"][1]),
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent"
+
+
+# A machine key must never act as its Claude app connector session: those
+# sends skip the loop guard's depth check.
+
+
+def _connector_id(deps: ServerDeps, machines: Machines) -> int:
+    from kampung_server import db, sessions
+
+    conn = db.connect(deps.db_path)
+    try:
+        return sessions.connector_session(conn, machines["laptop"][0], deps.clock()).id
+    finally:
+        conn.close()
+
+
+def test_machine_key_cannot_revive_the_connector_session(
+    client: TestClient, deps: ServerDeps, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    cid = _connector_id(deps, machines)
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(key),
+        json={**BODY, "agent_session_id": f"connector:{machines['laptop'][0].id}"},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent_session"
+    conn = sqlite3.connect(deps.db_path)
+    suffix = conn.execute("SELECT suffix FROM sessions WHERE id = ?", (cid,)).fetchone()
+    conn.close()
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(key),
+        json={**BODY, "repo": "claude", "suffix": suffix[0]},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent_session"
+
+
+def test_machine_key_cannot_use_the_connector_session(
+    client: TestClient, deps: ServerDeps, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    cid = _connector_id(deps, machines)
+    for method, path in (("GET", "peek"), ("POST", "human-turn"), ("POST", "end")):
+        r = client.request(method, f"/v1/sessions/{cid}/{path}", headers=bearer(key))
+        assert r.status_code == 404 and r.json()["error"] == "unknown_session", path
+
+
+def test_machine_key_cannot_claim_the_connector_id_first(
+    client: TestClient, machines: Machines
+) -> None:
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(machines["laptop"][1]),
+        json={**BODY, "agent_session_id": "connector:999"},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "invalid_agent_session"
+
+
+def test_human_turn_refill_rolls_back_when_the_audit_fails(
+    client: TestClient,
+    conn: sqlite3.Connection,
+    machines: Machines,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kampung_server import guard, hook_api
+
+    key = machines["laptop"][1]
+    s = load_session(conn, int(_register(client, key)))
+    assert s is not None
+    guard.spend_mailbox(conn, s.mailbox_id)
+
+    def broken(*_: object, **__: object) -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(hook_api.audit, "record", broken)
+    with pytest.raises(sqlite3.OperationalError):
+        client.post(f"/v1/sessions/{s.id}/human-turn", headers=bearer(key))
+    assert guard.mailbox_left(conn, s.mailbox_id, guard.GuardSettings()) == 29
+    typed = conn.execute(
+        "SELECT typed_at FROM sessions WHERE id = ?", (s.id,)
+    ).fetchone()[0]
+    assert typed is None
+
+
+def test_server_start_caps_pair_debt_to_the_settings(
+    deps: ServerDeps, conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    from kampung_server import app, guard
+
+    slow = guard.GuardSettings(pair_refill=timedelta(minutes=1440))
+    a, b = machines["laptop"][0].id, machines["desktop"][0].id
+    conn.execute(
+        "INSERT INTO mailboxes (id, machine_id, repo, created_at) VALUES "
+        "(1, ?, 'api', '2026-10-27T09:00:00.000000Z'), "
+        "(2, ?, 'blog', '2026-10-27T09:00:00.000000Z')",
+        (a, b),
+    )
+    for _ in range(9):
+        guard.spend_pair(conn, 1, 2, clock.now(), slow)
+    app.cap_pair_debt(deps)
+    clock.advance(minutes=10)
+    assert guard.pair_left(conn, 1, 2, clock.now(), deps.guard) == 1
+
+
+@pytest.mark.parametrize("method,path", [("GET", "peek"), ("POST", "end")])
+def test_session_routes_are_rate_limited_per_machine(
+    db_path: Path, clock: FakeClock, machines: Machines, method: str, path: str
+) -> None:
+    from kampung_server.deps import end_limiter, peek_limiter
+
+    # Peek covers 256 sessions polling every 2 seconds; end has its own.
+    assert peek_limiter()._limit == 7680 and end_limiter()._limit == 600
+    deps = ServerDeps(
+        db_path=db_path,
+        clock=clock.now,
+        limiter=RateLimiter(),
+        peek_limiter=RateLimiter(5, timedelta(seconds=60)),
+        end_limiter=RateLimiter(5, timedelta(seconds=60)),
+    )
+    other_method, other = ("POST", "end") if path == "peek" else ("GET", "peek")
+    with TestClient(create_app(deps)) as c:
+        desktop = bearer(machines["desktop"][1])
+        codes = [
+            c.request(method, f"/v1/sessions/9999/{path}", headers=desktop).status_code
+            for _ in range(6)
+        ]
+        assert codes[:-1] == [404] * 5 and codes[-1] == 429
+        # The other route and another machine keep their own allowance.
+        r = c.request(other_method, f"/v1/sessions/9999/{other}", headers=desktop)
+        assert r.status_code == 404
+        laptop = bearer(machines["laptop"][1])
+        r = c.request(method, f"/v1/sessions/9999/{path}", headers=laptop)
+        assert r.status_code == 404

@@ -10,6 +10,7 @@ from .clock import utcnow
 from .config import Settings
 from .deps import ServerDeps
 from .errors import KampungError
+from .oauth import CLIENT_ID
 from .ratelimit import RateLimiter
 
 ACTOR = "admin:cli"
@@ -37,13 +38,23 @@ def _parser() -> argparse.ArgumentParser:
         sp.add_argument("a")
         sp.add_argument("b")
     sub.add_parser("revoke", help="disable a machine key").add_argument("name")
+    sub.add_parser(
+        "connect", help="print a one-time code for the Claude app connector"
+    ).add_argument("name")
+    sub.add_parser(
+        "disconnect", help="remove a machine's Claude app connection"
+    ).add_argument("name")
     sub.add_parser("serve", help="run the HTTP server")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    settings = Settings.from_env()
+    try:
+        settings = Settings.from_env()
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     try:
         conn = db.connect(settings.db_path)
         db.migrate(conn)
@@ -92,11 +103,37 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "revoke":
             admin.revoke(args.name, ACTOR)
             print(f"Revoked {args.name}; its sessions are ended.")
+        elif args.command == "connect":
+            if settings.public_url is None:
+                raise KampungError(
+                    "public_url_unset",
+                    "Set KAMPUNG_PUBLIC_URL to enable the Claude app connector.",
+                )
+            code = admin.connect(args.name, ACTOR)
+            print(
+                "Add a custom connector in Claude with these values:",
+                file=sys.stderr,
+            )
+            print(f"URL: {settings.public_url}/mcp")
+            print(f"Client ID: {CLIENT_ID}")
+            print(f"Code: {code}")
+            print(
+                "The code works once, within 10 minutes, from an allowed network.",
+                file=sys.stderr,
+            )
+        elif args.command == "disconnect":
+            admin.disconnect(args.name, ACTOR)
+            print(f"Disconnected {args.name}; its machine and mail are kept.")
         elif args.command == "serve":
             if not admin.list_machines():
                 print(NO_KEYS, file=sys.stderr)
             deps = ServerDeps(
-                settings.db_path, utcnow, RateLimiter(), settings.admin_token
+                settings.db_path,
+                utcnow,
+                RateLimiter(),
+                settings.admin_token,
+                public_url=settings.public_url,
+                guard=settings.guard,
             )
             app.serve(
                 deps,

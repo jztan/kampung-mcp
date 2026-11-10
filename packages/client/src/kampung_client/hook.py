@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -311,9 +312,41 @@ def ancestors(pid: int | None = None) -> list[Ancestor]:
     return _walk(os.getpid() if pid is None else pid, _lookup_or_none)
 
 
-def repo_name(cwd: str) -> str:
-    """The mailbox repo name: the git worktree's directory name, made valid."""
-    name = os.path.basename(os.path.abspath(cwd))
+SCRATCH_REPO = "scratch"
+_TEMP_DIRS = (
+    "/tmp",
+    "/var/tmp",
+    "/private/tmp",
+    "/var/folders",
+    "/private/var/folders",
+)
+
+
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _temp_roots() -> list[str]:
+    """The system temp folders, resolved: where eval and throwaway runs live."""
+    found = [tempfile.gettempdir(), *_TEMP_DIRS]
+    found += [os.environ[v] for v in ("TMPDIR", "TEMP", "TMP") if os.environ.get(v)]
+    return [_norm(p) for p in found]
+
+
+def _is_scratch(cwd: str) -> bool:
+    """The home folder itself, or anywhere under a temp folder."""
+    here = _norm(cwd)
+    if here == _norm(str(Path.home())):
+        return True
+    return any(
+        here == root or here.startswith(root.rstrip(os.sep) + os.sep)
+        for root in map(_norm, _temp_roots())
+    )
+
+
+def _folder(cwd: str) -> tuple[str, bool]:
+    """The folder a mailbox belongs to: the git worktree root, or the folder
+    itself outside git. The bool says whether it is a git worktree."""
     try:
         top = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
@@ -325,12 +358,71 @@ def repo_name(cwd: str) -> str:
             timeout=2,
         )
         if top.returncode == 0 and top.stdout.strip():
-            name = os.path.basename(top.stdout.strip())
+            return top.stdout.strip(), True
     except (OSError, subprocess.SubprocessError):
         pass
+    return cwd, False
+
+
+def _pins_path() -> Path:
+    return cache_dir() / "mailboxes.json"
+
+
+def _pins() -> dict[str, str]:
+    """Folder -> mailbox name, as first registered. A damaged file counts as
+    empty: hooks fail open."""
+    try:
+        data = json.loads(_pins_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str)}
+
+
+def _computed_name(folder: str, in_git: bool, cwd: str) -> str:
+    if not in_git and _is_scratch(cwd):
+        return SCRATCH_REPO
+    name = os.path.basename(os.path.normpath(folder))
     cleaned = _NAME_BAD.sub("-", name)
     cleaned = re.sub(r"^[^A-Za-z0-9]+", "", cleaned)[:64]
     return cleaned or "root"
+
+
+def repo_name(cwd: str) -> str:
+    """The mailbox repo name. A folder keeps the name it first registered
+    with (see pin_mailbox), so a later change to the rules below never moves
+    it to another mailbox and strands its mail. Otherwise: the git worktree's
+    directory name, made valid; outside git, the folder's own name, except
+    the home folder and temp folders (eval and throwaway runs), which share
+    the machine's one scratch mailbox so they do not each leave one behind."""
+    return _mailbox(cwd)[1]
+
+
+def _mailbox(cwd: str) -> tuple[str, str]:
+    """The folder's pin key and its mailbox name, from one look at git."""
+    folder, in_git = _folder(cwd)
+    key = _norm(folder)
+    pinned = _pins().get(key)
+    return key, pinned if pinned is not None else _computed_name(folder, in_git, cwd)
+
+
+def pin_mailbox(key: str, repo: str) -> None:
+    """Record the folder's mailbox name after its first registration. Scratch
+    is never pinned: home and temp folders are throwaway, and pinning each
+    would grow the file without end. Written atomically; two hooks racing
+    write the same value."""
+    if repo == SCRATCH_REPO:
+        return
+    pins = _pins()
+    if key in pins:
+        return
+    pins[key] = repo
+    path = _pins_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(pins, indent=1, sort_keys=True))
+    os.replace(tmp, path)
 
 
 def _session_path(agent_session_id: str) -> Path:
@@ -465,10 +557,11 @@ def register(
     Without `ancestry` the file records no ancestors: Codex files are adopted
     by session id, and every Codex process shares one long-lived daemon.
     """
+    key, repo = _mailbox(cwd)
     body: dict[str, object] = {
         "agent": agent,
         "cwd": cwd,
-        "repo": repo_name(cwd),
+        "repo": repo,
         "hooks": hooks,
     }
     if agent_session_id is not None:
@@ -476,6 +569,10 @@ def register(
     status, data = api("POST", "/v1/sessions", body, timeout)
     if status != 200:
         raise HookError(f"register failed: HTTP {status} {data.get('error')}")
+    try:
+        pin_mailbox(key, repo)
+    except OSError:
+        pass  # a later registration pins it; never fail a hook over this
     return {
         "session": str(data["session"]),
         "suffix": data["suffix"],

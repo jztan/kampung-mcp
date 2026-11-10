@@ -3,7 +3,7 @@
 import sqlite3
 from datetime import datetime
 
-from . import audit, db
+from . import audit, db, guard
 from .addressing import validate_name
 from .clock import parse_ts, ts
 from .errors import KampungError
@@ -18,7 +18,11 @@ from .limits import (
 )
 from .models import SESSION_SELECT, Machine, Session, load_session, session_from_row
 
-AGENTS = ("claude-code", "codex", "other")
+CONNECTOR_AGENT = "claude-app"
+CONNECTOR_ID_PREFIX = "connector:"
+AGENTS = ("claude-code", "codex", "other", CONNECTOR_AGENT)
+CONNECTOR_REPO = "claude"
+CONNECTOR_CWD = "Claude app"
 
 
 def register(
@@ -53,22 +57,12 @@ def register(
             "printable characters.",
         )
     actor = f"machine:{machine.name}"
-    try:
-        session_id = _register(
-            conn, machine, now, actor, agent, cwd, repo, hooks, agent_session_id, suffix
-        )
-    except _Denied as e:
-        # Recorded after the rollback, so the audit row is kept.
-        audit.record(conn, now, actor, "denied", {"session": e.session_id})
-        raise KampungError("not_owner", "That session belongs to another machine.")
+    session_id = _register(
+        conn, machine, now, actor, agent, cwd, repo, hooks, agent_session_id, suffix
+    )
     session = load_session(conn, session_id)
     assert session is not None
     return session
-
-
-class _Denied(Exception):
-    def __init__(self, session_id: int) -> None:
-        self.session_id = session_id
 
 
 def _register(
@@ -86,16 +80,29 @@ def _register(
     with db.transaction(conn):
         existing = None
         if agent_session_id is not None:
-            # Checked inside the transaction, so no other machine can claim
-            # this agent session between the check and the revive.
-            existing = _one(conn, "s.agent_session_id = ?", (agent_session_id,))
-            if existing is not None and existing.machine_id != machine.id:
-                raise _Denied(existing.id)
+            # Agent session ids are unique per machine, so another machine
+            # using the same id is a different session, never this one.
+            existing = _one(
+                conn,
+                "s.machine_id = ? AND s.agent_session_id = ?",
+                (machine.id, agent_session_id),
+            )
         if existing is None and suffix is not None:
             existing = _one(
                 conn,
                 "mb.machine_id = ? AND mb.repo = ? AND s.suffix = ?",
                 (machine.id, repo, suffix),
+            )
+        if (
+            existing is not None
+            and existing.agent == CONNECTOR_AGENT
+            and agent != CONNECTOR_AGENT
+        ):
+            # Only connector_session may revive the Claude app's session: its
+            # sends skip the depth check, so a machine key must not get it.
+            raise KampungError(
+                "invalid_agent_session",
+                "That session belongs to the Claude app connector.",
             )
         if existing is not None:
             conn.execute(
@@ -190,10 +197,12 @@ def _create(
         )
     }
     cur = conn.execute(
-        "INSERT INTO sessions (mailbox_id, suffix, agent, agent_session_id, hooks, "
-        "cwd, started_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
+        "agent_session_id, hooks, cwd, started_at, last_seen) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             mailbox_id,
+            machine.id,
             new_suffix(taken),
             agent,
             agent_session_id,
@@ -207,17 +216,49 @@ def _create(
     return cur.lastrowid
 
 
+def connector_session(
+    conn: sqlite3.Connection, machine: Machine, now: datetime
+) -> Session:
+    """The one session a Claude app token acts as: `<machine>/claude`, created
+    on first use and revived after the sweep ends it."""
+    agent_session_id = f"{CONNECTOR_ID_PREFIX}{machine.id}"
+    existing = _one(
+        conn,
+        "s.machine_id = ? AND s.agent_session_id = ?",
+        (machine.id, agent_session_id),
+    )
+    if existing is not None and existing.agent != CONNECTOR_AGENT:
+        # Registered through the hook API before that was refused: release
+        # the id rather than adopt a session the connector did not make.
+        conn.execute(
+            "UPDATE sessions SET agent_session_id = NULL WHERE id = ?", (existing.id,)
+        )
+        existing = None
+    if existing is not None and existing.ended_at is None:
+        conn.execute(
+            "UPDATE sessions SET last_seen = ? WHERE id = ?", (ts(now), existing.id)
+        )
+        refreshed = load_session(conn, existing.id)
+        assert refreshed is not None
+        return refreshed
+    return register(
+        conn,
+        machine,
+        now,
+        agent=CONNECTOR_AGENT,
+        cwd=CONNECTOR_CWD,
+        repo=CONNECTOR_REPO,
+        hooks=False,
+        agent_session_id=agent_session_id,
+    )
+
+
 def resolve(
     conn: sqlite3.Connection, machine: Machine, session_id: int, now: datetime
 ) -> Session:
     session = load_session(conn, session_id)
-    if session is None:
+    if session is None or not usable_by(session, machine):
         raise KampungError("unknown_session", "No such session; register again.")
-    if session.machine_id != machine.id:
-        audit.record(
-            conn, now, f"machine:{machine.name}", "denied", {"session": session_id}
-        )
-        raise KampungError("not_owner", "That session belongs to another machine.")
     if session.ended_at is not None:
         raise KampungError("session_ended", "Re-read your session file or re-register.")
     conn.execute(
@@ -228,8 +269,19 @@ def resolve(
     return refreshed
 
 
-def human_turn(conn: sqlite3.Connection, session: Session) -> None:
-    conn.execute("UPDATE sessions SET max_depth_seen = -1 WHERE id = ?", (session.id,))
+def usable_by(session: Session, machine: Machine) -> bool:
+    """Whether a machine key may act as this session. Another machine's
+    session, and the machine's own Claude app session (which the connector
+    reaches through connector_session), look the same as a missing one, so
+    guessed ids reveal nothing and leave no audit row to fill the disk."""
+    return session.machine_id == machine.id and session.agent != CONNECTOR_AGENT
+
+
+def human_turn(conn: sqlite3.Connection, session: Session, now: datetime) -> int:
+    """Someone typed in this session: note it, and refill its mailbox's wake
+    budgets. Returns the pair rows cleared."""
+    conn.execute("UPDATE sessions SET typed_at = ? WHERE id = ?", (ts(now), session.id))
+    return guard.refill_mailbox(conn, session.mailbox_id)
 
 
 def end(conn: sqlite3.Connection, session_id: int, now: datetime) -> None:

@@ -77,7 +77,8 @@ class SessionRow:
     address: str
     agent: str
     state: str
-    depth: int
+    # Waking sends from its mailbox since someone last typed there.
+    wakes_used: int
     cwd: str
     started_at: str
     last_seen: str
@@ -89,9 +90,12 @@ class MessageRow:
     sent_at: str
     sender: str
     to: str
-    depth: int
+    wake: str  # wake_label()
     state: str
     size: int
+    # Never the content: the dashboard shows that an attachment exists.
+    attachment_bytes: int | None = None
+    attachment_name: str | None = None
 
 
 @dataclass
@@ -101,13 +105,29 @@ class MessageDetail:
     to: str
     sent_at: str
     expires_at: str
-    depth: int
-    wake: bool
+    wake: str  # wake_label()
     state: str
     reply_to: str | None
     delivered_to: str | None
     delivered_at: str | None
     body: str
+    attachment_name: str | None = None
+    attachment_type: str | None = None
+    attachment_bytes: int | None = None
+
+
+def wake_label(r: sqlite3.Row) -> str:
+    """How the loop guard treated a message, in a few words. Messages from
+    before schema 5 have no reason and keep the depth they were sent at."""
+    reason = r["wake_reason"]
+    if reason is None and r["depth"] >= 0:
+        old = f"depth {r['depth']} (before v5)"
+        return old if r["wake"] else f"held: {old}"
+    if reason == "no_session":
+        return "waits for a session"
+    if not r["wake"]:
+        return f"held: {reason}"
+    return "wakes"
 
 
 # Queued means undelivered and unexpired; no-wake is queued mail the loop guard
@@ -127,6 +147,7 @@ _MSG_FROM = (
     "JOIN mailboxes tmb ON tmb.id = msg.to_mailbox_id "
     "JOIN machines tm ON tm.id = tmb.machine_id "
     "LEFT JOIN sessions ts ON ts.id = msg.to_session_id "
+    "LEFT JOIN attachments att ON att.message_id = msg.id "
 )
 _MSG_SENDER = "fm.name || '/' || fmb.repo || '#' || fs.suffix"
 _MSG_TO = "tm.name || '/' || tmb.repo || COALESCE('#' || ts.suffix, '')"
@@ -236,7 +257,7 @@ def sessions(
     )
     rows = conn.execute(
         f"SELECT s.id, {_SESSION_ADDRESS} AS address, s.agent, s.cwd, "
-        "s.started_at, s.last_seen, s.max_depth_seen, "
+        "s.started_at, s.last_seen, mb.wakes_since_refill, "
         "CASE WHEN s.ended_at IS NOT NULL THEN 'ended' "
         "WHEN s.last_seen >= :live THEN 'live' ELSE 'idle' END AS state "
         f"{base} ORDER BY s.last_seen DESC, s.id DESC LIMIT {LIMIT}",
@@ -249,7 +270,7 @@ def sessions(
                 r["address"],
                 r["agent"],
                 r["state"],
-                r["max_depth_seen"],
+                r["wakes_since_refill"],
                 r["cwd"],
                 r["started_at"],
                 r["last_seen"],
@@ -280,8 +301,10 @@ def messages(
     p: dict[str, object] = {"now": ts(now), "mailbox": mailbox}
     where = " AND ".join(conds)
     rows = conn.execute(
-        f"SELECT msg.id, msg.sent_at, msg.depth, LENGTH(CAST(msg.body AS BLOB)) "
-        f"AS size, {_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
+        f"SELECT msg.id, msg.sent_at, msg.depth, msg.wake, msg.wake_reason, "
+        "LENGTH(CAST(msg.body AS BLOB)) "
+        f"AS size, att.bytes AS att_bytes, att.name AS att_name, "
+        f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
         f"{_MSG_STATE} AS state {_MSG_FROM} WHERE {where} "
         f"ORDER BY msg.sent_at DESC, msg.id DESC LIMIT {LIMIT}",
         p,
@@ -293,9 +316,11 @@ def messages(
                 r["sent_at"],
                 r["sender"],
                 r["recipient"],
-                r["depth"],
+                wake_label(r),
                 r["state"],
                 r["size"],
+                r["att_bytes"],
+                r["att_name"],
             )
             for r in rows
         ],
@@ -307,7 +332,8 @@ def message(
     conn: sqlite3.Connection, now: datetime, message_id: str
 ) -> MessageDetail | None:
     r = conn.execute(
-        f"SELECT msg.*, {_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
+        f"SELECT msg.*, att.name AS att_name, att.type AS att_type, "
+        f"att.bytes AS att_bytes, {_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
         f"{_MSG_STATE} AS state, "
         "(SELECT dm.name || '/' || dmb.repo || '#' || ds.suffix FROM sessions ds "
         " JOIN mailboxes dmb ON dmb.id = ds.mailbox_id "
@@ -324,13 +350,15 @@ def message(
         to=r["recipient"],
         sent_at=r["sent_at"],
         expires_at=r["expires_at"],
-        depth=r["depth"],
-        wake=bool(r["wake"]),
+        wake=wake_label(r),
         state=r["state"],
         reply_to=r["reply_to"],
         delivered_to=r["delivered_address"],
         delivered_at=r["delivered_at"],
         body=r["body"],
+        attachment_name=r["att_name"],
+        attachment_type=r["att_type"],
+        attachment_bytes=r["att_bytes"],
     )
 
 
@@ -417,7 +445,7 @@ class ThreadMessage:
     sent_at: str
     sender: str
     to: str
-    depth: int
+    wake: str  # wake_label()
     state: str
     body: str  # the first THREAD_PREVIEW characters
     cut: int  # characters left out of `body`
@@ -457,7 +485,8 @@ def thread(
         f"OR ({_FROM_BOX} = :b AND {_TO_BOX} = :a))"
     )
     rows = conn.execute(
-        f"SELECT msg.id, msg.sent_at, msg.depth, msg.body, {_FROM_BOX} AS from_box, "
+        f"SELECT msg.id, msg.sent_at, msg.depth, msg.wake, msg.wake_reason, "
+        f"msg.body, {_FROM_BOX} AS from_box, "
         f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, {_MSG_STATE} AS state "
         f"{_MSG_FROM} WHERE {where} "
         f"ORDER BY msg.sent_at DESC, msg.id DESC LIMIT {LIMIT}",
@@ -470,7 +499,7 @@ def thread(
                 r["sent_at"],
                 r["sender"],
                 r["recipient"],
-                r["depth"],
+                wake_label(r),
                 r["state"],
                 r["body"][:THREAD_PREVIEW],
                 max(0, len(r["body"]) - THREAD_PREVIEW),

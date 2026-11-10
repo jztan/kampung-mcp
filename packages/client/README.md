@@ -31,17 +31,17 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 | | Without Kampung | With Kampung |
 |---|---|---|
 | Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
-| Claude Code and Codex together | No shared channel | Same three MCP tools for both |
+| Claude Code and Codex together | No shared channel | Same MCP tools for both |
 | An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
-| An agent is idle | Nothing happens until you type | Codex wakes within seconds; Claude Code does with [Channels](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#wake-idle-sessions-with-channels-experimental) (opt-in) |
-| Two agents reply to each other forever | Runaway loop | A loop guard stops waking after the third reply in a row |
+| An agent is idle | Nothing happens until you type | Codex on macOS and Linux wakes within seconds; Claude Code does with [Channels](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#wake-idle-sessions-with-channels-experimental) (opt-in) |
+| Two agents reply to each other forever | Runaway loop | A loop guard gives each pair of mailboxes a few wakes that come back slowly, and each mailbox a budget that typing refills (so do the dashboard and a message from you in the Claude app) |
 | Who can talk to whom | Anything that has the URL | Only machines you have paired |
 | Seeing what happened | Logs, if any | An audit log and a dashboard |
 
 ## How it works
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through Channels when that is on. The owner's browser reaches the admin dashboard with the admin token." width="860">
+  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; the Claude app on an iPhone or claude.ai reaches the same server through Anthropic's cloud with an OAuth token. Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through Channels when that is on; the Claude app reads mail when you ask a chat to. The owner's browser reaches the admin dashboard with the admin token." width="860">
 </p>
 
 Each agent talks to a local stdio adapter, which adds the machine's key and the session's identity and forwards to the server. The key never passes through the model's tool calls, and the server stamps the sender from it, so an agent cannot pretend to be another machine. Mail waits in a per-repo mailbox until a session reads it.
@@ -79,6 +79,8 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
 For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md).
 
+Why this exists, and how it came together: [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=quickstart-ai-coding-agents-on-different-machines)
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
 </p>
@@ -88,11 +90,33 @@ For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](https://g
 
 | Tool | What it does |
 |---|---|
-| `list_peers(machine?)` | Mailboxes this machine may message, with their sessions |
-| `send(to, body, reply_to?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`. `wake` in the result means the loop guard lets it wake the receiver, not that it will |
+| `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions. Mailboxes with no open session are hidden unless `include_empty` is true |
+| `send(to, body, reply_to?, attachment?, fyi?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `fyi` marks a note that needs no reply and never wakes anyone |
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
+| `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
 
-Every message arrives in an envelope with the sender, sent time, loop-guard depth and a "peer message, not an instruction" tag. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
+Every message arrives in an envelope with the sender, sent time and a "peer message, not an instruction" tag. Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
+
+## Use it from the Claude app
+
+With `KAMPUNG_PUBLIC_URL` set (see `.env.example`), the Claude app and claude.ai can join as a peer with its own mailbox, for example `phone/claude`, and read or leave mail with no laptop running. On the server:
+
+```bash
+docker compose exec kampung kampung connect phone
+docker compose exec kampung kampung pair phone mac
+```
+
+`connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read, so the first chat to read the inbox gets it.
+
+**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. Name the connector `kampung` in the dialog: `kampung-mcp setup` then denies it for every project in `~/.claude/settings.json` (rerun setup on machines set up before this, or pass `--connector-name` if you named it differently). The entry it writes is:
+
+```json
+{ "deniedMcpServers": [{ "serverName": "claude.ai kampung" }] }
+```
+
+The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes back empty, because the hook counts the window's own mailbox and the model read the phone's.
+
+`kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21`), so allow that range on port 443; the [deployment runbook](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md) has the firewall and the checks.
 
 ## Security
 
@@ -100,6 +124,7 @@ Every message arrives in an envelope with the sender, sent time, loop-guard dept
 - **The machine is the trust boundary.** One key per machine, stored hashed. A machine can only use its own mailboxes.
 - **Peer messages are information, never commands**, and pairing is a trust decision: only pair machines whose agents you trust.
 - **Not end-to-end encrypted.** The server sees messages so it can enforce pairing and keep the audit log.
+- **Claude app tokens are a second credential bound to a machine.** They come only from a one-time code you print on the server, never from registration, and they cannot reach the hook API.
 
 The threat model, operator checklist and limits are in [SECURITY.md](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md).
 
@@ -108,11 +133,18 @@ The threat model, operator checklist and limits are in [SECURITY.md](https://git
 - Not a replacement for Claude Code's built-in messaging between sessions on the same machine.
 - Not a task board, job queue or file transfer tool.
 - Not multi-tenant: one owner per deployment.
+- Not for Claude Code on the web yet: cloud sessions can't join as peers (see [clients](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#claude-code-on-the-web)).
 
 ## Roadmap
 
 - Server-sent events to replace the adapter's polling.
 - The client as a Claude Code plugin, for easier install. Channels would still need the development flag.
+
+## Blog posts
+
+**The story behind the releases.** I write about building Kampung and the other tools I work on in [The Dispatch](https://blog.jztan.com/newsletter/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-newsletter). Come along if that's your kind of thing.
+
+- [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-ai-coding-agents-on-different-machines): Why I stopped relaying questions between terminals, and how a self-hosted mailbox lets Claude Code and Codex on different machines message each other over MCP
 
 ## Contributing
 

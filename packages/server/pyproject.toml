@@ -1,6 +1,6 @@
 [project]
 name = "kampung-server"
-version = "0.2.2"
+version = "0.3.0"
 description = "Kampung server: lets coding agents on different machines send each other short messages over MCP."
 requires-python = ">=3.12"
 license = "AGPL-3.0-only"
@@ -12,6 +12,7 @@ dependencies = [
     "jinja2>=3.1",
     # Starlette needs it to parse the dashboard's form posts.
     "python-multipart>=0.0.9",
+    "pillow>=13,<14",
 ]
 
 [project.scripts]

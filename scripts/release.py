@@ -581,6 +581,24 @@ def _ask(prompt: str, choices: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def require_checks(root: Path, sha: str, dry_run: bool) -> list[str]:
+    """Stop a real release unless the docs review and the upgrade rehearsal
+    are recorded for this exact commit (see release_checks.py); a dry run
+    only warns. Returns what is missing."""
+    import release_checks
+
+    gaps = release_checks.missing(root, sha)
+    if not gaps:
+        print(f"  ✓ Release checks recorded for {sha[:7]}")
+        return gaps
+    print(f"  Missing release checks for {sha[:7]}: {', '.join(gaps)}")
+    print("  Run them first (scripts/release_checks.py status shows each one).")
+    if not dry_run:
+        sys.exit(1)
+    print("  ⚠ Dry run: continuing without them.")
+    return gaps
+
+
 def preflight_checks(config: ReleaseConfig) -> None:
     print("\n=== Pre-flight Checks ===\n")
     if run_command(["git", "status", "--porcelain"]).stdout.strip():
@@ -598,6 +616,8 @@ def preflight_checks(config: ReleaseConfig) -> None:
         sys.exit(1)
     run_command(["git", "pull", "--ff-only", REMOTE, base])
     print(f"  ✓ On {branch}, up to date with {REMOTE}/{base}")
+    head = run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
+    require_checks(config.project_root, head, config.dry_run)
 
     checks = [
         (["uv", "run", "black", "--check", "."], "formatting"),

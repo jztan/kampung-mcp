@@ -135,9 +135,11 @@ def test_serve_trusts_forwarded_ips_only_from_the_setting(
     monkeypatch.setattr(app, "start_sweeper", lambda *a, **kw: None)
     monkeypatch.setattr(app, "create_app", lambda deps: "asgi-app")
     monkeypatch.setattr(app.uvicorn, "run", lambda asgi, **kw: seen.update(kw))
+    monkeypatch.setattr(app, "cap_pair_debt", lambda deps: seen.update(capped=True))
     deps = SimpleNamespace(db_path=Path("unused.db"), clock=None)
     app.serve(deps, "0.0.0.0", 8000, forwarded_allow_ips="*")  # type: ignore[arg-type]
     assert seen["proxy_headers"] is True and seen["forwarded_allow_ips"] == "*"
+    assert seen["capped"] is True
 
 
 def test_missing_database_folder_gets_a_hint(
@@ -164,3 +166,48 @@ def test_a_locked_database_is_not_blamed_on_the_path(
     monkeypatch.setattr(db, "connect", locked)
     with pytest.raises(sqlite3.OperationalError):
         cli.main(["key", "list"])
+
+
+def test_connect_prints_url_client_and_code(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KAMPUNG_PUBLIC_URL", "https://kampung.example.com")
+    assert cli.main(["connect", "phone"]) == 0
+    out, err = capsys.readouterr()
+    lines = out.splitlines()
+    assert lines[0] == "URL: https://kampung.example.com/mcp"
+    assert lines[1] == "Client ID: kampung-claude"
+    assert lines[2].startswith("Code: ") and len(lines[2]) > 20
+    assert "Add a custom connector in Claude" in err
+    assert "works once, within 10 minutes" in err
+
+
+def test_connect_without_public_url_errors(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("KAMPUNG_PUBLIC_URL", raising=False)
+    assert cli.main(["connect", "phone"]) == 1
+    assert capsys.readouterr().err.startswith("error: public_url_unset: ")
+
+
+def test_disconnect(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, env: Path
+) -> None:
+    monkeypatch.setenv("KAMPUNG_PUBLIC_URL", "https://kampung.example.com")
+    cli.main(["connect", "phone"])
+    capsys.readouterr()
+    assert cli.main(["disconnect", "phone"]) == 1  # a code is not a grant yet
+    assert capsys.readouterr().err.startswith("error: not_connected: ")
+    from kampung_server import oauth_store
+    from kampung_server.clock import utcnow
+    from kampung_server.models import load_machine
+
+    conn = db.connect(env)
+    phone = load_machine(conn, "phone")
+    assert phone is not None
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, phone.id, utcnow())
+    conn.close()
+    assert cli.main(["disconnect", "phone"]) == 0
+    out = capsys.readouterr().out
+    assert "Disconnected phone; its machine and mail are kept." in out

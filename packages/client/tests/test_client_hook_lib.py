@@ -47,10 +47,74 @@ def test_ancestors_starts_at_parent_and_excludes_pid_1() -> None:
         ("...", "root"),
     ],
 )
-def test_repo_name_sanitizes(tmp_path: Path, name: str, expected: str) -> None:
-    d = tmp_path / "plain" / name
-    d.mkdir(parents=True)
-    assert hook.repo_name(str(d)) == expected
+def test_repo_name_sanitizes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, expected: str
+) -> None:
+    # git reports the top folder; some of these names (a trailing dot) cannot
+    # exist on Windows, so the sanitising is tested on git's answer directly.
+    def fake_git(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, f"/src/{name}\n", "")
+
+    monkeypatch.setattr(hook.subprocess, "run", fake_git)
+    assert hook.repo_name(str(tmp_path)) == expected
+
+
+@pytest.fixture
+def temp_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # pytest's tmp_path is itself inside the system temp dir, so the real temp
+    # roots would make every test folder scratch. Point them somewhere fixed.
+    t = tmp_path / "systemp"
+    t.mkdir()
+    monkeypatch.setattr(hook, "_temp_roots", lambda: [str(t)])
+    return t
+
+
+def test_repo_name_in_a_temp_folder_is_the_shared_scratch_mailbox(
+    temp_root: Path, home: Path
+) -> None:
+    for name in ("chess-eval-3f9a1c2b", "tmp", "work"):
+        d = temp_root / "plain" / name
+        d.mkdir(parents=True)
+        assert hook.repo_name(str(d)) == "scratch"
+    assert hook.repo_name(str(temp_root)) == "scratch"
+
+
+def test_repo_name_temp_match_ignores_case_folding(
+    tmp_path: Path, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Windows normcase lowercases; a temp root given in mixed case must still
+    # match a cwd under it.
+    t = tmp_path / "SysTemp"
+    (t / "Eval").mkdir(parents=True)
+    monkeypatch.setattr(hook, "_temp_roots", lambda: [str(t)])
+    monkeypatch.setattr(hook.os.path, "normcase", lambda p: p.lower())
+    assert hook.repo_name(str(t / "Eval")) == "scratch"
+
+
+def test_repo_name_in_the_home_folder_is_the_shared_scratch_mailbox(
+    temp_root: Path, home: Path
+) -> None:
+    assert hook.repo_name(str(home)) == "scratch"
+
+
+def test_repo_name_outside_git_elsewhere_is_the_folder_name(
+    tmp_path: Path, temp_root: Path, home: Path
+) -> None:
+    # A real project before `git init`, e.g. ~/src/reviewer, keeps its name.
+    for parent in (tmp_path / "src", home / "src"):
+        d = parent / "reviewer"
+        d.mkdir(parents=True)
+        assert hook.repo_name(str(d)) == "reviewer"
+    odd = tmp_path / "src" / "my notes"
+    odd.mkdir()
+    assert hook.repo_name(str(odd)) == "my-notes"
+
+
+def test_temp_roots_include_the_system_temp_dir() -> None:
+    import tempfile
+
+    roots = hook._temp_roots()
+    assert os.path.normcase(os.path.realpath(tempfile.gettempdir())) in roots
 
 
 def test_repo_name_uses_git_toplevel(tmp_path: Path) -> None:
@@ -153,8 +217,7 @@ def test_register_returns_session_file_dict(server: LiveServer, tmp_path: Path) 
 
 
 def test_register_with_awkward_dir_name(server: LiveServer, tmp_path: Path) -> None:
-    d = tmp_path / "plain" / ".My Repo!"
-    d.mkdir(parents=True)
+    d = git_repo(tmp_path / "plain", ".My Repo!")
     assert hook.register("codex", str(d), False)["mailbox"] == "laptop/My-Repo-"
 
 
@@ -380,3 +443,69 @@ def test_new_mail(
     body: dict[str, object], seen: hook.Seen, expected: tuple[bool, hook.Seen]
 ) -> None:
     assert hook.new_mail(body, seen) == expected
+
+
+def test_a_registered_folder_keeps_its_mailbox_after_a_rule_change(
+    server: LiveServer,
+    tmp_path: Path,
+    temp_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    d = tmp_path / "src" / "reviewer"
+    d.mkdir(parents=True)
+    assert hook.register("codex", str(d), True, "cx-1")["mailbox"] == "laptop/reviewer"
+    # A later client sends every non-git folder to scratch: this one stays.
+    monkeypatch.setattr(hook, "_is_scratch", lambda cwd: True)
+    assert hook.repo_name(str(d)) == "reviewer"
+    assert hook.register("codex", str(d), True, "cx-2")["mailbox"] == "laptop/reviewer"
+    fresh = tmp_path / "src" / "other"
+    fresh.mkdir()
+    assert hook.repo_name(str(fresh)) == "scratch"
+
+
+def test_the_pin_is_keyed_by_the_git_toplevel(
+    server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    (repo / "sub").mkdir()
+    hook.register("claude-code", str(repo / "sub"), True, "cc-1")
+    monkeypatch.setattr(hook, "_NAME_BAD", re.compile(r"[a-z]"))  # would mangle it
+    assert hook.repo_name(str(repo)) == "api"
+
+
+def test_scratch_folders_are_not_pinned(server: LiveServer, home: Path) -> None:
+    assert hook.register("claude-code", str(home), True, "cc-1")["mailbox"] == (
+        "laptop/scratch"
+    )
+    assert not (home / ".cache" / "kampung" / "mailboxes.json").exists()
+
+
+def test_a_damaged_pin_file_is_ignored(
+    home: Path, tmp_path: Path, temp_root: Path
+) -> None:
+    pins = home / ".cache" / "kampung" / "mailboxes.json"
+    pins.parent.mkdir(parents=True, exist_ok=True)
+    pins.write_text("{not json")
+    d = tmp_path / "src" / "reviewer"
+    d.mkdir(parents=True)
+    assert hook.repo_name(str(d)) == "reviewer"
+
+
+def test_register_asks_git_once(
+    server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Hooks have 2 seconds; git is slow to start on Windows, so naming and
+    # pinning the mailbox share one look at the worktree.
+    repo = git_repo(tmp_path, "api")
+    real = hook.subprocess.run
+    seen: list[list[str]] = []
+
+    def counting(cmd: list[str], *a: Any, **kw: Any) -> Any:
+        seen.append(cmd)
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(hook.subprocess, "run", counting)
+    assert hook.register("claude-code", str(repo), True, "cc-1")["mailbox"] == (
+        "laptop/api"
+    )
+    assert sum("rev-parse" in cmd for cmd in seen) == 1

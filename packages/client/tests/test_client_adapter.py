@@ -44,7 +44,7 @@ async def test_send_and_inbox_through_two_adapters(
     set_home(monkeypatch, home)
     async with Client(build_adapter("claude-code", str(api_repo))) as c:
         sent = await c.call_tool("send", {"to": "desktop/blog", "body": "hi blog"})
-        assert sent.data["depth"] == 0
+        assert sent.data["wake"] is True and "depth" not in sent.data
     set_home(monkeypatch, desktop_home)
     async with Client(build_adapter("claude-code", str(blog_repo))) as c:
         got = await c.call_tool("inbox", {})
@@ -56,6 +56,23 @@ async def test_send_and_inbox_through_two_adapters(
             "laptop/api",
         ]
     assert blog["mailbox"] == "desktop/blog"
+
+
+async def test_list_peers_include_empty_reaches_the_server(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+    old = hooked_session(git_repo(tmp_path, "old-eval"), "cc-2")
+    server.admin.end_session(int(str(old["session"])), "admin:cli")
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        default = await c.call_tool("list_peers", {})
+        shown = await c.call_tool("list_peers", {"include_empty": True})
+    assert [p["mailbox"] for p in default.data["peers"]] == ["laptop/api"]
+    assert [p["mailbox"] for p in shown.data["peers"]] == [
+        "laptop/api",
+        "laptop/old-eval",
+    ]
 
 
 async def test_admin_end_keeps_one_session_per_window(
@@ -156,10 +173,10 @@ async def test_adapter_failure_with_a_good_key_is_not_called_unreachable(
     assert "protocol mismatch" in _hooks_log(home)
 
 
-async def test_adapter_lists_the_three_tools(home: Path) -> None:
+async def test_adapter_lists_the_four_tools(home: Path) -> None:
     async with Client(build_adapter("claude-code", "/w/api")) as c:
         names = {t.name for t in await c.list_tools()}
-    assert names == {"list_peers", "send", "inbox"}
+    assert names == {"list_peers", "send", "inbox", "read_attachment"}
 
 
 async def test_adapter_instructions_match_server(home: Path) -> None:
@@ -228,3 +245,72 @@ async def test_codex_malformed_meta_falls_back_to_polling(
         bad = {"x-codex-turn-metadata": {"session_id": 7}}
         assert "peers" in (await c.call_tool("list_peers", {}, meta=bad)).data
     assert db_query(server, "SELECT agent, hooks FROM sessions") == [("codex", 0)]
+
+
+async def test_send_passes_fyi_only_when_true(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+    peer_send(server, "laptop/api", "hello")  # registers desktop/blog
+    seen: list[dict[str, object]] = []
+
+    class Spy(Client):  # type: ignore[type-arg]
+        async def call_tool(  # type: ignore[no-untyped-def]
+            self, name, arguments=None, *a, **kw
+        ):
+            seen.append(dict(arguments or {}))
+            return await super().call_tool(name, arguments, *a, **kw)
+
+    # Only the adapter's own client to the server, not this test's client.
+    monkeypatch.setattr(adapter, "Client", Spy)
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        plain = await c.call_tool("send", {"to": "desktop/blog", "body": "x"})
+        fyi = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "noted", "fyi": True}
+        )
+    assert "fyi" not in seen[0] and seen[1]["fyi"] is True
+    assert plain.data["wake"] is True
+    assert fyi.data["wake"] is False and fyi.data["reason"] == "fyi"
+
+
+async def test_fyi_against_an_old_server_is_a_clear_error(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastmcp.exceptions import ToolError
+
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+    calls: list[str] = []
+
+    class OldServer(Client):  # type: ignore[type-arg]
+        async def call_tool(  # type: ignore[no-untyped-def]
+            self, name, arguments=None, *a, **kw
+        ):
+            # What a server without fyi answers (FastMCP argument validation).
+            calls.append(name)
+            raise ToolError(
+                "1 validation error for call[send]\nfyi\n  Unexpected keyword "
+                "argument [type=unexpected_keyword_argument, input_value=True]"
+            )
+
+    monkeypatch.setattr(adapter, "Client", OldServer)
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        r = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "noted", "fyi": True}
+        )
+    assert r.data["error"] == "fyi_unsupported" and "too old" in r.data["hint"]
+    assert calls == ["send"]
+
+
+async def test_send_description_explains_the_budget_without_numbers(
+    home: Path, tmp_path: Path
+) -> None:
+    import re
+
+    async with Client(build_adapter("claude-code", str(tmp_path))) as c:
+        tools = {t.name: t for t in await c.list_tools()}
+    text = tools["send"].description or ""
+    assert "fyi" in text and "wake" in text and "hint" in text
+    budget = text[text.index("wake") :]
+    assert not re.search(r"[0-9]", budget)

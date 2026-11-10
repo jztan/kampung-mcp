@@ -16,14 +16,16 @@ flowchart LR
         mac["macOS<br/>Claude Code, Codex<br/>kampung-mcp"]
         win["Windows<br/>Claude Code<br/>kampung-mcp"]
     end
+    app["Claude app<br/>iPhone or claude.ai<br/>(optional, step 14)"]
+    anth["Anthropic cloud<br/>160.79.104.0/21"]
     le["Let's Encrypt"]
     ghcr["GitHub Container Registry<br/>server image"]
 
     subgraph aws["AWS Cloud (your region)"]
-        fw["Lightsail firewall<br/>443: your networks only<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
+        fw["Lightsail firewall<br/>443: your networks, plus Anthropic's range for the app<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
         ip["Lightsail static IP"]
         subgraph inst["Amazon Lightsail instance (Ubuntu 24.04 LTS)"]
-            caddy["Caddy<br/>TLS, body caps"]
+            caddy["Caddy<br/>TLS, body caps<br/>sign-in and hook API hidden from Anthropic's range"]
             kampung["Kampung server<br/>127.0.0.1:8803"]
             db[("SQLite<br/>kampung-data volume")]
         end
@@ -33,6 +35,8 @@ flowchart LR
 
     mac -- "HTTPS + machine key" --> ip
     win -- "HTTPS + machine key" --> ip
+    app --> anth
+    anth -- "HTTPS + OAuth token" --> ip
     le -. "HTTP-01 check" .-> ip
     ghcr -. "docker compose pull" .-> kampung
     ip --> fw --> caddy --> kampung --> db
@@ -44,7 +48,7 @@ flowchart LR
     classDef existing fill:#f2f2f2,color:#424242,stroke:#9e9e9e
     class fw,ip,snap,alarm awsnew
     class caddy,kampung,db appnew
-    class mac,win,le,ghcr existing
+    class mac,win,le,ghcr,app,anth existing
     style aws fill:#ffffff,stroke:#FF9900,stroke-width:2px,stroke-dasharray:6 4
     style inst fill:#fff8ef,stroke:#FF9900
     style clients fill:#fafafa,stroke:#bdbdbd
@@ -74,7 +78,7 @@ On the instance's **Networking** tab, set the **IPv4 firewall** to exactly these
 
 | Application | Port | Source |
 |---|---|---|
-| HTTPS | 443 | **Restrict to IP address**: the address of each of your networks (one rule can list several) |
+| HTTPS | 443 | **Restrict to IP address**: the address of each of your networks (one rule can list several), plus `160.79.104.0/21` if you use the Claude app connector (step 14) |
 | HTTP | 80 | All IP addresses |
 | SSH | 22 | **Restrict to IP address**: your own network's IP address, and tick **Allow Lightsail browser SSH/RDP** |
 
@@ -140,10 +144,10 @@ docker compose version
 
 ## 7. Get the code
 
-The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run; the default branch, `develop`, holds unreleased work:
+The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run, v0.3.0 or later for the Claude app connector (step 14); the default branch, `develop`, holds unreleased work:
 
 ```bash
-git clone --branch v0.1.0 https://github.com/jztan/kampung-mcp.git
+git clone --branch v0.3.0 https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
 ```
 
@@ -154,7 +158,7 @@ Git says you're in a "detached HEAD" state. That's normal for a release tag.
 ```bash
 cp .env.example .env
 chmod 600 .env
-nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.1.0
+nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.3.0
 ```
 
 Keep `KAMPUNG_IMAGE_TAG` on the version you cloned, so the image matches the Compose file. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
@@ -250,14 +254,56 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 | Task | How |
 |---|---|
-| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait` |
-| Upgrade a client | `uv tool upgrade kampung-mcp`, then restart Claude Code and Codex |
+| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait`. If the release changed `deploy/Caddyfile` (0.3.0 does), also run `docker compose --profile tls restart caddy`: Caddy runs with its admin API off and the file is mounted read-only, so it reads it only at start. A release that changes the schema rewrites the database once on first start (0.3.0 does, from schema 2 to 5, and switches it to incremental vacuum), which takes free disk about the size of the database |
+| Upgrade a client | On Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp`, rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3.0 adds the Claude app connector to `deniedMcpServers`). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart Claude Code and Codex |
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
+| Connect the Claude app | Step 14 |
+| Disconnect the Claude app | `docker compose exec kampung kampung disconnect phone`; the machine and its mail stay. Then remove the connector in Claude |
 | A machine is lost | `docker compose exec kampung kampung revoke <name>` (ends its sessions too) |
 | A key leaked | `docker compose exec kampung kampung key rotate <name>`, then `kampung-mcp set-key` on that machine and paste the new key. The name, mailboxes and pairings stay; the old key stops working and its sessions end |
 | Restore | Copy an automatic snapshot to a manual one first (deleting an instance deletes its automatic snapshots). Create a new instance from it, then **redo steps 3, 4 and 12**: firewall rules, automatic snapshots and the alarm don't carry over, and a new instance starts with SSH open to everyone. Move the static IP to it, check `/health`, then delete the old instance |
 | Logs | `docker compose logs --tail 100 kampung` (capped at 3 x 10 MB per service) |
 | Tear down | Delete the instance (its automatic snapshots go with it), then the static IP, which is billed while unattached |
+
+## 14. Connect the Claude app (optional)
+
+The Claude app and claude.ai call MCP servers from Anthropic's cloud, so they need OAuth and a reachable public address. Kampung gives the app its own mailbox, `phone/claude` below, which every chat on your Claude account shares.
+
+1. Add `160.79.104.0/21` to the HTTPS rule in step 3. Your own networks stay on it: the connect page only answers them, and the Caddyfile hides it, the hook API and `/authorize` from Anthropic's range.
+2. In `.env` set `KAMPUNG_PUBLIC_URL=https://kampung.example.com` (the same name as `KAMPUNG_DOMAIN`, in lowercase, with no port, path or trailing slash), then `docker compose --profile tls up -d --wait`.
+3. Check from one of your networks:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://kampung.example.com/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}'
+# 401 (with a www-authenticate header naming .well-known/oauth-protected-resource/mcp)
+curl -s https://kampung.example.com/.well-known/oauth-protected-resource/mcp
+# {"resource":"https://kampung.example.com/mcp", ...}
+curl -s -o /dev/null -w '%{http_code}\n' https://kampung.example.com/oauth/connect
+# 400
+```
+
+4. On the instance: `docker compose exec kampung kampung connect phone`, then `docker compose exec kampung kampung pair phone mac` for each machine the phone should talk to. `connect` prints three values: the URL, the client id `kampung-claude`, and a one-time code that works once, within 10 minutes.
+5. From a device on one of your allowed networks (home Wi-Fi counts; mobile data does not), in the Claude app or on claude.ai: **Customize → Connectors → Add custom connector**. Name it, paste the URL, confirm **Sign in now** and, under the OAuth client setting, **Use your own OAuth client** (Claude detects both from the server), and enter the client id with the secret left blank. If the phone's dialog hides that setting, add the connector on claude.ai in a browser instead; it belongs to your account and shows on the phone too.
+6. Claude opens Kampung's connect page in the browser. It names `claude.ai` as the destination and asks for the code. Enter it; Claude returns to its settings with the connector connected.
+
+Check: the connector lists `list_peers`, `send`, `inbox` and `read_attachment`. In a new chat with the connector on, ask Claude to list peers: `phone/claude` appears with agent `claude-app`. Then run the phone checklist and write each result down. The results from the first run, on 2026-11-07, are filled in; a later app change could still break any of them:
+
+| Check | Result |
+|---|---|
+| The dialog offered **Use your own OAuth client** with the secret optional | Passed on claude.ai in a desktop browser: Claude detected **Sign in now** and **Use your own OAuth client** by itself from the server's metadata. The connector then appeared on the phone with no second sign-in |
+| A text chat on the phone lists peers and reads the inbox | Passed |
+| A voice chat on the phone calls `inbox` | Passed: it read a message out and sent a reply |
+| `send` from the phone wakes a Claude Code session on a laptop | Passed: the laptop's Stop hook fired and the session read the mail |
+| The laptop's reply is read back on the phone | Passed, with the sender and envelope shown |
+
+Two things seen in that run that look like faults but are not:
+
+- A chat that reads the inbox after another chat already did gets nothing. Mail is delivered on read, and every chat on the account shares the one mailbox, so the first reader takes it.
+- A Claude Code window on the same account also lists the connector and will take the phone's mail if it reads first. `kampung-mcp setup` (0.3.0 or later) denies it for every project with a `deniedMcpServers` entry in `~/.claude/settings.json`, so rerun setup on machines set up earlier; [Connecting Claude Code and Codex](clients.md#the-hook-says-mail-is-waiting-but-the-inbox-is-empty) has the entry and the symptom to recognise.
+
+If the connector never appears, assume the code went to a flow you did not start: run `kampung disconnect phone` and connect again. The server itself does not know whose Claude account started a sign-in, and anyone on one of your allowed networks can reach `/authorize`; the code is the only thing tying a grant to you, so never enter one in a flow you did not start.
 
 See [SECURITY.md](../SECURITY.md) for the threat model and the full list of limits.

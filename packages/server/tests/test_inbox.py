@@ -58,27 +58,25 @@ def test_envelope_shape(
         "from",
         "to",
         "sent_at",
-        "depth",
         "reply_to",
+        "fyi",
         "kind",
         "body",
+        "attachment",
     ]
     assert env["kind"] == KIND
     assert env["from"] == pair[0].address
     assert env["to"] == "desktop/blog"
-    assert env["body"] == "hello" and env["depth"] == 0 and env["reply_to"] is None
+    assert env["body"] == "hello" and env["fyi"] is False and env["reply_to"] is None
 
 
-def test_inbox_updates_max_depth_seen(
+def test_inbox_records_delivery_but_no_depth(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
-    conn.execute("UPDATE sessions SET max_depth_seen = 1 WHERE id = ?", (pair[0].id,))
-    sender = load_session(conn, pair[0].id)
-    assert sender is not None
-    send(conn, sender, "desktop/blog", "hi", None, clock.now())
+    send(conn, pair[0], "desktop/blog", "hi", None, clock.now())
     inbox(conn, pair[1], 20, clock.now())
     receiver = load_session(conn, pair[1].id)
-    assert receiver is not None and receiver.max_depth_seen == 2
+    assert receiver is not None and receiver.max_depth_seen == -1
     assert receiver.last_delivered_at is not None
 
 
@@ -138,10 +136,7 @@ def test_peek_counts_wakeable_and_does_not_deliver(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
     woke = send(conn, pair[0], "desktop/blog", "wake", None, clock.now()).id
-    conn.execute("UPDATE sessions SET max_depth_seen = 3 WHERE id = ?", (pair[0].id,))
-    deep = load_session(conn, pair[0].id)
-    assert deep is not None
-    send(conn, deep, "desktop/blog", "no wake", None, clock.now())
+    send(conn, pair[0], "desktop/blog", "no wake", None, clock.now(), fyi=True)
     assert peek(conn, pair[1], clock.now()) == PeekResult(2, 1, woke)
     assert peek(conn, pair[1], clock.now()).to_dict() == {
         "waiting": 2,
@@ -211,6 +206,25 @@ def test_list_peers_paired_only(
     assert [p["mailbox"] for p in peers] == ["desktop/blog", "laptop/api"]
     only = list_peers(conn, machines["laptop"][0], clock.now(), "desktop")
     assert [p["mailbox"] for p in only] == ["desktop/blog"]
+
+
+def test_list_peers_hides_mailboxes_without_open_sessions(
+    conn: sqlite3.Connection,
+    machines: dict[str, tuple[Machine, str]],
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    make_session("desktop", "blog")
+    gone = make_session("desktop", "old-eval")
+    end(conn, gone.id, clock.now())
+    me = machines["laptop"][0]
+    assert [p["mailbox"] for p in list_peers(conn, me, clock.now())] == ["desktop/blog"]
+    everything = list_peers(conn, me, clock.now(), include_empty=True)
+    assert [p["mailbox"] for p in everything] == ["desktop/blog", "desktop/old-eval"]
+    assert everything[1]["sessions"] == []
+    # Hidden is not gone: the mailbox still takes mail.
+    sender = make_session("laptop", "api")
+    assert send(conn, sender, "desktop/old-eval", "hi", None, clock.now()).id
 
 
 def test_list_peers_sessions_and_live_flag(

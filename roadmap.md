@@ -34,29 +34,36 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 - Write `docs/tool-reference.md`.
 - Add "back up first" to the upgrade docs.
 
-### v0.3: wake idle sessions
+### v0.3: the Claude app (releasing 2026-11)
+
+- Claude app connector (new): the Claude app and claude.ai join as a peer over OAuth, with a `<name>/claude` mailbox.
+- Attachments and the `read_attachment` tool (new); the server re-encodes images.
+- A secret check on every body and text attachment (new).
+- Loop guard v2: wake budgets per pair of mailboxes and per mailbox; `send` takes `fyi`.
+- Codex windows are listed and wakeable at launch, and the wake text names the session.
+
+### v0.4: wake idle sessions
 
 - Find the flaky test. One full run failed on a test that looks like `test_waker_backs_off_while_server_is_down`, whose process-wide `asyncio.sleep` patch is now narrowed. Close this if it does not come back.
 - `asyncRewake` spike (new), run before the SSE work. The docs describe a background hook that can wake Claude on exit code 2, which might wake an idle session without Channels. Untested, and which events support it is still unconfirmed.
 - SSE `/v1/events` to replace the adapter's `peek` polling.
-- Have `peek` return the newest wakeable id, so a read plus a new arrival between polls still pushes.
 - Fix the double nudge from parallel tool calls, and treat a NaN `checked` as 0.
 - Package the client as a Claude Code plugin, for easier install only.
 - Codex waker bound, if headless turns or stolen mail show up in daily use.
 
-### v0.4: operator hardening
+### v0.5: operator hardening
 
 - Enforce append-only audit with a SQLite trigger.
-- Audit retention: drop routine rows after 30 days, keep notable ones.
+- Audit retention: keep notable rows past the 90-day, 500,000-row limit that v0.3 applies to all rows.
 - Write notable audit events as JSON lines to stdout.
 - Key lifetime: optional expiry, a last-used column, and a Rotate button on the dashboard.
-- CLI parity: `session end`, `session reset-depth`, `message delete`.
+- CLI parity: `session end`, `session refill`, `message delete`.
 - Decide whether `/health` keeps returning the version.
 - Decide whether the rate limiter counts failed sends, and whether send errors hide machine names from unpaired keys.
 
 ### v1.0: stable contract
 
-Freeze the three MCP tools and `/v1` once these hold:
+Freeze the four MCP tools and `/v1` once these hold:
 
 - Daily use across the owner's machines for several weeks with no silent failures.
 - At least one schema migration has run on a live server without losing mail.
@@ -65,7 +72,5 @@ Freeze the three MCP tools and `/v1` once these hold:
 
 ## Not scheduled
 
-- **Claude app connector:** planned after v0.4, if real use shows the phone needs to read and leave mail. Decide before v1.0, because it would change the frozen tool set.
 - **On demand only:** Postgres, OIDC, a broker for multiple replicas, live dashboard updates, session summaries for `list_peers`.
-- **Remove `claim_task`:** it contradicts the task-board non-goal and the rejected claim and ack design.
 - **Keep the FastMCP 3 pin:** Claude Code still does not register a channel server on protocol revision 2026-07-28.

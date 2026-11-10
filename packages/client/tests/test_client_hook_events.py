@@ -74,7 +74,7 @@ def test_stop_never_blocks_twice(home: Path, server: LiveServer, repo: Path) -> 
 
 def test_stop_ignores_no_wake_mail(home: Path, server: LiveServer, repo: Path) -> None:
     start(home, repo)
-    peer_send(server, "laptop/api", "deep", depth_seen=3)
+    peer_send(server, "laptop/api", "held", held=True)
     assert run_hook(home, event("Stop")).stdout == ""
 
 
@@ -83,15 +83,32 @@ def test_stop_quiet_without_mail(home: Path, server: LiveServer, repo: Path) -> 
     assert run_hook(home, event("Stop")).stdout == ""
 
 
-def test_user_prompt_resets_depth(home: Path, server: LiveServer, repo: Path) -> None:
+def _used(server: LiveServer, sid: int) -> int:
+    rows = db_query(
+        server,
+        "SELECT mb.wakes_since_refill FROM sessions s "
+        "JOIN mailboxes mb ON mb.id = s.mailbox_id WHERE s.id = ?",
+        sid,
+    )
+    return int(str(rows[0][0]))
+
+
+def _use(server: LiveServer, sid: int) -> None:
+    db_query(
+        server,
+        "UPDATE mailboxes SET wakes_since_refill = 30 "
+        "WHERE id = (SELECT mailbox_id FROM sessions WHERE id = ?)",
+        sid,
+    )
+
+
+def test_user_prompt_refills(home: Path, server: LiveServer, repo: Path) -> None:
     start(home, repo)
     sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
-    db_query(server, "UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", sid)
+    _use(server, sid)
     r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
     assert r.returncode == 0 and r.stdout == ""
-    assert db_query(
-        server, "SELECT max_depth_seen FROM sessions WHERE id = ?", sid
-    ) == [(-1,)]
+    assert _used(server, sid) == 0
 
 
 def test_user_prompt_registers_when_file_missing(
@@ -262,18 +279,16 @@ def test_stuck_handler_is_cut_off_at_the_deadline(
 CHANNEL_PROMPT = '<channel source="kampung">\n1 Kampung message(s) waiting.\n</channel>'
 
 
-def test_channel_prompt_does_not_reset_depth(
+def test_channel_prompt_does_not_refill(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
     # A turn started by a Channels push is not the user typing.
     start(home, repo)
     sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
-    db_query(server, "UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", sid)
+    _use(server, sid)
     r = run_hook(home, event("UserPromptSubmit", prompt=CHANNEL_PROMPT))
     assert r.returncode == 0 and r.stdout == ""
-    assert db_query(
-        server, "SELECT max_depth_seen FROM sessions WHERE id = ?", sid
-    ) == [(4,)]
+    assert _used(server, sid) == 30
 
 
 NUDGE = {
@@ -417,23 +432,19 @@ def test_stray_shell_args_are_ignored(
     assert f is not None and f["agent"] == "codex"
 
 
-def test_wake_prompt_does_not_reset_depth(
+def test_wake_prompt_does_not_refill(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
     # A turn started by `codex queue` is not the user typing.
     codex_start(home, repo)
     sid = int(str(hook.read_session_file("cx-1")["session"]))  # type: ignore[index]
-    db_query(server, "UPDATE sessions SET max_depth_seen = 4 WHERE id = ?", sid)
-    prompt = f"{hook.WAKE_PREFIX} {REASON}"
+    _use(server, sid)
+    prompt = f"{hook.WAKE_PREFIX} laptop/api#3f: {REASON}"
     r = codex(home, event("UserPromptSubmit", "cx-1", prompt=prompt))
     assert r.returncode == 0 and r.stdout == ""
-    assert db_query(
-        server, "SELECT max_depth_seen FROM sessions WHERE id = ?", sid
-    ) == [(4,)]
+    assert _used(server, sid) == 30
     codex(home, event("UserPromptSubmit", "cx-1", prompt="typed"))
-    assert db_query(
-        server, "SELECT max_depth_seen FROM sessions WHERE id = ?", sid
-    ) == [(-1,)]
+    assert _used(server, sid) == 0
 
 
 def test_codex_stop_blocks_once(home: Path, server: LiveServer, repo: Path) -> None:

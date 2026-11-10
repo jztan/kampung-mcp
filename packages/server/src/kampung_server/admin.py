@@ -4,7 +4,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import datetime
 
-from . import audit, db, sessions
+from . import audit, db, guard, oauth_store, sessions
 from .addressing import validate_name
 from .clock import ts
 from .errors import KampungError
@@ -43,6 +43,47 @@ class AdminService:
             conn.close()
         assert machine is not None
         return machine, key
+
+    def connect(self, name: str, actor: str) -> str:
+        """A one-time code for the Claude app connector, creating the machine
+        if needed. Its key is never shown: the app never uses one."""
+        validate_name("machine", name)
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                machine = load_machine(conn, name)
+                if machine is None:
+                    conn.execute(
+                        "INSERT INTO machines (name, key_hash, created_at) "
+                        "VALUES (?, ?, ?)",
+                        (name, hash_key(new_key()), ts(now)),
+                    )
+                    audit.record(conn, now, actor, "add_machine", {"machine": name})
+                    machine = load_machine(conn, name)
+                    assert machine is not None
+                elif machine.revoked_at is not None:
+                    raise KampungError("already_revoked", f"{name} is revoked.")
+                code = oauth_store.new_connect_code(conn, machine.id, now)
+                audit.record(conn, now, actor, "connect_code", {"machine": name})
+        finally:
+            conn.close()
+        return code
+
+    def disconnect(self, name: str, actor: str) -> None:
+        """Remove the machine's connector grant; the machine and its mail stay."""
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                machine = _require(conn, name)
+                if not oauth_store.delete_grant_for_machine(conn, machine.id, now):
+                    raise KampungError(
+                        "not_connected", f"{name} has no Claude app connection."
+                    )
+                audit.record(conn, now, actor, "disconnect", {"machine": name})
+        finally:
+            conn.close()
 
     def pair(self, a: str, b: str, actor: str) -> None:
         self._pairing(a, b, actor, add=True)
@@ -95,6 +136,7 @@ class AdminService:
                     (ts(now), machine.id),
                 )
                 _end_sessions(conn, machine, now)
+                oauth_store.delete_grant_for_machine(conn, machine.id, now)
                 audit.record(conn, now, actor, "revoke", {"machine": name})
         finally:
             conn.close()
@@ -117,6 +159,7 @@ class AdminService:
                     (hash_key(key), machine.id),
                 )
                 _end_sessions(conn, machine, now)
+                oauth_store.delete_grant_for_machine(conn, machine.id, now)
                 audit.record(conn, now, actor, "rotate_key", {"machine": name})
         finally:
             conn.close()
@@ -133,13 +176,23 @@ class AdminService:
         finally:
             conn.close()
 
-    def reset_depth(self, session_id: int, actor: str) -> None:
+    def refill(self, session_id: int, actor: str) -> None:
+        """Refill the wake budgets of a session's mailbox, as a typed prompt
+        in it would."""
         now = self._clock()
         conn = self._connect()
         try:
             with db.transaction(conn):
-                sessions.human_turn(conn, _require_open_session(conn, session_id))
-                audit.record(conn, now, actor, "reset_depth", {"session": session_id})
+                s = _require_open_session(conn, session_id)
+                # Not a typed prompt: refill only.
+                cleared = guard.refill_mailbox(conn, s.mailbox_id)
+                audit.record(
+                    conn,
+                    now,
+                    actor,
+                    "refill",
+                    {"session": session_id, "mailbox": s.mailbox, "pairs": cleared},
+                )
         finally:
             conn.close()
 

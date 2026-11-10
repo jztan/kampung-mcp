@@ -58,3 +58,6 @@ release_notes_v*.md
 
 # Demo recorder (scripts/demo-recorder)
 node_modules/
+
+# Release checks recorded per commit (scripts/release_checks.py)
+.release-checks

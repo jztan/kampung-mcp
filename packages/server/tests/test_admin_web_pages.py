@@ -224,3 +224,64 @@ def test_conversations_list_and_thread(
     assert "&lt;b&gt;done&lt;/b&gt;" in thread and "<b>done</b>" not in thread
     unknown = web.get("/admin/conversations?a=nope/x&b=laptop/api").text
     assert "please check the build" not in unknown
+
+
+def test_messages_page_shows_attachment_metadata_only(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    from kampung_server.attachments import parse_attachment
+
+    a = make_session("laptop", "api")
+    make_session("desktop", "api")
+    att = parse_attachment(
+        {"name": "notes_v2.md", "text": "attachment-content-here"}, connector=False
+    )
+    sent = mail.send(conn, a, "desktop/api", "see notes", None, clock.now(), att)
+    login(web)
+    page = web.get("/admin/messages").text
+    listed = page.split("<tbody>", 1)[1]
+    assert "notes_v2.md" in listed and "23 B" in listed
+    assert "attachment-content-here" not in page
+    detail = web.get(f"/admin/messages/{sent.id}").text
+    assert "notes_v2.md" in detail and "23 B" in detail and "text" in detail
+    assert "attachment-content-here" not in detail
+
+
+def test_sessions_page_shows_wakes_used_and_refill_button(
+    web: TestClient, conn: sqlite3.Connection, make_session: MakeSession
+) -> None:
+    s = make_session("laptop", "api")
+    conn.execute(
+        "UPDATE mailboxes SET wakes_since_refill = 17 WHERE id = ?", (s.mailbox_id,)
+    )
+    login(web)
+    page = web.get("/admin/sessions").text
+    assert "Wakes used" in page and ">17<" in page
+    assert f"/admin/sessions/{s.id}/refill" in page and "Depth" not in page
+
+
+def test_message_pages_show_wake_reason(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    a = make_session("laptop", "api")
+    make_session("desktop", "api")
+    held = mail.send(conn, a, "desktop/api", "later", None, clock.now(), fyi=True)
+    old = mail.send(conn, a, "desktop/api", "old", None, clock.now())
+    conn.execute(
+        "UPDATE messages SET depth = 4, wake = 0, wake_reason = NULL WHERE id = ?",
+        (old.id,),
+    )
+    login(web)
+    listing = web.get("/admin/messages").text
+    assert "held: fyi" in listing and "held: depth 4 (before v5)" in listing
+    assert "No-wake only" in listing and "over 3" not in listing
+    detail = web.get(f"/admin/messages/{held.id}").text
+    assert "held: fyi" in detail and "depth over 3" not in detail
+    thread = web.get("/admin/conversations?a=desktop/api&b=laptop/api").text
+    assert "held: fyi" in thread

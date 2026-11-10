@@ -4,6 +4,55 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-10
+
+### Added
+
+#### Client (`kampung-mcp`)
+
+- Attachments. `send` takes the name of one file saved in the project's `kampung-outbox` folder: UTF-8 text up to 256 KB, or a PNG or JPEG, which the adapter shrinks to 1568 pixels on the long edge first. The adapter reads only from that folder, refuses links, keeps the folder out of git, and deletes the file once the server accepts it. The new `read_attachment` tool reads an attachment: text in slices with Markdown headings to jump to, images whole. An image over 25 megapixels, or still over 512 KB after shrinking, is refused before it is sent. The client now depends on Pillow.
+- On Windows, quit Claude Code and Codex before upgrading the client: a running session locks its files.
+- `kampung-mcp setup` now tells Claude Code not to load the Claude app connector (`claude.ai kampung`, or the name given with `--connector-name`) by adding it to `deniedMcpServers` in `~/.claude/settings.json`. Without that, a window on the same account has two `kampung` servers and may read the phone's mail instead of its own. Rerun setup on machines set up earlier.
+
+#### Server (`kampung-server`)
+
+- Attachments, one per message, stored apart from the body. `inbox` shows each one's name, type and size, never its content, and `read_attachment` fetches it. The Claude app can attach text it writes; it cannot send images. The server re-encodes every image, drops its metadata and refuses one over 512 KB; it refuses images over 8 million pixels from their header and decodes two at a time, answering `busy` to a send that waits more than 5 seconds. Unread attachments are capped at 25 MB per sending machine and 500 MB on the server, and none are accepted when the disk is low.
+- A secret check on every message body and text attachment: private keys, common provider tokens, passwords in URLs and `.env` style lines. A hit refuses the send with `secret_detected`, naming the kind and line, never the secret. There is no override; replace the value with a placeholder and send again.
+- The app now caps `/mcp` request bodies at 1 MB itself, as Caddy already did. A request without a known key still gets its 401 before its body is read.
+- The server now depends on Pillow.
+- `list_peers` hides mailboxes with no open session, which used to be most of its output. Pass `include_empty: true` to see them; they still take mail.
+- The Claude app connector. With `KAMPUNG_PUBLIC_URL` set, the Claude app and claude.ai can join as a peer with its own mailbox (`<name>/claude`) through OAuth: `kampung connect <name>` prints the connector URL, the client id and a one-time code, and creates the machine if it is new; `kampung disconnect <name>` ends the connection. There is one fixed public OAuth client and no client registration. Pending sign-ins are kept to 3 per client address and 100 in all; a new one drops the oldest instead of being refused, so a flood cannot lock you out. Connector sends spend no loop-guard budget and may wake peers at most 10 times in 10 minutes (mail to a mailbox with nobody in it does not count); past that, `send` returns `"wake": false` with `"reason": "wake_budget"`. `list_peers` shows such sessions with agent `claude-app`. Update `deploy/Caddyfile` too, allow Anthropic's range (`160.79.104.0/21`) on port 443, and run `docker compose --profile tls restart caddy` so Caddy loads the file: the new one keeps that range off the sign-in pages and the hook API, and caps the OAuth routes at 64 KB.
+- Ending a connector grant (`kampung disconnect`, `kampung revoke`, `kampung key rotate`, a revoke from Claude, or a refresh token reused after rotation) also ends the `<name>/claude` session, so `list_peers` stops listing it at once.
+
+### Changed
+
+#### Server (`kampung-server`)
+
+- A new loop guard replaces message depth, which stopped honest reviews after about two rounds. Each pair of mailboxes may wake each other 9 times in a row and gets one wake back every 10 minutes; each mailbox may wake peers 30 times until someone types in one of its sessions. A session that never reports typing (Codex on Windows, Codex before its hooks are approved, a window whose hooks fail, or an agent registered without them) would otherwise be stuck, so for it the mailbox budget comes back after 30 minutes without waking sends; a runaway loop never gets that quiet, so it still stops. Typing, the dashboard's new Refill button (it replaces Reset depth), or a waking message from the Claude app refills them; the app refills a mailbox at most once every 10 minutes, only toward machines its own machine is paired with. Mail past a budget still arrives, without waking anyone. Every refill from typing, the dashboard or the Claude app writes an audit row, and the hook API limits typed-prompt refills to 60 a minute per machine. On the dashboard, the Wake column on the message pages and Wakes used on Sessions replace Depth, and messages show their attachment's name and size (and its type on the message page). The server instructions now tell agents to read the hint when a send comes back with `wake` false. All four numbers are settings: `KAMPUNG_PAIR_WAKE_SIZE`, `KAMPUNG_PAIR_WAKE_REFILL_MINUTES`, `KAMPUNG_MAILBOX_WAKE_BUDGET` and `KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES` (see `.env.example`).
+- `send` results no longer carry `depth`. When `wake` is false they give a `reason` (`fyi`, `cannot_wake`, `wake_budget`, `mailbox_budget` or `pair_budget`) and a `hint` saying who has to act, and `budget` shows the pair's wakes left. Mail to a mailbox nobody has open says `"note": "no_session"`. Envelopes drop `depth` and gain `fyi`.
+- `send` takes `fyi: true` for a note that needs no reply: it never wakes the receiver and spends no budget.
+- Another machine's session id now gets `unknown_session`, the same as an id that does not exist, instead of `not_owner`, and no longer writes an audit row, so ids cannot be probed and probing cannot fill the disk. The hook API limits `peek` to 7,680 calls a minute per machine (256 windows polling every 2 seconds) and `end` to 600.
+- The audit log keeps 90 days and at most 500,000 rows; older rows are deleted a batch at a time during cleanup.
+- The server now refuses to start when `KAMPUNG_PUBLIC_URL` is not `https://` with a lowercase host and no port, path or trailing slash, or when a loop-guard setting is out of range.
+- The database migrates from schema version 2 to 5 on start and switches to incremental vacuum, which rewrites the file once; take a snapshot first.
+
+#### Client (`kampung-mcp`)
+
+- `send` takes `fyi: true`, and its description explains the loop guard, so agents know to stop and tell you when a send comes back with `wake: false`. Against a server too old for `fyi`, it says so instead of reporting a connection problem.
+- A session started outside git in the home folder or under a temp folder (`/tmp`, macOS's `/var/folders`, `%TEMP%`), where eval and throwaway runs live, now uses the machine's shared `scratch` mailbox instead of one named after the folder, so those folders no longer each leave a mailbox behind. Any other folder outside git still gets a mailbox named after it. Mail already waiting in an old folder mailbox stays there.
+- A Codex window you have just opened is listed and wakeable before your first prompt, when setup found `codex` on your `PATH`. The adapter finds its thread through the Codex daemon's control socket at launch, adopts the session Codex's own `SessionStart` hook may already have registered, and claims the thread with a small lock file in `~/.cache/kampung/codex-claims/` so two adapters never share one; if that fails, the window is registered at its first prompt as before. Two windows opened in one folder within seconds may still wait for their first prompt. Not on Windows. `doctor` checks the socket (`codex launch`).
+- The text that wakes an idle Codex thread now names the session it wakes, such as `[kampung] laptop/api#3f: 1 Kampung message(s) waiting. Call the kampung inbox tool to read them.` Codex titles a thread by its first prompt, so threads that were only ever woken can now be told apart in its thread list. [Clients](docs/clients.md#find-where-a-woken-codex-thread-did-its-work) says how to open the thread a wake went to.
+- A folder now keeps the mailbox name it first registered with, recorded in `~/.cache/kampung/mailboxes.json`, so a later client upgrade that names folders differently never moves it to another mailbox and strands its mail. Home and temp folders, which share `scratch`, are not recorded.
+
+### Fixed
+
+#### Server (`kampung-server`)
+
+- The MCP handshake (`serverInfo`) now reports Kampung's own version. It used to report the FastMCP library version.
+- A machine key that learned another machine's Claude Code or Codex session id could register it first, so that window's hooks failed quietly. Session ids are now unique per machine.
+- A revoked machine key kept counting as known, so it skipped the per-address wrong-key limit; it now counts as wrong from its first refusal.
+- A machine key can no longer act as its machine's Claude app session. Registering with the connector's session id, or with its repo and suffix, used to revive that session, and sends from it skipped the loop guard's depth check. It took a key, so it stayed inside the machine trust boundary.
+
 ## [0.2.2] - 2026-11-07
 
 ### Added
@@ -122,6 +171,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.3.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.0
 [0.2.2]: https://github.com/jztan/kampung-mcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.2.0

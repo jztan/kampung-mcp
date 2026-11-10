@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import audit, mail, sessions
+from . import audit, db, mail, sessions
 from .auth import machine_from_request
 from .deps import ServerDeps
 from .errors import KampungError
@@ -21,7 +21,6 @@ from .models import Machine, load_session
 
 _STATUS = {
     "unauthorized": 401,
-    "not_owner": 403,
     "unknown_session": 404,
     "session_ended": 409,
     "request_too_large": 413,
@@ -108,15 +107,31 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
         ) -> dict[str, Any]:
             now = deps.clock()
             deps.register_limiter.check(machine.id, now)
+            agent = _field(b, "agent", str, True)
+            if agent == sessions.CONNECTOR_AGENT:
+                # Only the connect flow may make a session whose sends are
+                # always depth 0; a machine key must not opt out that way.
+                raise KampungError(
+                    "invalid_agent", "claude-app sessions come from kampung connect."
+                )
+            agent_session_id = _field(b, "agent_session_id", str, False)
+            if agent_session_id is not None and agent_session_id.startswith(
+                sessions.CONNECTOR_ID_PREFIX
+            ):
+                raise KampungError(
+                    "invalid_agent_session",
+                    "agent_session_id values starting with "
+                    f"{sessions.CONNECTOR_ID_PREFIX!r} are the connector's.",
+                )
             s = sessions.register(
                 conn,
                 machine,
                 now,
-                agent=_field(b, "agent", str, True),
+                agent=agent,
                 cwd=_field(b, "cwd", str, True),
                 repo=_field(b, "repo", str, True),
                 hooks=_field(b, "hooks", bool, True),
-                agent_session_id=_field(b, "agent_session_id", str, False),
+                agent_session_id=agent_session_id,
                 suffix=_field(b, "suffix", str, False),
             )
             return {"session": str(s.id), "suffix": s.suffix, "mailbox": s.mailbox}
@@ -128,8 +143,18 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
         def handler(
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
-            s = sessions.resolve(conn, machine, _session_id(request), deps.clock())
-            sessions.human_turn(conn, s)
+            now = deps.clock()
+            deps.human_turn_limiter.check(machine.id, now)
+            s = sessions.resolve(conn, machine, _session_id(request), now)
+            with db.transaction(conn):
+                cleared = sessions.human_turn(conn, s, now)
+                audit.record(
+                    conn,
+                    now,
+                    f"machine:{machine.name}",
+                    "refill",
+                    {"mailbox": s.mailbox, "pairs": cleared, "by": "human_turn"},
+                )
             return {}
 
         return await _run(deps, request, handler)
@@ -140,6 +165,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
             now = deps.clock()
+            deps.peek_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
             return dict(mail.peek(conn, s, now).to_dict())
 
@@ -151,15 +177,11 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
         ) -> dict[str, Any]:
             now = deps.clock()
+            deps.end_limiter.check(machine.id, now)
             actor = f"machine:{machine.name}"
             s = load_session(conn, _session_id(request))
-            if s is None:
+            if s is None or not sessions.usable_by(s, machine):
                 raise KampungError("unknown_session", "No such session.")
-            if s.machine_id != machine.id:
-                audit.record(conn, now, actor, "denied", {"session": s.id})
-                raise KampungError(
-                    "not_owner", "That session belongs to another machine."
-                )
             sessions.end(conn, s.id, now)
             audit.record(conn, now, actor, "end_session", {"session": s.id})
             return {}

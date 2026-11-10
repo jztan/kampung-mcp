@@ -12,6 +12,7 @@ host can hold a whole /64.
 
 import ipaddress
 import json
+from contextvars import ContextVar
 import threading
 import time
 from collections import OrderedDict, deque
@@ -40,7 +41,40 @@ class KnownKeys(Protocol):
     def is_known(self, key: str) -> bool: ...
 
 
-def _client_key(scope: Scope) -> str:
+class AnyKnown:
+    """A bearer known to any of several indexes: machine keys, OAuth tokens."""
+
+    def __init__(self, *sources: KnownKeys) -> None:
+        self._sources = sources
+
+    def is_known(self, key: str) -> bool:
+        return any(source.is_known(key) for source in self._sources)
+
+
+# The calling address for code that never sees the request, such as the OAuth
+# provider's authorize(), which the MCP SDK calls with the parsed params only.
+CLIENT_ADDRESS: ContextVar[str] = ContextVar("kampung_client_address", default="")
+
+
+class ClientAddress:
+    """Set CLIENT_ADDRESS for the rest of the request."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        token = CLIENT_ADDRESS.set(client_key(scope))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            CLIENT_ADDRESS.reset(token)
+
+
+def client_key(scope: Scope) -> str:
+    """The address an abuse limit keys on: IPv6 grouped by /64."""
     client = scope.get("client")
     host = str(client[0]) if client else "unknown"
     try:
@@ -84,7 +118,7 @@ class AuthFailureThrottle:
         if scope["type"] != "http" or not str(scope["path"]).startswith(GUARDED):
             await self.app(scope, receive, send)
             return
-        ip = _client_key(scope)
+        ip = client_key(scope)
         if self._blocked(ip) and not self._keys.is_known(_bearer(scope)):
             await send(
                 {

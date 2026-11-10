@@ -13,7 +13,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from fastmcp.client.transports import StreamableHttpTransport
 
-from kampung_server import db, mail
+from kampung_server import __version__, db, mail
 from kampung_server.admin import AdminService
 from kampung_server.app import create_app
 from kampung_server.clock import utcnow
@@ -90,7 +90,7 @@ async def test_two_machines_exchange(server: Server) -> None:
     b = register(server, "desktop", "blog")
     async with client_for(server, server.keys["laptop"], a) as ca:
         r = await ca.call_tool("send", {"to": "desktop/blog", "body": "hello from api"})
-        assert r.data["depth"] == 0 and r.data["wake"] is True
+        assert "depth" not in r.data and r.data["wake"] is True
     async with client_for(server, server.keys["desktop"], b) as cb:
         r = await cb.call_tool("inbox", {})
         msg = r.data["messages"][0]
@@ -105,11 +105,11 @@ async def test_two_machines_exchange(server: Server) -> None:
         assert peers.data["kind"] == PEERS_KIND
 
 
-async def test_session_header_spoof_is_not_owner(server: Server) -> None:
+async def test_session_header_spoof_looks_missing(server: Server) -> None:
     b = register(server, "desktop", "blog")
     async with client_for(server, server.keys["laptop"], b) as c:
         r = await c.call_tool("inbox", {})
-        assert r.data["error"] == "not_owner"
+        assert r.data["error"] == "unknown_session"
 
 
 async def test_missing_session_header(server: Server) -> None:
@@ -190,6 +190,13 @@ async def test_instructions_sent(server: Server) -> None:
         assert c.initialize_result.instructions == SERVER_INSTRUCTIONS
 
 
+async def test_server_info_reports_kampung_version(server: Server) -> None:
+    a = register(server, "laptop", "api")
+    async with client_for(server, server.keys["laptop"], a) as c:
+        info = c.initialize_result.serverInfo
+        assert (info.name, info.version) == ("kampung", __version__)
+
+
 async def test_rate_limited_inline(server: Server) -> None:
     server.deps.limiter = RateLimiter(limit=1)
     a = register(server, "laptop", "api")
@@ -230,3 +237,48 @@ async def test_revoked_key_rejected_on_mcp(server: Server) -> None:
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
     )
     assert r.status_code == 401
+
+
+async def test_attachment_round_trip_through_mcp(server: Server) -> None:
+    import base64
+    import io
+
+    from PIL import Image
+
+    a = register(server, "laptop", "api")
+    b = register(server, "desktop", "blog")
+    out = io.BytesIO()
+    Image.new("RGB", (40, 30), (9, 9, 200)).save(out, "PNG")
+    async with client_for(server, server.keys["laptop"], a) as ca:
+        t = await ca.call_tool(
+            "send",
+            {
+                "to": "desktop/blog",
+                "body": "doc",
+                "attachment": {"name": "a.md", "text": "# A\nbody"},
+            },
+        )
+        i = await ca.call_tool(
+            "send",
+            {
+                "to": "desktop/blog",
+                "body": "pic",
+                "attachment": {
+                    "name": "s.png",
+                    "type": "image/png",
+                    "image": base64.b64encode(out.getvalue()).decode(),
+                },
+            },
+        )
+    async with client_for(server, server.keys["desktop"], b) as cb:
+        await cb.call_tool("inbox", {})
+        text = await cb.call_tool("read_attachment", {"message_id": t.data["id"]})
+        assert text.data["text"] == "# A\nbody" and text.data["next_offset"] is None
+        assert text.data["kind"].startswith("peer-supplied attachment")
+        assert text.data["headings"] == [{"level": 1, "title": "A", "offset": 0}]
+        image = await cb.call_tool("read_attachment", {"message_id": i.data["id"]})
+        assert [c.type for c in image.content] == ["text", "image"]
+        assert "information only" in image.content[0].text  # type: ignore[union-attr]
+        assert image.data["type"] in ("image/png", "image/jpeg")
+        denied = await cb.call_tool("read_attachment", {"message_id": "msg_nope"})
+        assert denied.data["error"] == "unknown_message"

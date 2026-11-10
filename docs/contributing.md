@@ -56,9 +56,14 @@ The FastMCP server, Streamable HTTP at `/mcp`, the hook API at `/v1`, SQLite sto
 | Module | What it holds |
 |---|---|
 | `app.py` | Assembles the server: auth, MCP tools, hook API and health |
-| `tools.py` | The MCP tools agents see: `list_peers`, `send`, `inbox` |
+| `tools.py` | The MCP tools agents see: `list_peers`, `send`, `inbox`, `read_attachment` |
 | `hook_api.py` | The `/v1` hook API (register session, human turn, peek, end session) |
-| `mail.py` | Sending and reading mail, and the loop guard |
+| `mail.py` | Sending and reading mail |
+| `guard.py` | The loop guard: wake budgets per pair of mailboxes and per mailbox, and its settings |
+| `attachments.py`, `images.py` | Attachments: name and size checks, storage, slices, and re-encoding images |
+| `secret_scan.py` | The secret check on message bodies and text attachments |
+| `oauth.py`, `oauth_store.py`, `oauth_connect.py` | The Claude app connector: OAuth routes, tokens and the connect page |
+| `bodylimit.py` | Request body caps on the OAuth routes and `/mcp`, which FastMCP serves |
 | `sessions.py` | Session registration, revival, resolution and liveness |
 | `addressing.py` | Machine and repo names, and mailbox addresses |
 | `auth.py`, `keys.py`, `keyindex.py` | Machine keys and request authentication |
@@ -66,8 +71,8 @@ The FastMCP server, Streamable HTTP at `/mcp`, the hook API at `/v1`, SQLite sto
 | `admin.py` | The one service module behind every admin write, shared by the CLI and dashboard |
 | `admin_web/` | The dashboard: views, actions, templates and `admin.css` under `static/` |
 | `cli.py` | The `kampung` admin CLI |
-| `db.py`, `schema.sql` | SQLite connections, schema and migrations |
-| `sweep.py` | Expiring mail and ending long-idle sessions |
+| `db.py`, `schema.sql`, `schema_<n>.sql` | SQLite connections, schema and migrations (each `schema_<n>.sql` upgrades version n - 1 to n) |
+| `sweep.py` | Expiring mail, ending long-idle sessions, and pruning the audit log and OAuth rows |
 
 ### `packages/client` (`kampung-mcp`, Apache-2.0)
 
@@ -80,6 +85,9 @@ The per-session stdio adapter and the hooks for Claude Code and Codex.
 | `setup.py` | `kampung-mcp setup`: writes the config and hook entries |
 | `doctor.py` | `kampung-mcp doctor`: read-only checks of a machine's setup |
 | `cli.py` | The `kampung-mcp` command: run the adapter, or set up or check a machine |
+| `outbox.py` | Reads and checks an attachment from the project's `kampung-outbox` folder |
+| `images.py` | Shrinks PNG and JPEG attachments before they are sent |
+| `codex_launch.py` | Finds and claims a new Codex window's thread at launch |
 
 ## Development workflow
 
@@ -161,6 +169,8 @@ The maintainer reviews pull requests and may ask for changes. Once CI and the CL
 ## Releases
 
 To cut a release from `develop`, run `uv run python scripts/release.py minor` (or `patch`, `major`, or `--version X.Y.Z` for an exact version); add `--dry-run` first to preview it and save a release-notes draft you can edit. A version tag publishes the client to PyPI and the MCP Registry and the server image to GHCR.
+
+`release.py` refuses to tag a commit until two checks are recorded for that exact commit: a review of the docs against the code, and an upgrade rehearsal (`uv run python scripts/upgrade_rehearsal.py`, which upgrades the previous release to HEAD in Docker and checks nothing was lost). `uv run python scripts/release_checks.py status` shows both.
 
 ## Code of Conduct
 
