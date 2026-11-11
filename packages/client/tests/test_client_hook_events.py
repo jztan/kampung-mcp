@@ -660,17 +660,30 @@ def test_the_watch_is_returned_when_register_outlives_the_deadline(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    release = threading.Event()
+
+    def stuck(*args: object, **kwargs: object) -> dict[str, object]:
+        # The cut-off handler thread lives on after `main` returns. It must
+        # end with this test and save nothing: a session file written late
+        # would land in whichever test runs then.
+        release.wait(30)
+        raise hook.HookError("released")
+
     monkeypatch.setattr(hook, "HOOK_DEADLINE", 0.3)
-    monkeypatch.setattr(hook, "register", lambda *a, **k: time.sleep(3))
+    monkeypatch.setattr(hook, "register", stuck)
     ev = {
         "hook_event_name": "SessionStart",
         "session_id": "cc-1",
         "cwd": str(repo),
         "source": "startup",
     }
-    assert hook.main(["--idle-wake"], io.StringIO(json.dumps(ev))) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert out["hookSpecificOutput"]["watchPaths"] == [str(hook.wake_path("cc-1"))]
+    try:
+        assert hook.main(["--idle-wake"], io.StringIO(json.dumps(ev))) == 0
+        out = json.loads(capsys.readouterr().out)
+        watch = out["hookSpecificOutput"]["watchPaths"]
+        assert watch == [str(hook.wake_path("cc-1"))]
+    finally:
+        release.set()
 
 
 def test_a_later_register_reports_idle_wake_only_with_a_wake_file(
