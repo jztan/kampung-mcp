@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -348,8 +349,10 @@ class SessionResolver:
 def _unknown_argument(e: Exception, name: str) -> bool:
     """Whether the server refused a tool argument it does not know: an older
     server's argument validation names it as an unexpected keyword."""
-    text = str(e)
-    return name in text and "Unexpected keyword argument" in text
+    # Pydantic puts the argument's name on a line of its own, so "mode" does
+    # not match a complaint about "model".
+    pattern = rf"(?m)^{re.escape(name)}\n\s+Unexpected keyword argument"
+    return re.search(pattern, str(e)) is not None
 
 
 def _diagnose() -> dict[str, Any]:

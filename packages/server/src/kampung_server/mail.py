@@ -210,6 +210,8 @@ def send(
         }
         if decision.reason or decision.note:
             detail["reason"] = decision.reason or decision.note
+        if mode != "ask":
+            detail["mode"] = mode
         if attachment is not None:
             attachments.store(conn, message_id, attachment)
             detail["attachment"] = {

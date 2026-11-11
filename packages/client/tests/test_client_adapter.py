@@ -301,6 +301,19 @@ async def test_fyi_with_another_mode_is_refused(
     assert r.data["error"] == "mode_conflict" and "fyi" in r.data["hint"]
 
 
+def test_unknown_argument_matches_the_whole_name() -> None:
+    from fastmcp.exceptions import ToolError
+
+    model = ToolError(
+        "1 validation error for call[send]\nmodel\n  Unexpected keyword "
+        "argument [type=unexpected_keyword_argument, input_value='x']"
+    )
+    assert not adapter._unknown_argument(model, "mode")
+    assert adapter._unknown_argument(
+        ToolError(str(model).replace("\nmodel\n", "\nmode\n")), "mode"
+    )
+
+
 async def test_tell_against_an_old_server_is_a_clear_error(
     home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

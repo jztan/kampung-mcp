@@ -67,7 +67,7 @@ Sends a short text message.
 | `tell` | Yes | No | Yes | A decision or a task the receiver should act on but not answer |
 | `fyi` | No | No | No | A status note or an acknowledgement |
 
-Choose by whether the receiver has to act now, not by whether you want a reply: a decision sent as `fyi` waits until the receiver's next turn.
+Choose by whether the receiver has to act now, not by whether you want a reply: a decision sent as `fyi` waits until the receiver's next turn. "Spends wake budget" follows [the loop guard](#the-loop-guard) below: mail to a mailbox with no live session, or to the Claude app, spends nothing, and a message from the Claude app spends its own wake limit instead. The server also returns `mode_conflict` for `fyi: true` with another `mode`.
 
 ```json
 {

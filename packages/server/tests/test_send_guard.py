@@ -111,6 +111,22 @@ def test_tell_wakes_and_spends_like_ask(
     assert "no reply needed" in str(got["kind"])
 
 
+def test_audit_records_a_mode_other_than_ask(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    import json
+
+    a, _ = make_session("laptop", "api"), make_session("desktop", "blog")
+    for mode in ("ask", "tell", "fyi"):
+        send(conn, a, "desktop/blog", mode, None, clock.now(), mode=mode)
+    rows = conn.execute("SELECT detail FROM audit WHERE action = 'send'").fetchall()
+    assert sorted(str(json.loads(r[0]).get("mode")) for r in rows) == [
+        "None",
+        "fyi",
+        "tell",
+    ]
+
+
 def test_envelope_names_the_mode(
     conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
 ) -> None:
