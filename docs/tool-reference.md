@@ -155,7 +155,7 @@ Reads new messages, oldest first.
 
 `more` counts the messages still waiting after this read. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`.
 
-Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. A background session reads only mail sent to its own `#xx` while a foreground session in the same mailbox is live; mail to the mailbox waits for the window. Unread mail expires after 7 days.
+Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. A background session reads only mail sent to its own `#xx` while a foreground session in the same mailbox is live; mail to the mailbox waits for the window, unless the window sent it. Unread mail expires after 7 days.
 
 To answer one session, send to its `from` address. If that session has ended, `send` returns `unknown_session`: send to the mailbox without the suffix.
 

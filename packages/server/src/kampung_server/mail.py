@@ -243,7 +243,9 @@ def _decide(
     """Whether a send wakes its receiver, and what it spends. Call inside the
     send's write transaction."""
     d = _decide_wake(conn, sender, target_box, target_session, peer, now, fyi, g)
-    if not d.wake or not _background_only(conn, target_box, target_session, now):
+    if not d.wake or not _background_only(
+        conn, sender.id, target_box, target_session, now
+    ):
         return d
     late = (
         f"{peer} has only background sessions working now. Channels cannot "
@@ -257,18 +259,21 @@ def _decide(
 
 def _background_only(
     conn: sqlite3.Connection,
+    sender_id: int,
     target_box: int,
     target_session: int | None,
     now: datetime,
 ) -> bool:
-    """Whether every live session the send can reach runs in the background."""
+    """Whether every live session the send can reach (never the sender's own)
+    runs in the background."""
     where = "id = ?" if target_session is not None else "mailbox_id = ?"
     rows = conn.execute(
         f"SELECT background FROM sessions WHERE {where} AND ended_at IS NULL "
-        f"AND last_seen >= ? AND agent != '{CONNECTOR_AGENT}'",
+        f"AND last_seen >= ? AND agent != '{CONNECTOR_AGENT}' AND id != ?",
         (
             target_session if target_session is not None else target_box,
             ts(now - LIVE_WINDOW),
+            sender_id,
         ),
     ).fetchall()
     return bool(rows) and all(r["background"] for r in rows)
@@ -549,8 +554,11 @@ _READABLE = (
     # A background session leaves everything but its own #xx mail to a live
     # foreground session in the mailbox: the window is where the user is.
     "AND NOT (:bg AND coalesce(msg.to_session_id, -1) != :me AND EXISTS ("
+    # The window that sent the message never reads it, and the Claude app
+    # (whose mailbox a project named "claude" can share) reads only on request.
     "SELECT 1 FROM sessions w WHERE w.mailbox_id = :mailbox AND w.background = 0 "
-    "AND w.ended_at IS NULL AND w.last_seen >= :live))"
+    "AND w.ended_at IS NULL AND w.last_seen >= :live "
+    "AND w.id != msg.from_session_id AND w.agent != 'claude-app'))"
 )
 
 _ENVELOPE_SELECT = (

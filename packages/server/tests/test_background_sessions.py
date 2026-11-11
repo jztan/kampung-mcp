@@ -91,3 +91,31 @@ def test_send_to_a_background_only_mailbox_says_the_reply_is_late(
     make_session("desktop", "blog")  # a window opens
     r = send(conn, a, "desktop/blog", "y", None, clock.now())
     assert r.note is None
+
+
+def test_a_window_sending_to_its_own_mailbox_reaches_the_background_session(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    window = make_session("desktop", "blog")
+    bg = make_session("desktop", "blog", background=True)
+    r = send(conn, window, "desktop/blog", "work for you", None, clock.now())
+    assert r.note == "background"
+    assert peek(conn, bg, clock.now()).waiting == 1
+    assert [m["body"] for m in inbox(conn, bg, 20, clock.now()).messages] == [
+        "work for you"
+    ]
+
+
+def test_a_live_claude_app_session_does_not_hold_back_a_background_one(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    # A Claude Code project named "claude" shares the connector's mailbox.
+    machine = load_machine(conn, "desktop")
+    assert machine is not None
+    sessions.connector_session(conn, machine, clock.now())
+    bg = make_session("desktop", "claude", background=True)
+    a = make_session("laptop", "api")
+    send(conn, a, "desktop/claude", "for the project", None, clock.now())
+    assert [m["body"] for m in inbox(conn, bg, 20, clock.now()).messages] == [
+        "for the project"
+    ]

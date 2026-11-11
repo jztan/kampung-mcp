@@ -260,7 +260,7 @@ class SessionResolver:
                 "repo": hook.repo_name(cwd),
                 "hooks": True,
                 "agent_session_id": agent_session_id,
-                **({"background": True} if hook.in_background() else {}),
+                **({"background": True} if hook.in_background(self.agent) else {}),
             },
         )
         if status != 200:

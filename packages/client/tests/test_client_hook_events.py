@@ -78,6 +78,34 @@ def test_session_start_in_a_background_session_says_so(
     assert f is not None and f["background"] is True
 
 
+def test_a_codex_session_never_inherits_background(
+    home: Path,
+    server: LiveServer,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # A codex started from a background Claude Code session's shell inherits
+    # CLAUDE_JOB_DIR; only Claude Code sets it for itself.
+    monkeypatch.setattr(
+        "client_testlib.home_env",
+        lambda h, _real=home_env: {**_real(h), "CLAUDE_JOB_DIR": str(tmp_path)},
+    )
+    r = run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "cx-1",
+            "cwd": str(repo),
+            "source": "startup",
+        },
+        "--agent",
+        "codex",
+    )
+    assert r.returncode == 0, r.stderr
+    assert db_query(server, "SELECT agent, background FROM sessions") == [("codex", 0)]
+
+
 def test_stop_blocks_when_wakeable(home: Path, server: LiveServer, repo: Path) -> None:
     start(home, repo)
     peer_send(server, "laptop/api", "hello")
