@@ -375,6 +375,10 @@ async def test_send_description_states_the_live_settings(
     assert "wake false" in SERVER_INSTRUCTIONS and "hint" in SERVER_INSTRUCTIONS
     assert 'mode "tell"' in SERVER_INSTRUCTIONS and "fyi" in SERVER_INSTRUCTIONS
     assert "background" in SERVER_INSTRUCTIONS and "background" in text
+    assert "Prefer a peer's foreground session" in SERVER_INSTRUCTIONS
+    assert "prefer a foreground session" in " ".join(text.split())
+    assert "which cannot be woken" not in SERVER_INSTRUCTIONS
+    assert "They cannot be woken" not in text
 
 
 def _fill(conn: sqlite3.Connection, a: Session, now: object) -> SendResult:

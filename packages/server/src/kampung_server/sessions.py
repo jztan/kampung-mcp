@@ -37,6 +37,7 @@ def register(
     agent_session_id: str | None = None,
     suffix: str | None = None,
     background: bool = False,
+    idle_wake: bool = False,
 ) -> Session:
     if agent not in AGENTS:
         raise KampungError(
@@ -70,6 +71,7 @@ def register(
         agent_session_id,
         suffix,
         background,
+        idle_wake,
     )
     session = load_session(conn, session_id)
     assert session is not None
@@ -88,6 +90,7 @@ def _register(
     agent_session_id: str | None,
     suffix: str | None,
     background: bool,
+    idle_wake: bool,
 ) -> int:
     with db.transaction(conn):
         existing = None
@@ -118,11 +121,12 @@ def _register(
             )
         if existing is not None:
             # A conversation can move between a window and the background,
-            # so each registration says which it is now.
+            # and its client can gain or lose idle wake, so each registration
+            # says what holds now.
             conn.execute(
-                "UPDATE sessions SET ended_at = NULL, last_seen = ?, background = ? "
-                "WHERE id = ?",
-                (ts(now), int(background), existing.id),
+                "UPDATE sessions SET ended_at = NULL, last_seen = ?, background = ?, "
+                "idle_wake = ? WHERE id = ?",
+                (ts(now), int(background), int(idle_wake), existing.id),
             )
             audit.record(
                 conn,
@@ -144,6 +148,7 @@ def _register(
                 hooks,
                 agent_session_id,
                 background,
+                idle_wake,
             )
             audit.record(
                 conn,
@@ -177,6 +182,7 @@ def _create(
     hooks: bool,
     agent_session_id: str | None,
     background: bool = False,
+    idle_wake: bool = False,
 ) -> int:
     row = conn.execute(
         "SELECT id FROM mailboxes WHERE machine_id = ? AND repo = ?",
@@ -224,8 +230,8 @@ def _create(
     }
     cur = conn.execute(
         "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
-        "agent_session_id, hooks, cwd, started_at, last_seen, background) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "agent_session_id, hooks, cwd, started_at, last_seen, background, "
+        "idle_wake) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             mailbox_id,
             machine.id,
@@ -237,6 +243,7 @@ def _create(
             ts(now),
             ts(now),
             int(background),
+            int(idle_wake),
         ),
     )
     assert cur.lastrowid is not None
