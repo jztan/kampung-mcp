@@ -13,6 +13,7 @@ from client_testlib import (
     LiveServer,
     db_query,
     git_repo,
+    home_env,
     nearest_kept,
     peer_send,
     run_hook,
@@ -55,6 +56,54 @@ def test_session_start_registers_and_writes_file(
     assert f is not None and f["mailbox"] == "laptop/api" and f["hooks"] is True
     first = f["ancestors"][0][0]  # type: ignore[index]
     assert first == nearest_kept(os.getpid())
+
+
+def test_session_start_in_a_background_session_says_so(
+    home: Path,
+    server: LiveServer,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    start(home, repo)
+    assert db_query(server, "SELECT background FROM sessions") == [(0,)]
+    monkeypatch.setattr(
+        "client_testlib.home_env",
+        lambda h, _real=home_env: {**_real(h), "CLAUDE_JOB_DIR": str(tmp_path)},
+    )
+    start(home, repo, sid="cc-2", source="fork")
+    rows = db_query(server, "SELECT agent_session_id, background FROM sessions")
+    assert sorted(rows) == [("cc-1", 0), ("cc-2", 1)]
+    f = hook.read_session_file("cc-2")
+    assert f is not None and f["background"] is True
+
+
+def test_a_codex_session_never_inherits_background(
+    home: Path,
+    server: LiveServer,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # A codex started from a background Claude Code session's shell inherits
+    # CLAUDE_JOB_DIR; only Claude Code sets it for itself.
+    monkeypatch.setattr(
+        "client_testlib.home_env",
+        lambda h, _real=home_env: {**_real(h), "CLAUDE_JOB_DIR": str(tmp_path)},
+    )
+    r = run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "cx-1",
+            "cwd": str(repo),
+            "source": "startup",
+        },
+        "--agent",
+        "codex",
+    )
+    assert r.returncode == 0, r.stderr
+    assert db_query(server, "SELECT agent, background FROM sessions") == [("codex", 0)]
 
 
 def test_stop_blocks_when_wakeable(home: Path, server: LiveServer, repo: Path) -> None:

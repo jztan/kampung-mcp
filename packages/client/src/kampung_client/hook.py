@@ -545,6 +545,14 @@ def _json(raw: bytes) -> dict[str, object]:
     return data if isinstance(data, dict) else {}
 
 
+def in_background(agent: str) -> bool:
+    """Whether this runs in a Claude Code background session (claude --bg,
+    /background, a background agent). Claude Code sets CLAUDE_JOB_DIR only
+    there; such a session cannot get Channels push. Only Claude Code counts:
+    a codex started from that session's shell inherits the variable."""
+    return agent == "claude-code" and bool(os.environ.get("CLAUDE_JOB_DIR"))
+
+
 def register(
     agent: str,
     cwd: str,
@@ -567,6 +575,10 @@ def register(
     }
     if agent_session_id is not None:
         body["agent_session_id"] = agent_session_id
+    background = in_background(agent)
+    if background:
+        # Sent only when set: a server before 0.4 ignores it either way.
+        body["background"] = True
     status, data = api("POST", "/v1/sessions", body, timeout)
     if status != 200:
         raise HookError(f"register failed: HTTP {status} {data.get('error')}")
@@ -584,6 +596,7 @@ def register(
         "agent": agent,
         "agent_session_id": agent_session_id,
         "ancestors": [list(a) for a in ancestors()] if ancestry else [],
+        "background": background,
     }
 
 

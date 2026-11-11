@@ -19,7 +19,7 @@
     {% for s in page.rows %}
       <tr>
         <td class="mono{% if s.state == 'ended' %} muted{% endif %}">{{ s.address }}</td>
-        <td>{{ s.agent }}</td>
+        <td>{{ s.agent }}{% if s.background %} <span class="tag">background</span>{% endif %}</td>
         <td>{{ pill(s.state) }}</td>
         <td class="num">{{ s.wakes_used }}</td>
         <td class="mono muted">{{ s.cwd }}</td>

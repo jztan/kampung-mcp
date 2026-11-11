@@ -133,6 +133,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 hooks=_field(b, "hooks", bool, True),
                 agent_session_id=agent_session_id,
                 suffix=_field(b, "suffix", str, False),
+                background=_field(b, "background", bool, False) or False,
             )
             return {"session": str(s.id), "suffix": s.suffix, "mailbox": s.mailbox}
 

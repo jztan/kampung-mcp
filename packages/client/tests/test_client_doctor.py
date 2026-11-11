@@ -118,6 +118,7 @@ def test_a_healthy_machine_passes_every_check(home: Path, server: LiveServer) ->
         "claude-code hooks",
         "claude-code mcp",
         "claude-code connector",
+        "sessions",
         "hooks.log",
     ]
 
@@ -480,6 +481,51 @@ def test_recent_hook_failures_warn_with_the_latest(
     assert "2 failure(s)" in log.detail
     assert "timed out" in log.detail
     assert "too old" not in log.detail
+
+
+def _session_file(sid: str, mailbox: str, background: bool, pid: int) -> None:
+    start = hook._lookup(pid)
+    assert start is not None
+    hook.write_session_file(
+        sid,
+        {
+            "session": "1",
+            "suffix": sid[-2:],
+            "mailbox": mailbox,
+            "hooks": True,
+            "background": background,
+            "ancestors": [[pid, start[1]]],
+        },
+    )
+
+
+def test_sessions_lists_open_windows_and_background_sessions(
+    home: Path, server: LiveServer
+) -> None:
+    _session_file("cc-aa", "laptop/api", False, os.getpid())
+    _session_file("cc-bb", "laptop/api", True, os.getpid())
+    # The same pid with another start time: a process that has since ended.
+    hook.write_session_file(
+        "cc-cc",
+        {
+            "session": "2",
+            "suffix": "cc",
+            "mailbox": "laptop/blog",
+            "hooks": True,
+            "background": True,
+            "ancestors": [[os.getpid(), "not its start time"]],
+        },
+    )
+    check = _by_name(_healthy(server, home), "sessions")
+    assert check.status == doctor.OK
+    assert check.detail.startswith("1 window(s), 1 background")
+    assert "laptop/api#bb" in check.detail and "laptop/blog" not in check.detail
+    assert "Channels" in check.detail
+
+
+def test_no_open_sessions_is_fine(home: Path, server: LiveServer) -> None:
+    check = _by_name(_healthy(server, home), "sessions")
+    assert check.status == doctor.OK and check.detail == "no open sessions"
 
 
 def test_expected_and_unreadable_log_lines_do_not_warn(

@@ -71,7 +71,9 @@ INSTRUCTIONS = (
     "machine/repo#xx for one specific session; call list_peers to find them. "
     "If a send comes back with wake false, read its hint; don't keep sending to "
     "wake the peer. When the peer should act on a message but not answer it, "
-    'send with mode "tell"; use fyi only for notes it need not act on now.'
+    'send with mode "tell"; use fyi only for notes it need not act on now. '
+    "Prefer a peer's foreground session: list_peers marks background ones, "
+    "which cannot be woken and answer late."
 )
 FYI_UNSUPPORTED = {
     "error": "fyi_unsupported",
@@ -258,6 +260,7 @@ class SessionResolver:
                 "repo": hook.repo_name(cwd),
                 "hooks": True,
                 "agent_session_id": agent_session_id,
+                **({"background": True} if hook.in_background(self.agent) else {}),
             },
         )
         if status != 200:
@@ -506,6 +509,12 @@ def build_adapter(
         you want a reply: never use fyi for something the receiver is waiting
         on or should act on (a review verdict, an "accepted", a decision) or
         anything urgent. fyi=true is the older spelling of mode="fyi".
+
+        list_peers marks sessions running in the background (claude --bg,
+        /background, a background agent). They cannot be woken, so prefer a
+        foreground session; send to a background one only when there is
+        nothing else, and expect a late reply. Mail to a mailbox goes to its
+        foreground session first.
         """
         if fyi and mode not in (None, "fyi"):
             return {

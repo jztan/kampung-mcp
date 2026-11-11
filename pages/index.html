@@ -1077,7 +1077,7 @@ function fly(dir) { if (REDUCE || fast) return; const p = $("pkt"); p.className 
 const env = (id, from, to, at, reply, body) => ({messages: [{id, from, to, sent_at: at, reply_to: reply, fyi: false, mode: "ask", kind: KIND, body, attachment: null}], more: 0});
 const sent = (id, left, full_at) => ({id, wake: true, budget: {left, size: 9, refill_minutes: 10, full_at}});
 const peers = list => ({kind: PEERS_KIND, peers: list});
-const sess = (suffix, cwd, agent, last_seen) => ({suffix, cwd, agent, live: true, last_seen});
+const sess = (suffix, cwd, agent, last_seen) => ({suffix, cwd, agent, live: true, background: false, last_seen});
 const WAKE = `${WAKE_PREFIX} nas/papers#5e: ${STOP_REASON}`;
 const MAC_TITLE = (dir) => `${dir} · claude · 110\u00d738`;   // macOS Terminal: "folder, process, size"
 

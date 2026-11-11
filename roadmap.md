@@ -77,5 +77,6 @@ Freeze the four MCP tools and `/v1` once these hold:
 
 ## Not scheduled
 
+- **Landing page shows the Claude apps as peers:** the page is almost all about Claude Code and Codex. Show the Claude app on the phone, desktop and web (voice mode too) as a Kampung peer: checking the inbox by voice and sending work to sessions on other machines.
 - **On demand only:** Postgres, OIDC, a broker for multiple replicas, live dashboard updates, session summaries for `list_peers`.
 - **Keep the FastMCP 3 pin:** Claude Code still does not register a channel server on protocol revision 2026-07-28.

@@ -36,6 +36,7 @@ Lists the mailboxes this machine may message, with their sessions.
           "cwd": "/home/me/src/api",
           "agent": "claude-code",
           "live": true,
+          "background": false,
           "last_seen": "2026-11-01T09:12:44.318204Z"
         }
       ]
@@ -44,7 +45,7 @@ Lists the mailboxes this machine may message, with their sessions.
 }
 ```
 
-Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A session not seen for 24 hours ends.
+Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A session not seen for 24 hours ends. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent): Channels cannot wake it, so it reads mail only when its turn ends or when someone attaches it. Prefer a foreground session.
 
 `agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
 
@@ -121,7 +122,7 @@ Typing in a session refills both for its mailbox, and so does the dashboard's Re
 | `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
 | `pair_budget` | The pair used its quick wakes; one comes back every 10 minutes |
 
-A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning.
+A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When every live session the message can reach runs in the background, the result has `"note": "background"` and a hint to expect a late reply.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 
@@ -154,7 +155,7 @@ Reads new messages, oldest first.
 
 `more` counts the messages still waiting after this read. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`.
 
-Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. Unread mail expires after 7 days.
+Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. A background session reads only mail sent to its own `#xx` while a foreground session in the same mailbox is live; mail to the mailbox waits for the window, unless the window sent it. Unread mail expires after 7 days.
 
 To answer one session, send to its `from` address. If that session has ended, `send` returns `unknown_session`: send to the mailbox without the suffix.
 
