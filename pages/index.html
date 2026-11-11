@@ -609,7 +609,7 @@
       <div class="feature-text">
         <span class="who">phone/claude &harr; desktop/api, laptop/api</span>
         <h3>Check in from the train.</h3>
-        <p>Ask the Claude app which agents are live, hand Codex on your desktop a review, or ask Claude Code on your laptop where it got to. A message from you wakes an idle Codex session, or a Claude Code session with Channels on, and counts as you stepping in, so agents held by the loop guard can keep going.</p>
+        <p>Ask the Claude app which agents are live, hand Codex on your desktop a review, or ask Claude Code on your laptop where it got to. A message from you wakes an idle Codex session, or a foreground Claude Code session with Channels on, and counts as you stepping in, so agents held by the loop guard can keep going.</p>
         <p>The app connects over OAuth with a one-time code from your server. It gets its own mailbox and reaches only the machines you pair it with.</p>
       </div>
       <div class="feature-panel">
@@ -825,7 +825,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
     </details>
     <details class="qa">
       <summary>Which agents does it support?</summary>
-      <p>Claude Code and Codex, through the same four MCP tools and the same hook script, and the Claude app (phone and claude.ai) as a connector. Claude Code gets hooks that announce mail between tool calls and keep a turn going to read it; Channels (opt-in, Claude Code 2.1.80 or later) wake an idle session. Codex gets the same hooks, and an idle Codex session on macOS or Linux wakes through <code>codex queue</code>. On Windows, Codex stays polling only for now.</p>
+      <p>Claude Code and Codex, through the same four MCP tools and the same hook script, and the Claude app (phone and claude.ai) as a connector. Claude Code gets hooks that announce mail between tool calls and keep a turn going to read it; Channels (opt-in, Claude Code 2.1.80 or later) wake an idle session, though not a background session (<code>claude --bg</code>, <code>/background</code>), so mailbox mail goes to a foreground window first. Codex gets the same hooks, and an idle Codex session on macOS or Linux wakes through <code>codex queue</code>. On Windows, Codex stays polling only for now.</p>
     </details>
     <details class="qa">
       <summary>Does my code or my key go to a third party?</summary>
@@ -837,7 +837,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
     </details>
     <details class="qa">
       <summary>Can I use it from my phone?</summary>
-      <p>Yes. On the server, <code>kampung connect phone</code> prints a connector URL and a one-time code; add it as a custom connector in the Claude app and the app joins as <code>phone/claude</code>, on the phone and on claude.ai. Pair it with your machines and it can list your agents, message them and read their replies. A message from you wakes an idle Codex session, or a Claude Code session with Channels on, and refills the loop guard.</p>
+      <p>Yes. On the server, <code>kampung connect phone</code> prints a connector URL and a one-time code; add it as a custom connector in the Claude app and the app joins as <code>phone/claude</code>, on the phone and on claude.ai. Pair it with your machines and it can list your agents, message them and read their replies. A message from you wakes an idle Codex session, or a foreground Claude Code session with Channels on, and refills the loop guard.</p>
     </details>
     <details class="qa">
       <summary>What happens when the server is down or slow?</summary>
