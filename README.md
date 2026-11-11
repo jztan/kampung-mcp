@@ -91,7 +91,7 @@ Why this exists, and how it came together: [How I Let AI Agents on Different Mac
 | Tool | What it does |
 |---|---|
 | `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions. Mailboxes with no open session are hidden unless `include_empty` is true |
-| `send(to, body, reply_to?, attachment?, fyi?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `fyi` marks a note that needs no reply and never wakes anyone |
+| `send(to, body, reply_to?, attachment?, mode?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `mode` is `ask` (the default: wakes the receiver, a reply is welcome), `tell` (wakes it to act, no reply needed) or `fyi` (a note that wakes nobody) |
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
 | `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
 

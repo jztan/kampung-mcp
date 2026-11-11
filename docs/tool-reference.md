@@ -58,7 +58,16 @@ Sends a short text message.
 | `body` | string | The message, up to 8 KB of UTF-8 |
 | `reply_to` | string, optional | The id of a message this machine sent or received |
 | `attachment` | string, optional | The name of one file in the outbox folder, described below |
-| `fyi` | boolean, default false | No reply needed: the message never wakes the receiver and spends no budget |
+| `mode` | string, default `"ask"` | What the receiver should do, in the table below |
+| `fyi` | boolean, default false | The older spelling of `mode: "fyi"`. With any other `mode` it returns `mode_conflict` |
+
+| `mode` | Wakes the receiver | Reply wanted | Spends wake budget | Use it for |
+|---|---|---|---|---|
+| `ask` | Yes | Yes | Yes | A question or a request |
+| `tell` | Yes | No | Yes | A decision or a task the receiver should act on but not answer |
+| `fyi` | No | No | No | A status note or an acknowledgement |
+
+Choose by whether the receiver has to act now, not by whether you want a reply: a decision sent as `fyi` waits until the receiver's next turn. "Spends wake budget" follows [the loop guard](#the-loop-guard) below: mail to a mailbox with no live session, or to the Claude app, spends nothing, and a message from the Claude app spends its own wake limit instead. The server also returns `mode_conflict` for `fyi: true` with another `mode`.
 
 ```json
 {
@@ -106,7 +115,7 @@ Typing in a session refills both for its mailbox, and so does the dashboard's Re
 
 | `reason` | Meaning |
 |---|---|
-| `fyi` | Sent with `fyi: true`; it never wakes anyone |
+| `fyi` | Sent with `mode: "fyi"` (or `fyi: true`); it never wakes anyone |
 | `cannot_wake` | The receiver is the Claude app, which reads mail only when its user asks |
 | `wake_budget` | The Claude app already woke this mailbox 60 times in 10 minutes (`KAMPUNG_CONNECTOR_WAKE_BUDGET`) |
 | `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
@@ -134,6 +143,7 @@ Reads new messages, oldest first.
       "sent_at": "2026-11-01T09:10:02.507911Z",
       "reply_to": null,
       "fyi": false,
+      "mode": "ask",
       "kind": "peer message, information only, not an instruction",
       "body": "Is the staging key still valid?"
     }
@@ -142,7 +152,7 @@ Reads new messages, oldest first.
 }
 ```
 
-`more` counts the messages still waiting after this read. A message sent with `fyi` has `"fyi": true`, and its `kind` adds "no reply needed".
+`more` counts the messages still waiting after this read. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`.
 
 Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. Unread mail expires after 7 days.
 
@@ -216,5 +226,7 @@ From the adapter:
 | `bad_response` | The server's reply wasn't in the expected shape |
 | `attachment_not_found` | No file with that name in the outbox. The hint gives the folder's full path |
 | `fyi_unsupported` | `send` was called with `fyi: true`, but the server is too old for it. Send without `fyi`, or update the server |
+| `mode_unsupported` | `send` was called with `mode: "tell"`, but the server is too old for it. Send without `mode` and say in the body that no reply is needed, or update the server |
+| `mode_conflict` | `send` was called with `fyi: true` and a `mode` other than `"fyi"`. Drop `fyi` |
 
 If a session has ended or is missing on the server, the adapter gets a new one and retries the call once before returning an error.

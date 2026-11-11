@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Added
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- `send` takes `mode`: `"ask"` (the default) wakes the receiver and a reply is welcome, `"tell"` wakes it to act on the message with no reply needed, and `"fyi"` wakes nobody, as before. Until now "no reply needed" meant `fyi`, which does not wake the receiver, so a decision sent that way sat unread until its next turn. `tell` spends wake budget like `ask`. `fyi: true` still works and means `mode: "fyi"`. Messages carry `mode` in `inbox`. The server's database moves to schema 6 on first start (one added column). A new client talking to an older server answers `mode: "tell"` with `mode_unsupported`; update both.
+
 ### Changed
 
 #### Server (`kampung-server`)

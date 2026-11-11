@@ -1074,7 +1074,7 @@ function fly(dir) { if (REDUCE || fast) return; const p = $("pkt"); p.className 
 /* ── Stories ──
    Message ids (msg_ + 13 hex ms + 10 hex), sent_at (UTC, microseconds), envelopes, send results and
    list_peers use the server's real formats. Local time on the laptop is UTC+8. */
-const env = (id, from, to, at, reply, body) => ({messages: [{id, from, to, sent_at: at, reply_to: reply, fyi: false, kind: KIND, body, attachment: null}], more: 0});
+const env = (id, from, to, at, reply, body) => ({messages: [{id, from, to, sent_at: at, reply_to: reply, fyi: false, mode: "ask", kind: KIND, body, attachment: null}], more: 0});
 const sent = (id, left, full_at) => ({id, wake: true, budget: {left, size: 9, refill_minutes: 10, full_at}});
 const peers = list => ({kind: PEERS_KIND, peers: list});
 const sess = (suffix, cwd, agent, last_seen) => ({suffix, cwd, agent, live: true, last_seen});

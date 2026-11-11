@@ -165,7 +165,7 @@ def peer_send(live: LiveServer, to: str, body: str, held: bool = False) -> None:
             repo="blog",
             hooks=True,
         )
-        mail.send(conn, s, to, body, None, utcnow(), fyi=held)
+        mail.send(conn, s, to, body, None, utcnow(), mode="fyi" if held else "ask")
     finally:
         conn.close()
 

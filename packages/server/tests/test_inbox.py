@@ -60,6 +60,7 @@ def test_envelope_shape(
         "sent_at",
         "reply_to",
         "fyi",
+        "mode",
         "kind",
         "body",
         "attachment",
@@ -136,7 +137,7 @@ def test_peek_counts_wakeable_and_does_not_deliver(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
     woke = send(conn, pair[0], "desktop/blog", "wake", None, clock.now()).id
-    send(conn, pair[0], "desktop/blog", "no wake", None, clock.now(), fyi=True)
+    send(conn, pair[0], "desktop/blog", "no wake", None, clock.now(), mode="fyi")
     assert peek(conn, pair[1], clock.now()) == PeekResult(2, 1, woke)
     assert peek(conn, pair[1], clock.now()).to_dict() == {
         "waiting": 2,
