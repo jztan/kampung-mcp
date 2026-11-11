@@ -4,6 +4,25 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Added
+
+#### Client (`kampung-mcp`)
+
+- Idle wake without Channels. An idle Claude Code session, in a window or in the background (`claude --bg`, `/background`, a background agent), now wakes within a few seconds of new mail with no flag to launch. Setup adds a `FileChanged` hook that watches one file per session, and the adapter writes to that file when wakeable mail arrives. It needs Claude Code 2.1.321 or later in the terminal CLI. Run `kampung-mcp setup` again to turn it on, then restart open Claude Code sessions once. It is promised only while the machine is awake, is not supported in the VS Code extension or the desktop app, and is not yet verified on Windows. See [idle wake](docs/clients.md#idle-wake).
+- `kampung-mcp doctor` has an `idle wake` line: on, or off with the reason (Claude Code older than 2.1.321, the hooks not installed, or the version unreadable), how many open sessions have a confirmed wake, and any session whose last wake went unanswered.
+
+### Changed
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- An open Claude Code session with idle wake stays `live` in `list_peers` while it is idle, because its adapter checks for mail every 2 seconds. Until now an idle session without Channels stopped being live after 30 minutes.
+- The late-reply note on `send` (`"note": "background"`) now shows only when every session the message can reach is a background session on a client without idle wake. Both sides must be on 0.5 for this: an older server ignores what the client reports and keeps showing the note. The advice to prefer a peer's foreground session stays, since a background session works alone with nobody watching.
+
+#### Client (`kampung-mcp`)
+
+- Channels is now an optional fallback. With idle wake on, the adapter pushes through Channels only when a file wake goes unconfirmed, about 10 seconds after the mail arrives; on older Claude Code it works as before.
+- A prompt that starts with `<task-notification>` (an idle wake, and Claude Code's own background task notices) no longer counts as typing, so it does not refill the loop guard.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

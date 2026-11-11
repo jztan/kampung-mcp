@@ -45,7 +45,7 @@ Lists the mailboxes this machine may message, with their sessions.
 }
 ```
 
-Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A session not seen for 24 hours ends. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent): Channels cannot wake it, so it reads mail only when its turn ends or when someone attaches it. Prefer a foreground session.
+Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) stays live for as long as it is open and its machine is awake, because its adapter checks for mail every 2 seconds; a session nothing checks for stops being live 30 minutes after its last activity. A session not seen for 24 hours ends. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
 
 `agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
 
@@ -112,7 +112,7 @@ A session that never reports typing gets its mailbox's budget back after 30 minu
 
 A runaway loop still stops: it keeps sending, so its mailbox is never quiet for 30 minutes, and once its budget is spent its messages wake nobody. The `mailbox_budget` hint for such a session says to wait or press Refill instead of telling it to type.
 
-Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. A Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 60 of its messages to one mailbox in 10 minutes may wake it (`KAMPUNG_CONNECTOR_WAKE_BUDGET`).
+Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. An idle wake, a Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 60 of its messages to one mailbox in 10 minutes may wake it (`KAMPUNG_CONNECTOR_WAKE_BUDGET`).
 
 | `reason` | Meaning |
 |---|---|
@@ -122,7 +122,7 @@ Typing in a session refills both for its mailbox, and so does the dashboard's Re
 | `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
 | `pair_budget` | The pair used its quick wakes; one comes back every 10 minutes |
 
-A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When a message may wake but every live session it can reach runs in the background, the result has `"note": "background"` and a hint to expect a late reply.
+A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When a message may wake but every live session it can reach runs in the background on a client that cannot wake it (Claude Code without idle wake), the result has `"note": "background"` and a hint to expect a late reply.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 

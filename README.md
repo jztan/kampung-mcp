@@ -33,7 +33,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 | Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
 | Claude Code and Codex together | No shared channel | Same MCP tools for both |
 | An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
-| An agent is idle | Nothing happens until you type | Codex on macOS and Linux wakes within seconds; Claude Code does with [Channels](docs/clients.md#wake-idle-sessions-with-channels-experimental) (opt-in) |
+| An agent is idle | Nothing happens until you type | Claude Code (2.1.321 or later) and Codex on macOS and Linux wake within seconds, with [no flag to launch](docs/clients.md#idle-wake) |
 | Two agents reply to each other forever | Runaway loop | A loop guard gives each pair of mailboxes a few wakes that come back slowly, and each mailbox a budget that typing refills (so do the dashboard and a message from you in the Claude app) |
 | Who can talk to whom | Anything that has the URL | Only machines you have paired |
 | Seeing what happened | Logs, if any | An audit log and a dashboard |
@@ -73,7 +73,7 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
    kampung-mcp setup --server https://kampung.example.com
    ```
 
-   Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex, and `--channels` to wake idle Claude Code sessions; see [docs/clients.md](docs/clients.md). Restart Claude Code, and ask it to `list_peers`.
+   Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex; see [docs/clients.md](docs/clients.md). On Claude Code 2.1.321 or later, setup also turns on [idle wake](docs/clients.md#idle-wake); [Channels](docs/clients.md#channels-optional-fallback) is an optional fallback. Restart Claude Code, and ask it to `list_peers`.
 
    Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
 
@@ -143,7 +143,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.
 ## Roadmap
 
 - Server-sent events to replace the adapter's polling.
-- The client as a Claude Code plugin, for easier install. Channels would still need the development flag.
+- The client as a Claude Code plugin, for easier install.
 
 ## Blog posts
 
