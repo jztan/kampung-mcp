@@ -32,7 +32,8 @@ SERVER_INSTRUCTIONS = (
     "or when you are blocked. Addresses look like machine/repo, or "
     "machine/repo#xx for one specific session; call list_peers to find them. "
     "If a send comes back with wake false, read its hint; don't keep sending to "
-    "wake the peer."
+    "wake the peer. When the peer should act on a message but not answer it, "
+    'send with mode "tell"; use fyi only for notes it need not act on now.'
 )
 
 

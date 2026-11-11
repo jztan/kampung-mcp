@@ -373,6 +373,7 @@ async def test_send_description_states_the_live_settings(
     assert '"tell"' in text and '"ask"' in text and "not woken" in text
     assert "Codex on Windows" in text and "after 30 minutes without waking" in text
     assert "wake false" in SERVER_INSTRUCTIONS and "hint" in SERVER_INSTRUCTIONS
+    assert 'mode "tell"' in SERVER_INSTRUCTIONS and "fyi" in SERVER_INSTRUCTIONS
 
 
 def _fill(conn: sqlite3.Connection, a: Session, now: object) -> SendResult:
