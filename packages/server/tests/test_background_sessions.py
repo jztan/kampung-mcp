@@ -28,6 +28,14 @@ def test_register_records_background_and_a_revive_updates_it(
         agent_session_id="cc-1",
     )
     assert again.id == bg.id and again.background is False
+    details = [
+        r[0]
+        for r in conn.execute(
+            "SELECT detail FROM audit WHERE action IN ('register', 'revive') "
+            "ORDER BY id"
+        )
+    ]
+    assert '"background": true' in details[0] and "background" not in details[1]
     assert make_session("laptop", "blog").background is False
 
 

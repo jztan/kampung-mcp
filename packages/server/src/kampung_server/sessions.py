@@ -129,7 +129,8 @@ def _register(
                 now,
                 actor,
                 "revive",
-                {"session": existing.id, "mailbox": existing.mailbox},
+                {"session": existing.id, "mailbox": existing.mailbox}
+                | ({"background": True} if background else {}),
             )
             session_id = existing.id
         else:
@@ -149,7 +150,8 @@ def _register(
                 now,
                 actor,
                 "register",
-                {"session": session_id, "mailbox": f"{machine.name}/{repo}"},
+                {"session": session_id, "mailbox": f"{machine.name}/{repo}"}
+                | ({"background": True} if background else {}),
             )
     return session_id
 

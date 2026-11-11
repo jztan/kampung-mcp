@@ -82,6 +82,7 @@ class SessionRow:
     cwd: str
     started_at: str
     last_seen: str
+    background: bool = False
 
 
 @dataclass
@@ -96,6 +97,7 @@ class MessageRow:
     # Never the content: the dashboard shows that an attachment exists.
     attachment_bytes: int | None = None
     attachment_name: str | None = None
+    mode: str = "ask"
 
 
 @dataclass
@@ -114,6 +116,7 @@ class MessageDetail:
     attachment_name: str | None = None
     attachment_type: str | None = None
     attachment_bytes: int | None = None
+    mode: str = "ask"
 
 
 def wake_label(r: sqlite3.Row) -> str:
@@ -127,7 +130,14 @@ def wake_label(r: sqlite3.Row) -> str:
         return "waits for a session"
     if not r["wake"]:
         return f"held: {reason}"
+    if reason == "background":
+        return "wakes (background only)"
     return "wakes"
+
+
+def mode_of(r: sqlite3.Row) -> str:
+    """The send mode: ask, tell or fyi (schema 6; older rows read as ask)."""
+    return "fyi" if r["fyi"] else "tell" if r["no_reply"] else "ask"
 
 
 # Queued means undelivered and unexpired; no-wake is queued mail the loop guard
@@ -257,7 +267,7 @@ def sessions(
     )
     rows = conn.execute(
         f"SELECT s.id, {_SESSION_ADDRESS} AS address, s.agent, s.cwd, "
-        "s.started_at, s.last_seen, mb.wakes_since_refill, "
+        "s.started_at, s.last_seen, mb.wakes_since_refill, s.background, "
         "CASE WHEN s.ended_at IS NOT NULL THEN 'ended' "
         "WHEN s.last_seen >= :live THEN 'live' ELSE 'idle' END AS state "
         f"{base} ORDER BY s.last_seen DESC, s.id DESC LIMIT {LIMIT}",
@@ -274,6 +284,7 @@ def sessions(
                 r["cwd"],
                 r["started_at"],
                 r["last_seen"],
+                bool(r["background"]),
             )
             for r in rows
         ],
@@ -302,7 +313,7 @@ def messages(
     where = " AND ".join(conds)
     rows = conn.execute(
         f"SELECT msg.id, msg.sent_at, msg.depth, msg.wake, msg.wake_reason, "
-        "LENGTH(CAST(msg.body AS BLOB)) "
+        "msg.fyi, msg.no_reply, LENGTH(CAST(msg.body AS BLOB)) "
         f"AS size, att.bytes AS att_bytes, att.name AS att_name, "
         f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
         f"{_MSG_STATE} AS state {_MSG_FROM} WHERE {where} "
@@ -321,6 +332,7 @@ def messages(
                 r["size"],
                 r["att_bytes"],
                 r["att_name"],
+                mode_of(r),
             )
             for r in rows
         ],
@@ -359,6 +371,7 @@ def message(
         attachment_name=r["att_name"],
         attachment_type=r["att_type"],
         attachment_bytes=r["att_bytes"],
+        mode=mode_of(r),
     )
 
 
@@ -450,6 +463,7 @@ class ThreadMessage:
     body: str  # the first THREAD_PREVIEW characters
     cut: int  # characters left out of `body`
     side: str  # "a" or "b": which mailbox of the pair sent it
+    mode: str = "ask"
 
 
 _FROM_BOX = "fm.name || '/' || fmb.repo"
@@ -486,7 +500,7 @@ def thread(
     )
     rows = conn.execute(
         f"SELECT msg.id, msg.sent_at, msg.depth, msg.wake, msg.wake_reason, "
-        f"msg.body, {_FROM_BOX} AS from_box, "
+        f"msg.fyi, msg.no_reply, msg.body, {_FROM_BOX} AS from_box, "
         f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, {_MSG_STATE} AS state "
         f"{_MSG_FROM} WHERE {where} "
         f"ORDER BY msg.sent_at DESC, msg.id DESC LIMIT {LIMIT}",
@@ -504,6 +518,7 @@ def thread(
                 r["body"][:THREAD_PREVIEW],
                 max(0, len(r["body"]) - THREAD_PREVIEW),
                 "a" if r["from_box"] == a else "b",
+                mode_of(r),
             )
             for r in reversed(rows)
         ],

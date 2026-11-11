@@ -8,7 +8,7 @@
   <ol class="thread">
     {% for m in page.rows %}
     <li class="msg {{ m.side }}">
-      <div class="msg-head"><span class="mono">{{ m.sender }}</span> <span class="muted">to</span> <span class="mono">{{ m.to }}</span><span class="msg-meta"><span class="num">{{ m.sent_at | utc }}</span> {{ wake(m.wake) }} {{ pill(m.state) }} <a href="/admin/messages/{{ m.id }}">Open</a></span></div>
+      <div class="msg-head"><span class="mono">{{ m.sender }}</span> <span class="muted">to</span> <span class="mono">{{ m.to }}</span><span class="msg-meta"><span class="num">{{ m.sent_at | utc }}</span> <span class="tag">{{ m.mode }}</span> {{ wake(m.wake) }} {{ pill(m.state) }} <a href="/admin/messages/{{ m.id }}">Open</a></span></div>
       <pre class="body">{{ m.body }}{% if m.cut %}&hellip;{% endif %}</pre>
       {% if m.cut %}<p class="help msg-cut">{{ m.cut }} more characters. <a href="/admin/messages/{{ m.id }}">Open</a> to read the whole message.</p>{% endif %}
     </li>
