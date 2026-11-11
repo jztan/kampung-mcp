@@ -1,8 +1,11 @@
 import json
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -606,3 +609,468 @@ def test_setup_codex_only_leaves_claude_settings_alone(
 ) -> None:
     run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
     assert not (home / ".claude" / "settings.json").exists()
+
+
+# Idle wake: the version floor, the new entries, the wake wrapper -----------
+
+IDLE_EVENTS = ["FileChanged", "CwdChanged"]
+OLD_HINT = "until you type"
+ReadVersion = Callable[[], "tuple[int, int, int] | None"]
+
+
+def _ps(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def test_claude_hook_items_spell_out_the_entries() -> None:
+    py, script = shlex.quote(sys.executable), shlex.quote(hook.__file__)
+    plain = {"type": "command", "command": f"{py} {script} || true", "timeout": 5}
+    start = {**plain, "command": f"{py} {script} --idle-wake || true"}
+    wake = {
+        "type": "command",
+        "command": f"[ -f {script} ] || exit 0; {py} {script} --wake; "
+        "[ $? -eq 2 ] && exit 2; exit 0",
+        "asyncRewake": True,
+        "timeout": 5,
+    }
+    items = setup.claude_hook_items(True, False)
+    assert items == {
+        "SessionStart": [start],
+        "UserPromptSubmit": [plain],
+        "Stop": [plain],
+        "SessionEnd": [plain],
+        "PostToolUse": [plain],
+        "FileChanged": [wake, plain],
+        "CwdChanged": [plain],
+    }
+    # Only the wake hook may wake a session: asyncRewake on any other entry
+    # would turn every exit 2 into a turn.
+    assert items["FileChanged"][0]["asyncRewake"] is True
+    assert json.dumps(items).count("asyncRewake") == 1
+
+
+def test_claude_hook_items_for_powershell() -> None:
+    py, script = _ps(sys.executable), _ps(hook.__file__)
+    plain = {
+        "type": "command",
+        "command": f"& {py} {script}; exit 0",
+        "timeout": 5,
+        "shell": "powershell",
+    }
+    start = {**plain, "command": f"& {py} {script} --idle-wake; exit 0"}
+    wake = {
+        **plain,
+        "command": f"if (-not (Test-Path -LiteralPath {script})) {{ exit 0 }}; "
+        f"& {py} {script} --wake; if ($LASTEXITCODE -eq 2) {{ exit 2 }}; exit 0",
+        "asyncRewake": True,
+    }
+    assert setup.claude_hook_items(True, True) == {
+        "SessionStart": [start],
+        "UserPromptSubmit": [plain],
+        "Stop": [plain],
+        "SessionEnd": [plain],
+        "PostToolUse": [plain],
+        "FileChanged": [wake, plain],
+        "CwdChanged": [plain],
+    }
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_claude_hook_items_without_idle_wake_are_the_five_plain_entries(
+    windows: bool,
+) -> None:
+    command = (
+        setup.powershell_hook_command(hook.__file__)
+        if windows
+        else setup.hook_command(hook.__file__)
+    )
+    item = {"type": "command", "command": command, "timeout": 5}
+    if windows:
+        item["shell"] = "powershell"
+    assert setup.claude_hook_items(False, windows) == {e: [item] for e in EVENTS}
+
+
+@pytest.mark.parametrize("windows", [False, True])
+@pytest.mark.parametrize("version", [(2, 1, 321), (2, 2, 0), (3, 0, 0)])
+def test_setup_at_the_floor_writes_the_idle_wake_entries(
+    home: Path,
+    server: LiveServer,
+    monkeypatch: pytest.MonkeyPatch,
+    windows: bool,
+    version: tuple[int, int, int],
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: windows)
+    lines = run_setup(
+        server.url,
+        server.keys["laptop"],
+        ["claude-code"],
+        Recorder(),
+        claude_version=version,
+    )
+    items = setup.claude_hook_items(True, windows)
+    assert sorted(items) == sorted(EVENTS + IDLE_EVENTS)
+    hooks = settings(home)["hooks"]
+    for event in EVENTS + IDLE_EVENTS:
+        assert hooks[event] == [{"hooks": items[event]}]
+    assert (
+        "Idle wake is on: an idle Claude Code session, also one in the "
+        "background, wakes for mail within a few seconds. Restart open Claude "
+        "Code sessions to load it."
+    ) in lines
+    assert not any(OLD_HINT in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "version, line",
+    [
+        (
+            (2, 1, 320),
+            "Claude Code 2.1.320 is older than 2.1.321, so idle wake is off. "
+            "Upgrade Claude Code and run setup again.",
+        ),
+        (
+            None,
+            "Could not read the Claude Code version (claude --version), so idle "
+            "wake is off. Run setup again once that works.",
+        ),
+    ],
+)
+def test_setup_under_the_floor_writes_none_of_them(
+    home: Path,
+    server: LiveServer,
+    monkeypatch: pytest.MonkeyPatch,
+    version: tuple[int, int, int] | None,
+    line: str,
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
+    lines = run_setup(
+        server.url,
+        server.keys["laptop"],
+        ["claude-code"],
+        Recorder(),
+        claude_version=version,
+    )
+    hooks = settings(home)["hooks"]
+    assert sorted(hooks) == sorted(EVENTS)
+    for event in EVENTS:
+        assert hooks[event] == [{"hooks": setup.claude_hook_items(False, False)[event]}]
+    assert "--idle-wake" not in json.dumps(hooks)
+    # The off line, then today's hint about typing or Channels.
+    at = lines.index(line)
+    assert OLD_HINT in lines[at + 1] and "--channels" in lines[at + 1]
+    assert not any("Idle wake is on" in x for x in lines)
+
+
+def test_setup_with_channels_and_no_idle_wake_skips_the_typing_hint(
+    home: Path, server: LiveServer
+) -> None:
+    lines = run_setup(
+        server.url,
+        server.keys["laptop"],
+        ["claude-code"],
+        Recorder(),
+        channels=True,
+        claude_version=(2, 1, 320),
+    )
+    assert any("older than 2.1.321" in x for x in lines)
+    assert any("Channels push is on" in x for x in lines)
+    assert not any(OLD_HINT in x for x in lines)
+
+
+def test_setup_with_channels_and_idle_wake_says_both(
+    home: Path, server: LiveServer
+) -> None:
+    lines = run_setup(
+        server.url,
+        server.keys["laptop"],
+        ["claude-code"],
+        Recorder(),
+        channels=True,
+        claude_version=(2, 1, 322),
+    )
+    assert any("Idle wake is on" in x for x in lines)
+    assert any("Channels push is on" in x for x in lines)
+
+
+def test_setup_under_the_floor_removes_entries_from_an_earlier_run(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
+    other = {"matcher": ".env", "hooks": [{"type": "command", "command": "direnv"}]}
+    (home / ".claude").mkdir()
+    (home / ".claude" / "settings.json").write_text(
+        json.dumps({"hooks": {"CwdChanged": [other]}})
+    )
+    for version in ((2, 1, 322), (2, 1, 320)):
+        run_setup(
+            server.url,
+            server.keys["laptop"],
+            ["claude-code"],
+            Recorder(),
+            claude_version=version,
+        )
+    hooks = settings(home)["hooks"]
+    # An event left with nothing is removed; another tool's entry stays.
+    assert "FileChanged" not in hooks and hooks["CwdChanged"] == [other]
+    assert "--idle-wake" not in json.dumps(hooks) and "--wake" not in json.dumps(hooks)
+    for event in EVENTS:
+        assert hooks[event] == [{"hooks": setup.claude_hook_items(False, False)[event]}]
+
+
+def test_setup_is_idempotent_with_idle_wake(home: Path, server: LiveServer) -> None:
+    seen = []
+    for _ in range(2):
+        run_setup(
+            server.url,
+            server.keys["laptop"],
+            ["claude-code"],
+            Recorder(),
+            claude_version=(2, 1, 322),
+        )
+        seen.append(settings(home))
+    assert seen[0] == seen[1]
+    assert all(len(seen[1]["hooks"][e]) == 1 for e in EVENTS + IDLE_EVENTS)
+
+
+def test_setup_keeps_other_tools_hooks_on_the_new_events(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)  # POSIX quoting
+    direnv = {
+        "matcher": ".env",
+        "hooks": [{"type": "command", "command": "direnv reload"}],
+    }
+    other = {"hooks": [{"type": "command", "command": "other.sh"}]}
+    (home / ".claude").mkdir()
+    (home / ".claude" / "settings.json").write_text(
+        json.dumps({"hooks": {"FileChanged": [direnv], "CwdChanged": [other]}})
+    )
+    for _ in range(2):
+        run_setup(
+            server.url,
+            server.keys["laptop"],
+            ["claude-code"],
+            Recorder(),
+            claude_version=(2, 1, 322),
+        )
+    items = setup.claude_hook_items(True, False)
+    hooks = settings(home)["hooks"]
+    assert hooks["FileChanged"] == [direnv, {"hooks": items["FileChanged"]}]
+    assert hooks["CwdChanged"] == [other, {"hooks": items["CwdChanged"]}]
+
+
+@pytest.mark.parametrize("version", [(2, 1, 322), None])
+@pytest.mark.parametrize("event", IDLE_EVENTS)
+def test_setup_refuses_a_malformed_new_event(
+    home: Path,
+    server: LiveServer,
+    event: str,
+    version: tuple[int, int, int] | None,
+) -> None:
+    content = json.dumps({"hooks": {event: {"x": 1}}})
+    settings_file = home / ".claude" / "settings.json"
+    settings_file.parent.mkdir()
+    settings_file.write_text(content)
+    rec = Recorder()
+    with pytest.raises(SetupError, match=f"hooks.{event} should be a list"):
+        run_setup(
+            server.url,
+            server.keys["desktop"],
+            ["claude-code"],
+            rec,
+            claude_version=version,
+        )
+    assert settings_file.read_text() == content and rec.calls == []
+
+
+def test_setup_codex_hooks_stay_the_five_events(
+    home: Path, server: LiveServer, codex_at: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: False)
+    run_setup(
+        server.url,
+        server.keys["laptop"],
+        ["claude-code", "codex"],
+        Recorder(),
+        claude_version=(2, 1, 322),
+    )
+    hooks = codex_hooks(home)["hooks"]
+    assert sorted(hooks) == sorted(EVENTS)
+    assert "--idle-wake" not in json.dumps(hooks) and "--wake" not in json.dumps(hooks)
+
+
+@pytest.mark.parametrize(
+    "text, version",
+    [
+        ("2.1.322 (Claude Code)", (2, 1, 322)),
+        ("claude 2.1.83-beta.1", (2, 1, 83)),
+        ("10.20.300\n", (10, 20, 300)),
+        ("", None),
+        ("unknown", None),
+        ("2.1", None),
+    ],
+)
+def test_parse_claude_version(text: str, version: tuple[int, int, int] | None) -> None:
+    assert setup.parse_claude_version(text) == version
+
+
+def test_the_floor_is_2_1_321() -> None:
+    assert setup.IDLE_WAKE_FLOOR == (2, 1, 321)
+    assert setup.IDLE_WAKE_EVENTS == ("FileChanged", "CwdChanged")
+    assert list(setup.EVENTS) == EVENTS
+
+
+def fake_claude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script = bin_dir / "claude"
+    script.write_text(f"#!/bin/sh\n{body}\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="sh stand-in for claude")
+@pytest.mark.parametrize(
+    "body, version",
+    [
+        ('[ "$1" = --version ] && echo "2.1.322 (Claude Code)"', (2, 1, 322)),
+        ("echo 2.1.322; exit 1", None),
+        ("echo no version here", None),
+        ("exit 0", None),
+    ],
+)
+def test_read_claude_version_asks_claude(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    real_claude_version: ReadVersion,
+    body: str,
+    version: tuple[int, int, int] | None,
+) -> None:
+    fake_claude(tmp_path, monkeypatch, body)
+    assert real_claude_version() == version
+
+
+def test_read_claude_version_is_none_without_claude(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_claude_version: ReadVersion
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert real_claude_version() is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="sh stand-in for claude")
+def test_read_claude_version_gives_up_on_a_claude_that_hangs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_claude_version: ReadVersion
+) -> None:
+    fake_claude(tmp_path, monkeypatch, "exec /bin/sleep 30")
+    monkeypatch.setattr(setup, "VERSION_TIMEOUT", 0.3)
+    started = time.monotonic()
+    assert real_claude_version() is None
+    assert time.monotonic() - started < 5
+
+
+def test_cli_setup_reads_the_claude_version(
+    home: Path,
+    server: LiveServer,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    asked: list[int] = []
+
+    def version() -> tuple[int, int, int]:
+        asked.append(1)
+        return (2, 1, 322)
+
+    monkeypatch.setattr("kampung_client.setup.default_runner", Recorder())
+    monkeypatch.setattr(setup, "read_claude_version", version)
+    args = ["setup", "--server", server.url, "--key", server.keys["laptop"]]
+    assert cli.main(args + ["--agent", "codex"]) == 0
+    assert asked == [] and not (home / ".claude" / "settings.json").exists()
+    assert cli.main(args) == 0
+    assert asked == [1] and "FileChanged" in settings(home)["hooks"]
+    assert "Idle wake is on" in capsys.readouterr().out
+
+
+def stand_in_hook(tmp_path: Path, code: int) -> Path:
+    script = tmp_path / "it's here" / "kampung_client" / "hook.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(f"import sys; sys.stderr.write('mail'); sys.exit({code})")
+    return script
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bash wrapper")
+@pytest.mark.parametrize("code, expected", [(2, 2), (0, 0), (1, 0), (3, 0)])
+def test_wake_command_passes_only_exit_2_through(
+    tmp_path: Path, code: int, expected: int
+) -> None:
+    script = stand_in_hook(tmp_path, code)
+    done = subprocess.run(
+        ["sh", "-c", setup.wake_hook_command(str(script))],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == expected and done.stderr == "mail"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bash wrapper")
+def test_wake_command_exits_0_when_the_hook_file_is_gone(tmp_path: Path) -> None:
+    gone = tmp_path / "it's gone" / "hook.py"
+    done = subprocess.run(
+        ["sh", "-c", setup.wake_hook_command(str(gone))], capture_output=True
+    )
+    assert done.returncode == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bash wrapper")
+def test_wake_command_exits_0_when_the_interpreter_is_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = stand_in_hook(tmp_path, 2)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "gone" / "python"))
+    done = subprocess.run(
+        ["sh", "-c", setup.wake_hook_command(str(script))], capture_output=True
+    )
+    assert done.returncode == 0
+
+
+POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
+needs_powershell = pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell here")
+
+
+@needs_powershell
+@pytest.mark.parametrize("code, expected", [(2, 2), (0, 0), (1, 0), (3, 0)])
+def test_powershell_wake_command_passes_only_exit_2_through(
+    tmp_path: Path, code: int, expected: int
+) -> None:
+    script = stand_in_hook(tmp_path, code)
+    command = setup.powershell_wake_hook_command(str(script))
+    done = subprocess.run(
+        [str(POWERSHELL), "-NoProfile", "-Command", command],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == expected and "mail" in done.stderr
+
+
+@needs_powershell
+def test_powershell_wake_command_exits_0_when_the_hook_file_is_gone(
+    tmp_path: Path,
+) -> None:
+    gone = tmp_path / "it's gone" / "hook.py"
+    command = setup.powershell_wake_hook_command(str(gone))
+    done = subprocess.run(
+        [str(POWERSHELL), "-NoProfile", "-Command", command], capture_output=True
+    )
+    assert done.returncode == 0
+
+
+def test_hook_commands_put_flags_before_the_guard() -> None:
+    py, script = shlex.quote(sys.executable), shlex.quote(hook.__file__)
+    assert setup.hook_command(hook.__file__) == f"{py} {script} || true"
+    assert (
+        setup.hook_command(hook.__file__, "--idle-wake")
+        == f"{py} {script} --idle-wake || true"
+    )
+    assert (
+        setup.powershell_hook_command(r"C:\it's\hook.py", "--idle-wake")
+        == f"& '{sys.executable}' 'C:\\it''s\\hook.py' --idle-wake; exit 0"
+    )

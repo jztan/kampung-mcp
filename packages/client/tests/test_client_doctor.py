@@ -30,12 +30,13 @@ def _no_agent_cli(cmd: list[str]) -> tuple[int, str]:
 
 
 def _install_hooks(home: Path, command: str | None = None) -> Path:
-    setup._merge_hooks(
-        setup._claude_settings_path(),
-        {},
-        command or setup.hook_command(hook.__file__),
-        5,
-    )
+    item = {
+        "type": "command",
+        "command": command or setup.hook_command(hook.__file__),
+        "timeout": 5,
+    }
+    items = {event: [item] for event in setup.EVENTS}
+    setup._merge_hooks(setup._claude_settings_path(), {}, items)
     return setup._claude_settings_path()
 
 
