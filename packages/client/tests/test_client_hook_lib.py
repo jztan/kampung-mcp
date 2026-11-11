@@ -509,3 +509,78 @@ def test_register_asks_git_once(
         "laptop/api"
     )
     assert sum("rev-parse" in cmd for cmd in seen) == 1
+
+
+# Idle wake files ---------------------------------------------------------
+
+
+def test_wake_paths_stay_inside_the_wake_dir(home: Path) -> None:
+    p = hook.wake_path("../../etc/x y")
+    assert p.parent == hook.wake_dir() and p.name == ".._.._etc_x_y"
+    assert hook.ack_path("cc-1") == hook.wake_dir() / "cc-1.ack"
+
+
+@pytest.mark.parametrize("sid", ["", ".", "..", "..."])
+def test_a_wake_path_is_never_the_folder_itself(home: Path, sid: str) -> None:
+    p = hook.wake_path(sid)
+    assert p.parent == hook.wake_dir() and p.name.strip(".")
+
+
+def test_write_wake_token_never_creates_the_file(home: Path) -> None:
+    assert hook.write_wake_token("cc-1") is None and not hook.wake_dir().exists()
+    hook.ensure_wake_file("cc-1")
+    first, second = hook.write_wake_token("cc-1"), hook.write_wake_token("cc-1")
+    assert first and second and first != second
+    assert hook.read_token(hook.wake_path("cc-1")) == second
+    assert [p.name for p in hook.wake_dir().iterdir()] == ["cc-1"]  # no temp left
+
+
+def test_ensure_wake_file_keeps_a_token(home: Path) -> None:
+    hook.ensure_wake_file("cc-1")
+    token = hook.write_wake_token("cc-1")
+    hook.ensure_wake_file("cc-1")
+    assert hook.read_token(hook.wake_path("cc-1")) == token
+
+
+def test_read_token_of_a_missing_file_is_empty(home: Path) -> None:
+    assert hook.read_token(hook.wake_path("none")) == ""
+
+
+def test_idle_wake_is_on_only_for_claude_code_with_a_wake_file(home: Path) -> None:
+    assert hook.idle_wake_on("claude-code", "cc-1") is False
+    hook.ensure_wake_file("cc-1")
+    assert hook.idle_wake_on("claude-code", "cc-1") is True
+    assert hook.idle_wake_on("codex", "cc-1") is False
+    assert hook.idle_wake_on("claude-code", None) is False
+
+
+def test_sweep_keeps_a_fresh_wake_file_without_a_session_file(home: Path) -> None:
+    fresh = hook.ensure_wake_file("starting")
+    old = hook.ensure_wake_file("gone")
+    hook.ack_path("gone").write_text("t")
+    past = time.time() - hook.WAKE_ORPHAN_AGE - 60
+    os.utime(old, (past, past))
+    os.utime(hook.ack_path("gone"), (past, past))
+    hook.sweep_stale_files()
+    assert fresh.exists()
+    assert not old.exists() and not hook.ack_path("gone").exists()
+
+
+def test_sweep_removes_wake_files_with_a_dead_session_file(home: Path) -> None:
+    hook.write_session_file(
+        "dead", {"agent": "claude-code", "ancestors": [[dead_pid(), "x"]]}
+    )
+    hook.ensure_wake_file("dead")
+    hook.ack_path("dead").write_text("t")
+    assert hook.sweep_stale_files() == 1
+    assert not hook.wake_path("dead").exists() and not hook.ack_path("dead").exists()
+
+
+def test_sweep_keeps_the_wake_file_of_a_live_session(home: Path) -> None:
+    live = [list(a) for a in hook.ancestors()]
+    hook.write_session_file("live", {"agent": "claude-code", "ancestors": live})
+    wake = hook.ensure_wake_file("live")
+    past = time.time() - hook.WAKE_ORPHAN_AGE - 60
+    os.utime(wake, (past, past))
+    hook.sweep_stale_files()
+    assert wake.exists()

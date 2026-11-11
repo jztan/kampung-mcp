@@ -48,6 +48,23 @@ def event(name: str, sid: str = "cc-1", **kw: object) -> dict[str, object]:
     return {"hook_event_name": name, "session_id": sid, **kw}
 
 
+def start_idle(
+    home: Path, repo: Path, sid: str = "cc-1", source: str = "startup"
+) -> dict[str, object]:
+    r = run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": sid,
+            "cwd": str(repo),
+            "source": source,
+        },
+        "--idle-wake",
+    )
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)  # type: ignore[no-any-return]
+
+
 def test_session_start_registers_and_writes_file(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
@@ -589,3 +606,106 @@ def test_codex_stop_cut_off_at_the_deadline_ends_the_turn(
     ev = json.dumps(event("Stop", "cx-1", stop_hook_active=False))
     assert hook.main(["--agent", "codex"], io.StringIO(ev)) == 0
     assert not hook.turn_active("cx-1")
+
+
+# Idle wake: the wake file and the watch ---------------------------------
+
+
+@pytest.mark.parametrize("source", ["startup", "resume", "clear", "compact", "fork"])
+def test_session_start_with_idle_wake_returns_the_watch(
+    home: Path, server: LiveServer, repo: Path, source: str
+) -> None:
+    out = start_idle(home, repo, source=source)
+    wake = hook.wake_path("cc-1")
+    assert out == {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "watchPaths": [str(wake)],
+        }
+    }
+    assert wake.read_text() == ""
+    if os.name != "nt":
+        assert wake.parent.stat().st_mode & 0o777 == 0o700
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(1,)]
+
+
+def test_session_start_without_the_flag_is_unchanged(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)  # asserts stdout == ""
+    assert not hook.wake_dir().exists()
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(0,)]
+
+
+def test_codex_ignores_idle_wake(home: Path, server: LiveServer, repo: Path) -> None:
+    ev = {"hook_event_name": "SessionStart", "session_id": "cx-1", "cwd": str(repo)}
+    plain = run_hook(home, ev, "--agent", "codex")
+    flagged = run_hook(home, ev, "--agent", "codex", "--idle-wake")
+    assert flagged.stdout == plain.stdout and "watchPaths" not in flagged.stdout
+    assert not hook.wake_dir().exists()
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(0,)]
+
+
+def test_the_watch_is_returned_when_the_server_is_down(home: Path, repo: Path) -> None:
+    write_config(home, "http://127.0.0.1:9", "kmp_x")  # nothing listens there
+    out = start_idle(home, repo)
+    watch = out["hookSpecificOutput"]["watchPaths"]  # type: ignore[index]
+    assert watch == [str(hook.wake_path("cc-1"))]
+
+
+def test_the_watch_is_returned_when_register_outlives_the_deadline(
+    home: Path,
+    server: LiveServer,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(hook, "HOOK_DEADLINE", 0.3)
+    monkeypatch.setattr(hook, "register", lambda *a, **k: time.sleep(3))
+    ev = {
+        "hook_event_name": "SessionStart",
+        "session_id": "cc-1",
+        "cwd": str(repo),
+        "source": "startup",
+    }
+    assert hook.main(["--idle-wake"], io.StringIO(json.dumps(ev))) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["watchPaths"] == [str(hook.wake_path("cc-1"))]
+
+
+def test_a_later_register_reports_idle_wake_only_with_a_wake_file(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)  # no flag, no wake file
+    run_hook(home, event("UserPromptSubmit", prompt="hi", cwd=str(repo)))
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(0,)]
+    hook.ensure_wake_file("cc-1")
+    hook.delete_session_file("cc-1")  # forces a re-register
+    run_hook(home, event("UserPromptSubmit", prompt="hi", cwd=str(repo)))
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(1,)]
+
+
+def test_a_task_notification_prompt_is_not_typing(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    prompt = "<task-notification>\n<summary>Stop hook feedback</summary>"
+    run_hook(home, event("UserPromptSubmit", prompt=prompt, cwd=str(repo)))
+    assert db_query(server, "SELECT typed_at FROM sessions") == [(None,)]
+
+
+def test_session_end_deletes_the_wake_and_ack_files(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.ack_path("cc-1").write_text("t")
+    run_hook(home, event("SessionEnd", reason="clear"))
+    assert not hook.wake_path("cc-1").exists() and not hook.ack_path("cc-1").exists()
+
+
+def test_session_end_deletes_the_wake_file_without_a_session_file(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    hook.ensure_wake_file("cc-1")
+    run_hook(home, event("SessionEnd", reason="clear"))
+    assert not hook.wake_path("cc-1").exists()
