@@ -65,6 +65,11 @@ class HookError(Exception):
     """Anything that should make a hook give up quietly."""
 
 
+class Wake(Exception):
+    """Raised by the wake hook with the text for the model. `main` prints it
+    to stderr and exits 2, which makes Claude Code start a turn."""
+
+
 class InsecureServerError(HookError):
     """The configured server would get the machine key over plain http."""
 
@@ -516,6 +521,23 @@ def write_wake_token(agent_session_id: str) -> str | None:
     return token
 
 
+def write_ack(agent_session_id: str) -> str:
+    """Copy the wake file's token to the ack file, which tells the adapter
+    that Claude Code ran the wake hook for that token. Returns the token."""
+    token = read_token(wake_path(agent_session_id))
+    path = ack_path(agent_session_id)
+    tmp = path.with_name(f".{path.name}.tmp{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+    return token
+
+
 def read_token(path: Path) -> str:
     try:
         return path.read_text().strip()
@@ -949,6 +971,53 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
     return result
 
 
+def peek_only(event: Event, clock: _Clock) -> dict[str, object] | None:
+    """One peek for the session in the session file, or None when there is no
+    file or the server refuses. Never registers: a file change must not bring
+    an ended session back."""
+    data = read_session_file(str(event["session_id"]))
+    if data is None:
+        return None
+    path = f"/v1/sessions/{data['session']}/peek"
+    status, body = api("GET", path, None, clock.timeout())
+    return body if status == 200 else None
+
+
+def on_cwd_changed(event: Event, clock: _Clock) -> dict[str, object] | None:
+    # Claude Code drops the watch when the working directory changes.
+    return watch_output(event, "CwdChanged")
+
+
+def _same_file(a: str, b: Path) -> bool:
+    def norm(path: str) -> str:
+        return os.path.normcase(os.path.realpath(path))
+
+    return norm(a) == norm(str(b))
+
+
+def on_file_changed(event: Event, clock: _Clock) -> dict[str, object] | None:
+    """Two hooks share this event. The plain one returns the watch again,
+    because another hook's own watch list replaces ours. The --wake one (an
+    asyncRewake hook) answers a change to this session's wake file: it acks
+    the token, then wakes the session when wakeable mail waits."""
+    if not event.get("_kampung_wake"):
+        return watch_output(event, "FileChanged")
+    sid = event.get("session_id")
+    changed = event.get("file_path")
+    if not isinstance(sid, str) or not isinstance(changed, str):
+        return None
+    if not idle_wake_on(_agent(event), sid) or not _same_file(changed, wake_path(sid)):
+        return None
+    # Ack first: any failure from here on exits 0, so a change that was not
+    # acked never also wakes, and the adapter's fallback cannot double it.
+    write_ack(sid)
+    body = peek_only(event, clock)
+    wakeable = int(str(body.get("wakeable", 0))) if body else 0
+    if wakeable > 0:
+        raise Wake(STOP_BLOCK_REASON.format(n=wakeable))
+    return None
+
+
 def on_session_end(event: Event, clock: _Clock) -> None:
     sid = str(event["session_id"])
     _nudge_path(event).unlink(missing_ok=True)
@@ -967,6 +1036,8 @@ HANDLERS: dict[str, Callable[[Event, _Clock], dict[str, object] | None]] = {
     "Stop": on_stop,
     "PostToolUse": on_post_tool_use,
     "SessionEnd": on_session_end,
+    "CwdChanged": on_cwd_changed,
+    "FileChanged": on_file_changed,
 }
 
 
@@ -991,7 +1062,8 @@ def _log(name: str, error: BaseException) -> None:
 
 
 def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
-    """Run one hook event. Always exits 0; prints at most one JSON object.
+    """Run one hook event. Prints at most one JSON object and exits 0, except
+    that the wake hook exits 2 with its reason on stderr (see Wake).
 
     A handler may leave a result in event["_kampung_output"] before it calls
     the server; that result is printed when the handler then fails or passes
@@ -1048,6 +1120,12 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
         if result and result[0] is not None:
             printed = True
             print(json.dumps(result[0]))
+    except Wake as wake:
+        try:
+            print(str(wake), file=sys.stderr)
+        except (OSError, ValueError):
+            return 0  # nowhere to put the reason: do not wake without one
+        return 2
     except Exception as e:  # noqa: BLE001 - a hook must never fail the agent
         _log(name, e)
         pending = event.get("_kampung_output") if isinstance(event, dict) else None
