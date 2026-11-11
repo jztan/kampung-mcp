@@ -74,6 +74,22 @@ def test_register_then_peek(client: TestClient, machines: Machines) -> None:
     assert peek.json() == {"waiting": 0, "wakeable": 0, "newest": None}
 
 
+def test_register_takes_background(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    r = client.post(
+        "/v1/sessions", headers=bearer(key), json={**BODY, "background": True}
+    )
+    assert r.status_code == 200
+    row = conn.execute("SELECT background FROM sessions").fetchone()
+    assert row[0] == 1
+    bad = client.post(
+        "/v1/sessions", headers=bearer(key), json={**BODY, "background": 1}
+    )
+    assert bad.status_code == 400
+
+
 def test_other_machines_session_looks_missing(
     client: TestClient, machines: Machines, conn: sqlite3.Connection
 ) -> None:

@@ -379,5 +379,6 @@ async def test_send_description_explains_the_budget_without_numbers(
     text = tools["send"].description or ""
     assert "fyi" in text and "wake" in text and "hint" in text
     assert '"tell"' in text and '"ask"' in text and "not woken" in text
+    assert "background" in text
     budget = text[text.index("wake") :]
     assert not re.search(r"[0-9]", budget)

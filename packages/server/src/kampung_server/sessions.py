@@ -36,6 +36,7 @@ def register(
     hooks: bool,
     agent_session_id: str | None = None,
     suffix: str | None = None,
+    background: bool = False,
 ) -> Session:
     if agent not in AGENTS:
         raise KampungError(
@@ -58,7 +59,17 @@ def register(
         )
     actor = f"machine:{machine.name}"
     session_id = _register(
-        conn, machine, now, actor, agent, cwd, repo, hooks, agent_session_id, suffix
+        conn,
+        machine,
+        now,
+        actor,
+        agent,
+        cwd,
+        repo,
+        hooks,
+        agent_session_id,
+        suffix,
+        background,
     )
     session = load_session(conn, session_id)
     assert session is not None
@@ -76,6 +87,7 @@ def _register(
     hooks: bool,
     agent_session_id: str | None,
     suffix: str | None,
+    background: bool,
 ) -> int:
     with db.transaction(conn):
         existing = None
@@ -105,9 +117,12 @@ def _register(
                 "That session belongs to the Claude app connector.",
             )
         if existing is not None:
+            # A conversation can move between a window and the background,
+            # so each registration says which it is now.
             conn.execute(
-                "UPDATE sessions SET ended_at = NULL, last_seen = ? WHERE id = ?",
-                (ts(now), existing.id),
+                "UPDATE sessions SET ended_at = NULL, last_seen = ?, background = ? "
+                "WHERE id = ?",
+                (ts(now), int(background), existing.id),
             )
             audit.record(
                 conn,
@@ -119,7 +134,15 @@ def _register(
             session_id = existing.id
         else:
             session_id = _create(
-                conn, machine, now, agent, cwd, repo, hooks, agent_session_id
+                conn,
+                machine,
+                now,
+                agent,
+                cwd,
+                repo,
+                hooks,
+                agent_session_id,
+                background,
             )
             audit.record(
                 conn,
@@ -151,6 +174,7 @@ def _create(
     repo: str,
     hooks: bool,
     agent_session_id: str | None,
+    background: bool = False,
 ) -> int:
     row = conn.execute(
         "SELECT id FROM mailboxes WHERE machine_id = ? AND repo = ?",
@@ -198,8 +222,8 @@ def _create(
     }
     cur = conn.execute(
         "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
-        "agent_session_id, hooks, cwd, started_at, last_seen) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "agent_session_id, hooks, cwd, started_at, last_seen, background) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             mailbox_id,
             machine.id,
@@ -210,6 +234,7 @@ def _create(
             cwd,
             ts(now),
             ts(now),
+            int(background),
         ),
     )
     assert cur.lastrowid is not None

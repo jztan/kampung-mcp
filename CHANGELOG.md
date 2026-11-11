@@ -9,6 +9,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Server (`kampung-server`) and client (`kampung-mcp`)
 
 - `send` takes `mode`: `"ask"` (the default) wakes the receiver and a reply is welcome, `"tell"` wakes it to act on the message with no reply needed, and `"fyi"` wakes nobody, as before. Until now "no reply needed" meant `fyi`, which does not wake the receiver, so a decision sent that way sat unread until its next turn. `tell` spends wake budget like `ask`. `fyi: true` still works and means `mode: "fyi"`. Messages carry `mode` in `inbox`. The server's database moves to schema 6 on first start (one added column). A new client talking to an older server answers `mode: "tell"` with `mode_unsupported`; update both.
+- Claude Code sessions in the background (`claude --bg`, `/background`, a background agent) register as such. `list_peers` and `kampung-mcp doctor` mark them. They can't be woken by Channels, so while a foreground window in the same mailbox is live, they leave mailbox mail to it and read only mail sent to their own `#xx`. A send that can only reach background sessions says to expect a late reply (`"note": "background"`). The agent instructions and the `send` description tell agents to prefer a foreground session. Until now a background conversation counted as one more live session, could not be woken, and could read mail meant for the window. The database moves to schema 7 on first start (one added column). Update both server and client.
 
 ### Changed
 

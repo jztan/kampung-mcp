@@ -444,6 +444,40 @@ def _log_check() -> Check:
     )
 
 
+def _open(f: dict[str, object]) -> bool:
+    """Whether the session file's agent process still runs; unknown counts."""
+    ancestors = f.get("ancestors")
+    if not isinstance(ancestors, list) or not ancestors:
+        return True
+    first = ancestors[0]
+    if not isinstance(first, list) or len(first) != 2:
+        return True
+    try:
+        live = hook._lookup(int(first[0]))
+    except (hook.LookupFailed, ValueError, TypeError):
+        return True
+    return live is not None and live[1] == first[1]
+
+
+def _sessions_check() -> Check:
+    """The sessions this machine's hooks registered, with background ones named:
+    a background session gets no Channels push and leaves mailbox mail to a
+    window in the same mailbox."""
+    files = [f for f in hook.list_session_files() if f.get("hooks") and _open(f)]
+    if not files:
+        return Check(OK, "sessions", "no open sessions")
+    background = [f for f in files if f.get("background") is True]
+    windows = len(files) - len(background)
+    detail = f"{windows} window(s), {len(background)} background"
+    if background:
+        names = ", ".join(f"{f.get('mailbox')}#{f.get('suffix')}" for f in background)
+        detail += (
+            f" ({names}: background sessions get no Channels push and leave "
+            "mailbox mail to a window there)"
+        )
+    return Check(OK, "sessions", detail)
+
+
 def run_checks(query: Query) -> list[Check]:
     config_check, config = _config_check()
     checks = [config_check]
@@ -465,7 +499,7 @@ def run_checks(query: Query) -> list[Check]:
                 "Run kampung-mcp setup --server URL.",
             )
         ]
-    return checks + agents + [_log_check()]
+    return checks + agents + [_sessions_check(), _log_check()]
 
 
 def main() -> int:

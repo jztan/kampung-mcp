@@ -246,6 +246,7 @@ def test_list_peers_sessions_and_live_flag(
             "cwd": "/home/u/blog",
             "agent": "claude-code",
             "live": False,
+            "background": False,
             "last_seen": s.last_seen,
         }
     ]

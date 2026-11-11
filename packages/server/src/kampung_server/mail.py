@@ -1,7 +1,7 @@
 """Sending and reading mail, and the loop guard."""
 
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Literal
 
@@ -242,6 +242,48 @@ def _decide(
 ) -> _Decision:
     """Whether a send wakes its receiver, and what it spends. Call inside the
     send's write transaction."""
+    d = _decide_wake(conn, sender, target_box, target_session, peer, now, fyi, g)
+    if not d.wake or not _background_only(conn, target_box, target_session, now):
+        return d
+    late = (
+        f"{peer} has only background sessions working now. Channels cannot "
+        "wake them, so it reads this when its current turn ends or when your "
+        "user attaches it (claude attach). Expect a late reply."
+    )
+    return replace(
+        d, note=d.note or "background", hint=f"{late} {d.hint}" if d.hint else late
+    )
+
+
+def _background_only(
+    conn: sqlite3.Connection,
+    target_box: int,
+    target_session: int | None,
+    now: datetime,
+) -> bool:
+    """Whether every live session the send can reach runs in the background."""
+    where = "id = ?" if target_session is not None else "mailbox_id = ?"
+    rows = conn.execute(
+        f"SELECT background FROM sessions WHERE {where} AND ended_at IS NULL "
+        f"AND last_seen >= ? AND agent != '{CONNECTOR_AGENT}'",
+        (
+            target_session if target_session is not None else target_box,
+            ts(now - LIVE_WINDOW),
+        ),
+    ).fetchall()
+    return bool(rows) and all(r["background"] for r in rows)
+
+
+def _decide_wake(
+    conn: sqlite3.Connection,
+    sender: Session,
+    target_box: int,
+    target_session: int | None,
+    peer: str,
+    now: datetime,
+    fyi: bool,
+    g: GuardSettings,
+) -> _Decision:
     if fyi:
         return _Decision(
             False,
@@ -503,7 +545,12 @@ _READABLE = (
     "AND msg.delivered_at IS NULL "
     "AND msg.expires_at > :now AND (msg.to_session_id IS NULL "
     "OR msg.to_session_id = :me OR msg.to_session_id IN "
-    "(SELECT id FROM sessions WHERE ended_at IS NOT NULL))"
+    "(SELECT id FROM sessions WHERE ended_at IS NOT NULL)) "
+    # A background session leaves everything but its own #xx mail to a live
+    # foreground session in the mailbox: the window is where the user is.
+    "AND NOT (:bg AND coalesce(msg.to_session_id, -1) != :me AND EXISTS ("
+    "SELECT 1 FROM sessions w WHERE w.mailbox_id = :mailbox AND w.background = 0 "
+    "AND w.ended_at IS NULL AND w.last_seen >= :live))"
 )
 
 _ENVELOPE_SELECT = (
@@ -569,7 +616,13 @@ class PeekResult:
 
 
 def _params(session: Session, now: datetime) -> dict[str, object]:
-    return {"mailbox": session.mailbox_id, "me": session.id, "now": ts(now)}
+    return {
+        "mailbox": session.mailbox_id,
+        "me": session.id,
+        "now": ts(now),
+        "bg": int(session.background),
+        "live": ts(now - LIVE_WINDOW),
+    }
 
 
 def inbox(
@@ -671,6 +724,7 @@ def list_peers(
                         "cwd": s.cwd,
                         "agent": s.agent,
                         "live": is_live(s, now),
+                        "background": s.background,
                         "last_seen": s.last_seen,
                     }
                     for s in sessions

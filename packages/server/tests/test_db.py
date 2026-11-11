@@ -277,9 +277,31 @@ def test_schema_6_adds_no_reply_to_old_messages(tmp_path: Path) -> None:
         "wake, sent_at, expires_at, fyi) VALUES ('m1', 1, 1, 'b', -1, 0, 't', 'u', 1)"
     )
     db.migrate(old)
-    assert db.SCHEMA_VERSION == 6
-    assert old.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert old.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert tuple(old.execute("SELECT fyi, no_reply FROM messages").fetchone()) == (1, 0)
+    old.close()
+
+
+def test_schema_7_adds_background_to_old_sessions(tmp_path: Path) -> None:
+    old = db.connect(tmp_path / "v6.db")
+    for version in range(1, 7):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=6")
+    old.execute(
+        "INSERT INTO machines (name, key_hash, created_at) VALUES ('m', x'00', 't')"
+    )
+    old.execute(
+        "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (1, 'api', 't')"
+    )
+    old.execute(
+        "INSERT INTO sessions (mailbox_id, suffix, agent, cwd, hooks, started_at, "
+        "last_seen, machine_id) VALUES (1, 'aa', 'other', '/w', 1, 't', 't', 1)"
+    )
+    db.migrate(old)
+    assert db.SCHEMA_VERSION == 7
+    assert old.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert old.execute("SELECT background FROM sessions").fetchone()[0] == 0
     old.close()
 
 
