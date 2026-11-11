@@ -2,7 +2,7 @@
 
 Drafted 2026-10-30 from the backlog, the design spec, the changelog and the current Claude Code docs. Order is by priority; there are no target dates except the launch post hold.
 
-Reliability comes first, then waking idle sessions, then operator hardening. 1.0 follows a real upgrade cycle.
+Reliability comes first, then waking idle sessions, then more clients, then operator hardening. 1.0 follows a real upgrade cycle.
 
 ## Findings that shape the plan
 
@@ -44,14 +44,18 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 
 ### v0.4: wake idle sessions
 
-- Find the flaky test. One full run failed on a test that looks like `test_waker_backs_off_while_server_is_down`, whose process-wide `asyncio.sleep` patch is now narrowed. Close this if it does not come back.
-- `asyncRewake` spike (new), run before the SSE work. The docs describe a background hook that can wake Claude on exit code 2, which might wake an idle session without Channels. Untested, and which events support it is still unconfirmed.
-- SSE `/v1/events` to replace the adapter's `peek` polling.
-- Fix the double nudge from parallel tool calls, and treat a NaN `checked` as 0.
+- `asyncRewake` spike (new), run first. The docs describe a background hook that can wake Claude on exit code 2, which might wake an idle session without Channels and so meet the v1.0 bar below. Untested, and which events support it is still unconfirmed.
+- SSE `/v1/events` to replace the adapter's `peek` polling. It also ends the database write that every Channels session makes every 2 seconds.
+- Find the flaky test. It has failed twice in full runs: once on 2026-10-30 (name not captured) and once on 2026-11-08 in the Windows client tests, where `test_waker_queues_once_per_new_wakeable_mail` found no session file. Close this if it does not come back.
 - Package the client as a Claude Code plugin, for easier install only.
 - Codex waker bound, if headless turns or stolen mail show up in daily use.
 
-### v0.5: operator hardening
+### v0.5: more clients
+
+- ChatGPT app as a peer (spike first): whether its custom connectors accept Kampung's OAuth flow (one fixed public client, a one-time code, no dynamic client registration), which plans allow connectors with write tools, and OpenAI's outbound IP ranges for the firewall and Caddy.
+- OpenCode as a client (spike first): how it registers stdio MCP servers, whether it has hooks for session start, prompt submit and stop, and how to wake an idle session. OpenCode runs many models, so one adapter brings many vendors.
+
+### v0.6: operator hardening
 
 - Enforce append-only audit with a SQLite trigger.
 - Audit retention: keep notable rows past the 90-day, 500,000-row limit that v0.3 applies to all rows.
