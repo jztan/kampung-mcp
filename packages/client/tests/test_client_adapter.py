@@ -269,9 +269,62 @@ async def test_send_passes_fyi_only_when_true(
         fyi = await c.call_tool(
             "send", {"to": "desktop/blog", "body": "noted", "fyi": True}
         )
+        ask = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "q", "mode": "ask"}
+        )
+        tell = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "do it", "mode": "tell"}
+        )
+        note = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "fine", "mode": "fyi"}
+        )
     assert "fyi" not in seen[0] and seen[1]["fyi"] is True
     assert plain.data["wake"] is True
     assert fyi.data["wake"] is False and fyi.data["reason"] == "fyi"
+    # ask is the default and fyi has its older spelling, so both still work
+    # with a server that predates mode; only tell needs a new one.
+    assert "mode" not in seen[2] and "fyi" not in seen[2] and ask.data["wake"]
+    assert seen[3]["mode"] == "tell" and tell.data["wake"] is True
+    assert "mode" not in seen[4] and seen[4]["fyi"] is True
+    assert note.data["reason"] == "fyi"
+
+
+async def test_fyi_with_another_mode_is_refused(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        r = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "x", "fyi": True, "mode": "tell"}
+        )
+    assert r.data["error"] == "mode_conflict" and "fyi" in r.data["hint"]
+
+
+async def test_tell_against_an_old_server_is_a_clear_error(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastmcp.exceptions import ToolError
+
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+
+    class OldServer(Client):  # type: ignore[type-arg]
+        async def call_tool(  # type: ignore[no-untyped-def]
+            self, name, arguments=None, *a, **kw
+        ):
+            raise ToolError(
+                "1 validation error for call[send]\nmode\n  Unexpected keyword "
+                "argument [type=unexpected_keyword_argument, input_value='tell']"
+            )
+
+    monkeypatch.setattr(adapter, "Client", OldServer)
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        r = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "do it", "mode": "tell"}
+        )
+    assert r.data["error"] == "mode_unsupported"
+    assert "too old" in r.data["hint"] and "no reply" in r.data["hint"]
 
 
 async def test_fyi_against_an_old_server_is_a_clear_error(
@@ -312,5 +365,6 @@ async def test_send_description_explains_the_budget_without_numbers(
         tools = {t.name: t for t in await c.list_tools()}
     text = tools["send"].description or ""
     assert "fyi" in text and "wake" in text and "hint" in text
+    assert '"tell"' in text and '"ask"' in text and "not woken" in text
     budget = text[text.index("wake") :]
     assert not re.search(r"[0-9]", budget)

@@ -59,10 +59,15 @@ say why and who has to act. Don't keep sending to wake the peer; stop and
 tell your user. wake=true means it may wake the receiver, not that it
 will: an idle session may not see it until its next turn.
 
-Set fyi to true for a status note or an acknowledgement that needs no
-reply: it never wakes the receiver and spends no budget. Never use fyi for
-something the receiver is waiting on (a review verdict, an "accepted") or
-anything urgent."""
+mode says what the receiver should do. "ask" (the default) wakes it and
+a reply is welcome. "tell" wakes it to act on the message, with no reply
+needed: use it for a decision or a task the receiver should act on but
+not answer. "fyi" is a status note or an acknowledgement: the receiver is
+not woken, reads it on its next turn, and no budget is spent. Choose by
+whether the receiver must act now, not by whether you want a reply: never
+use fyi for something the receiver is waiting on or should act on (a
+review verdict, an "accepted", a decision) or anything urgent. fyi=true is
+the older spelling of mode="fyi"."""
 
 
 Result = dict[str, Any]
@@ -187,12 +192,18 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         reply_to: str | None = None,
         attachment: dict[str, str] | None = None,
         fyi: bool = False,
+        mode: mail.Mode | None = None,
     ) -> Result:
 
         def work(
             conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime
         ) -> Result:
             assert s is not None
+            if fyi and mode not in (None, "fyi"):
+                raise KampungError(
+                    "mode_conflict",
+                    f'fyi=true means mode="fyi"; drop fyi to send mode="{mode}".',
+                )
             deps.limiter.check(me.id, now)
             parsed = (
                 None
@@ -200,7 +211,15 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
                 else attachments.parse_attachment(attachment, _is_connector())
             )
             return mail.send(
-                conn, s, to, body, reply_to, now, parsed, fyi=fyi, guard=deps.guard
+                conn,
+                s,
+                to,
+                body,
+                reply_to,
+                now,
+                parsed,
+                mode="fyi" if fyi else mode or "ask",
+                guard=deps.guard,
             ).to_dict()
 
         return call(work)

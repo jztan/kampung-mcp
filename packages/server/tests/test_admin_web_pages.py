@@ -271,7 +271,7 @@ def test_message_pages_show_wake_reason(
 ) -> None:
     a = make_session("laptop", "api")
     make_session("desktop", "api")
-    held = mail.send(conn, a, "desktop/api", "later", None, clock.now(), fyi=True)
+    held = mail.send(conn, a, "desktop/api", "later", None, clock.now(), mode="fyi")
     old = mail.send(conn, a, "desktop/api", "old", None, clock.now())
     conn.execute(
         "UPDATE messages SET depth = 4, wake = 0, wake_reason = NULL WHERE id = ?",

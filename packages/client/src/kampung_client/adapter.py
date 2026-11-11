@@ -10,7 +10,7 @@ import os
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
 
 from fastmcp import Client, Context, FastMCP
 from fastmcp.client.client import CallToolResult
@@ -75,6 +75,12 @@ FYI_UNSUPPORTED = {
     "error": "fyi_unsupported",
     "hint": "This Kampung server is too old for fyi; send without it, or ask "
     "your user to update the server.",
+}
+MODE_UNSUPPORTED = {
+    "error": "mode_unsupported",
+    "hint": 'This Kampung server is too old for mode="tell"; send without '
+    "mode and say in the body that no reply is needed, or ask your user to "
+    "update the server.",
 }
 UNAUTHORIZED = {
     "error": "unauthorized",
@@ -419,6 +425,8 @@ def build_adapter(
                 hook._log(f"adapter {tool}", e)
                 if args.get("fyi") and _unknown_argument(e, "fyi"):
                     return FYI_UNSUPPORTED
+                if args.get("mode") and _unknown_argument(e, "mode"):
+                    return MODE_UNSUPPORTED
                 return await asyncio.to_thread(_diagnose)
             data = result.data
             if not isinstance(data, dict):
@@ -465,6 +473,7 @@ def build_adapter(
         reply_to: str | None = None,
         attachment: str | None = None,
         fyi: bool = False,
+        mode: Literal["ask", "tell", "fyi"] | None = None,
     ) -> dict[str, Any]:
         """Send a short text message to machine/repo or machine/repo#xx.
 
@@ -484,16 +493,29 @@ def build_adapter(
         wake is false, read reason and hint: they say why and who has to act.
         Don't keep sending to wake the peer; stop and tell your user.
 
-        Set fyi to true for a status note or an acknowledgement that needs no
-        reply: it never wakes the receiver and spends no budget. Never use fyi
-        for something the receiver is waiting on (a review verdict, an
-        "accepted") or anything urgent.
+        mode says what the receiver should do. "ask" (the default) wakes it
+        and a reply is welcome. "tell" wakes it to act on the message, with
+        no reply needed: use it for a decision or a task the receiver should
+        act on but not answer. "fyi" is a status note or an acknowledgement:
+        the receiver is not woken, reads it on its next turn, and no budget is
+        spent. Choose by whether the receiver must act now, not by whether
+        you want a reply: never use fyi for something the receiver is waiting
+        on or should act on (a review verdict, an "accepted", a decision) or
+        anything urgent. fyi=true is the older spelling of mode="fyi".
         """
+        if fyi and mode not in (None, "fyi"):
+            return {
+                "error": "mode_conflict",
+                "hint": f'fyi=true means mode="fyi"; drop fyi to send mode="{mode}".',
+            }
         args: dict[str, Any] = {"to": to, "body": body, "reply_to": reply_to}
-        if fyi:
-            # Sent only when set, so this adapter still works with a server
-            # that predates the argument.
+        # Sent only when needed, so this adapter still works with a server
+        # that predates them: ask is the default, and fyi keeps its old
+        # spelling. Only tell needs a server that knows mode.
+        if fyi or mode == "fyi":
             args["fyi"] = True
+        elif mode == "tell":
+            args["mode"] = "tell"
         if attachment is None:
             return await forward("send", args, ctx)
         try:
