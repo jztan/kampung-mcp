@@ -335,6 +335,15 @@ def test_post_tool_use_nudges_when_one_message_replaces_another(
     assert json.loads(run_hook(home, tool_used()).stdout) == NUDGE
 
 
+@pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity"])
+def test_nudge_state_treats_non_finite_checked_as_zero(
+    tmp_path: Path, bad: str
+) -> None:
+    state = tmp_path / "cc-1.json"
+    state.write_text(f'{{"checked": {bad}, "notified": "m7"}}')
+    assert hook._nudge_state(state) == {"checked": 0.0, "notified": "m7"}
+
+
 def test_post_tool_use_is_throttled(home: Path, server: LiveServer, repo: Path) -> None:
     start(home, repo)
     assert run_hook(home, tool_used()).stdout == ""  # checked now, nothing waiting

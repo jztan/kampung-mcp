@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import math
 import os
 import re
 import subprocess
@@ -742,6 +743,8 @@ def _nudge_state(path: Path) -> NudgeState:
         notified = data.get("notified")
     except (OSError, ValueError, KeyError, TypeError):
         return {"checked": 0.0, "notified": None}
+    if not math.isfinite(checked):
+        checked = 0.0  # json.loads accepts NaN and Infinity
     if isinstance(notified, float) and notified.is_integer():
         notified = int(notified)  # a count written by an older client
     if not isinstance(notified, (str, int)) or isinstance(notified, bool):
