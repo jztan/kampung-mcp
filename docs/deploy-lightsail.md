@@ -17,15 +17,15 @@ flowchart LR
         win["Windows<br/>Claude Code<br/>kampung-mcp"]
     end
     app["Claude app<br/>iPhone or claude.ai<br/>(optional, step 14)"]
-    anth["Anthropic cloud<br/>160.79.104.0/21"]
+    anth["Anthropic cloud<br/>160.79.104.0/21, 153.61.208.0/20"]
     le["Let's Encrypt"]
     ghcr["GitHub Container Registry<br/>server image"]
 
     subgraph aws["AWS Cloud (your region)"]
-        fw["Lightsail firewall<br/>443: your networks, plus Anthropic's range for the app<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
+        fw["Lightsail firewall<br/>443: your networks, plus Anthropic's ranges for the app<br/>80: open, certificate checks<br/>22: your IP + browser SSH"]
         ip["Lightsail static IP"]
         subgraph inst["Amazon Lightsail instance (Ubuntu 24.04 LTS)"]
-            caddy["Caddy<br/>TLS, body caps<br/>sign-in and hook API hidden from Anthropic's range"]
+            caddy["Caddy<br/>TLS, body caps<br/>sign-in and hook API hidden from Anthropic's ranges"]
             kampung["Kampung server<br/>127.0.0.1:8803"]
             db[("SQLite<br/>kampung-data volume")]
         end
@@ -78,7 +78,7 @@ On the instance's **Networking** tab, set the **IPv4 firewall** to exactly these
 
 | Application | Port | Source |
 |---|---|---|
-| HTTPS | 443 | **Restrict to IP address**: the address of each of your networks (one rule can list several), plus `160.79.104.0/21` if you use the Claude app connector (step 14) |
+| HTTPS | 443 | **Restrict to IP address**: the address of each of your networks (one rule can list several), plus `160.79.104.0/21` and `153.61.208.0/20` if you use the Claude app connector (step 14) |
 | HTTP | 80 | All IP addresses |
 | SSH | 22 | **Restrict to IP address**: your own network's IP address, and tick **Allow Lightsail browser SSH/RDP** |
 
@@ -144,10 +144,10 @@ docker compose version
 
 ## 7. Get the code
 
-The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run, v0.3.2 or later for the Claude app connector (step 14); the default branch, `develop`, holds unreleased work:
+The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run, v0.4.0 or later for the Claude app connector (step 14), whose Caddyfile covers both of Anthropic's ranges; the default branch, `develop`, holds unreleased work:
 
 ```bash
-git clone --branch v0.3.2 https://github.com/jztan/kampung-mcp.git
+git clone --branch v0.4.0 https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
 ```
 
@@ -158,7 +158,7 @@ Git says you're in a "detached HEAD" state. That's normal for a release tag.
 ```bash
 cp .env.example .env
 chmod 600 .env
-nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.3.2
+nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.4.0
 ```
 
 Keep `KAMPUNG_IMAGE_TAG` on the version you cloned, so the image matches the Compose file. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
@@ -254,7 +254,7 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 | Task | How |
 |---|---|
-| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait`. If the release changed `deploy/Caddyfile` (0.3 does), also run `docker compose --profile tls restart caddy`: Caddy runs with its admin API off and the file is mounted read-only, so it reads it only at start. A release that changes the schema rewrites the database once on first start (0.3 does, from schema 2 to 5, and switches it to incremental vacuum), which takes free disk about the size of the database |
+| Upgrade the server | Take a manual snapshot first: the database migrates forward on start, and an older image won't undo that. Then `cd ~/kampung-mcp && git fetch --tags && git checkout vX.Y.Z`, set `KAMPUNG_IMAGE_TAG=X.Y.Z` in `.env`, and run `docker compose --profile tls pull && docker compose --profile tls up -d --wait`. If the release changed `deploy/Caddyfile` (0.3 and 0.4 do), also run `docker compose --profile tls restart caddy`: Caddy runs with its admin API off and the file is mounted read-only, so it reads it only at start. Upgrading to 0.4 with the Claude app connector, also add `153.61.208.0/20` to the HTTPS rule (step 3). A schema change runs once on first start: 0.3 rewrites the database (schema 2 to 5, and incremental vacuum), which takes free disk about the size of the database; 0.4 only adds two columns (schema 6 and 7) |
 | Upgrade a client | On Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp`, rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`, and 0.3.2 adds a second entry for your server's URL). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart Claude Code and Codex |
 | Need more memory | Same as Restore, but pick the 1 GB plan ($7/month) for the new instance |
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
@@ -270,7 +270,7 @@ This alarm only covers the instance itself: it fires when the machine or its net
 
 The Claude app and claude.ai call MCP servers from Anthropic's cloud, so they need OAuth and a reachable public address. Kampung gives the app its own mailbox, `phone/claude` below, which every chat on your Claude account shares.
 
-1. Add `160.79.104.0/21` to the HTTPS rule in step 3. Your own networks stay on it: the connect page only answers them, and the Caddyfile hides it, the hook API and `/authorize` from Anthropic's range.
+1. Add `160.79.104.0/21` and `153.61.208.0/20` to the HTTPS rule in step 3. These are Anthropic's outbound ranges for MCP tool calls; check [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses) for changes. Your own networks stay on the rule: the connect page only answers them, and the Caddyfile hides it, the hook API and `/authorize` from Anthropic's ranges.
 2. In `.env` set `KAMPUNG_PUBLIC_URL=https://kampung.example.com` (the same name as `KAMPUNG_DOMAIN`, in lowercase, with no port, path or trailing slash), then `docker compose --profile tls up -d --wait`.
 3. Check from one of your networks:
 

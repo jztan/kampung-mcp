@@ -244,8 +244,7 @@ def test_schema_5_adds_wake_budgets_and_keeps_old_depths(tmp_path: Path) -> None
         "wake, sent_at, expires_at) VALUES ('m1', 1, 1, 'b', 4, 0, 't', 'u')"
     )
     db.migrate(old)
-    assert db.SCHEMA_VERSION == 5
-    assert old.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert old.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     msg = old.execute(
         "SELECT depth, wake_reason, spent, fyi, budget_left FROM messages"
     ).fetchone()
@@ -254,6 +253,55 @@ def test_schema_5_adds_wake_budgets_and_keeps_old_depths(tmp_path: Path) -> None
     assert tuple(box.fetchone()) == (0, None)
     assert old.execute("SELECT count(*) FROM pair_budgets").fetchone()[0] == 0
     assert old.execute("SELECT machine_id FROM sessions").fetchone()[0] == 1
+    old.close()
+
+
+def test_schema_6_adds_no_reply_to_old_messages(tmp_path: Path) -> None:
+    old = db.connect(tmp_path / "v5.db")
+    for version in (1, 2, 3, 4, 5):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=5")
+    old.execute(
+        "INSERT INTO machines (name, key_hash, created_at) VALUES ('m', x'00', 't')"
+    )
+    old.execute(
+        "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (1, 'api', 't')"
+    )
+    old.execute(
+        "INSERT INTO sessions (mailbox_id, suffix, agent, cwd, hooks, started_at, "
+        "last_seen, machine_id) VALUES (1, 'aa', 'other', '/w', 1, 't', 't', 1)"
+    )
+    old.execute(
+        "INSERT INTO messages (id, to_mailbox_id, from_session_id, body, depth, "
+        "wake, sent_at, expires_at, fyi) VALUES ('m1', 1, 1, 'b', -1, 0, 't', 'u', 1)"
+    )
+    db.migrate(old)
+    assert old.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+    assert tuple(old.execute("SELECT fyi, no_reply FROM messages").fetchone()) == (1, 0)
+    old.close()
+
+
+def test_schema_7_adds_background_to_old_sessions(tmp_path: Path) -> None:
+    old = db.connect(tmp_path / "v6.db")
+    for version in range(1, 7):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=6")
+    old.execute(
+        "INSERT INTO machines (name, key_hash, created_at) VALUES ('m', x'00', 't')"
+    )
+    old.execute(
+        "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (1, 'api', 't')"
+    )
+    old.execute(
+        "INSERT INTO sessions (mailbox_id, suffix, agent, cwd, hooks, started_at, "
+        "last_seen, machine_id) VALUES (1, 'aa', 'other', '/w', 1, 't', 't', 1)"
+    )
+    db.migrate(old)
+    assert db.SCHEMA_VERSION == 7
+    assert old.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert old.execute("SELECT background FROM sessions").fetchone()[0] == 0
     old.close()
 
 

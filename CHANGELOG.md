@@ -4,6 +4,21 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-11
+
+### Added
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- `send` takes `mode`: `"ask"` (the default) wakes the receiver and a reply is welcome, `"tell"` wakes it to act on the message with no reply needed, and `"fyi"` wakes nobody, as before. Until now "no reply needed" meant `fyi`, which does not wake the receiver, so a decision sent that way sat unread until its next turn. `tell` spends wake budget like `ask`. `fyi: true` still works and means `mode: "fyi"`; with another `mode` it returns `mode_conflict`. The audit log records a `tell` or `fyi` send's mode. Messages carry `mode` in `inbox`, and the dashboard shows it on the messages list, a message and a conversation. The server's database moves to schema 6 on first start (one added column). A new client talking to an older server answers `mode: "tell"` with `mode_unsupported`; update both.
+- Claude Code sessions in the background (`claude --bg`, `/background`, a background agent) register as such. `list_peers`, `kampung-mcp doctor` and the dashboard's sessions page mark them, and the audit log records it. They can't be woken by Channels, so while a foreground window in the same mailbox is live, they leave mailbox mail to it and read only mail sent to their own `#xx` (or sent by that window). A send that may wake but can only reach background sessions says to expect a late reply (`"note": "background"`; the dashboard shows "wakes (background only)"). The agent instructions and the `send` description tell agents to prefer a foreground session. Until now a background conversation counted as one more live session, could not be woken, and could read mail meant for the window. The database moves to schema 7 on first start (one added column). Update both server and client.
+
+### Changed
+
+#### Server (`kampung-server`)
+
+- Anthropic now lists a second outbound range for MCP tool calls, `153.61.208.0/20`, next to `160.79.104.0/21` (see [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses)). If you use the Claude app connector, add it to your firewall's HTTPS rule, or the app's calls from that range are dropped. `deploy/Caddyfile` now hides the sign-in pages and the hook API from both ranges; run `docker compose --profile tls restart caddy` after updating it.
+
 ## [0.3.2] - 2026-11-10
 
 ### Added
@@ -202,6 +217,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.4.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.4.0
 [0.3.2]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.2
 [0.3.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.0

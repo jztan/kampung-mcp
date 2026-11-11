@@ -90,12 +90,56 @@ def test_fyi_spends_nothing(
     conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
 ) -> None:
     a, b = make_session("laptop", "api"), make_session("desktop", "blog")
-    r = send(conn, a, "desktop/blog", "fyi", None, clock.now(), fyi=True)
+    r = send(conn, a, "desktop/blog", "fyi", None, clock.now(), mode="fyi")
     assert r.wake is False and r.reason == "fyi"
     assert guard.pair_left(conn, a.mailbox_id, b.mailbox_id, clock.now(), G) == 9
     assert guard.mailbox_left(conn, a.mailbox_id, G) == 30
     got = inbox(conn, b, 20, clock.now()).messages[0]
     assert got["fyi"] is True and "no reply needed" in str(got["kind"])
+
+
+def test_tell_wakes_and_spends_like_ask(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop", "api"), make_session("desktop", "blog")
+    r = send(conn, a, "desktop/blog", "act on this", None, clock.now(), mode="tell")
+    assert r.wake is True and r.reason is None
+    assert guard.pair_left(conn, a.mailbox_id, b.mailbox_id, clock.now(), G) == 8
+    assert guard.mailbox_left(conn, a.mailbox_id, G) == 29
+    got = inbox(conn, b, 20, clock.now()).messages[0]
+    assert got["mode"] == "tell" and got["fyi"] is False
+    assert "no reply needed" in str(got["kind"])
+
+
+def test_audit_records_a_mode_other_than_ask(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    import json
+
+    a, _ = make_session("laptop", "api"), make_session("desktop", "blog")
+    for mode in ("ask", "tell", "fyi"):
+        send(conn, a, "desktop/blog", mode, None, clock.now(), mode=mode)
+    rows = conn.execute("SELECT detail FROM audit WHERE action = 'send'").fetchall()
+    assert sorted(str(json.loads(r[0]).get("mode")) for r in rows) == [
+        "None",
+        "fyi",
+        "tell",
+    ]
+
+
+def test_envelope_names_the_mode(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a, b = make_session("laptop", "api"), make_session("desktop", "blog")
+    for mode in ("ask", "tell", "fyi"):
+        send(conn, a, "desktop/blog", mode, None, clock.now(), mode=mode)
+    got = {m["body"]: m for m in inbox(conn, b, 20, clock.now()).messages}
+    assert {body: m["mode"] for body, m in got.items()} == {
+        "ask": "ask",
+        "tell": "tell",
+        "fyi": "fyi",
+    }
+    assert "no reply needed" not in str(got["ask"]["kind"])
 
 
 def test_no_live_session_still_wakes_and_spends_nothing(
@@ -220,7 +264,7 @@ def test_held_or_fyi_connector_send_refills_nothing(
     _drain(conn, blog, scratch, clock.now())
     held = send(conn, phone, "desktop/blog", "x", None, clock.now(), guard=g)
     assert held.wake is False and held.reason == "wake_budget"
-    send(conn, phone, "desktop/blog", "x", None, clock.now(), fyi=True, guard=g)
+    send(conn, phone, "desktop/blog", "x", None, clock.now(), mode="fyi", guard=g)
     assert (
         guard.pair_left(conn, blog.mailbox_id, scratch.mailbox_id, clock.now(), G) == 0
     )
@@ -231,7 +275,7 @@ def test_new_messages_store_depth_minus_one_and_spent(
 ) -> None:
     a, _ = make_session("laptop", "api"), make_session("desktop", "blog")
     woke = send(conn, a, "desktop/blog", "x", None, clock.now())
-    fyi = send(conn, a, "desktop/blog", "y", None, clock.now(), fyi=True)
+    fyi = send(conn, a, "desktop/blog", "y", None, clock.now(), mode="fyi")
     rows = {
         r["id"]: tuple(r)[1:]
         for r in conn.execute(
@@ -326,8 +370,11 @@ async def test_send_description_states_the_live_settings(
     text = tools["send"].description or ""
     assert "5 times in a row" in text and "every 10 minutes" in text
     assert "40" in text and "fyi" in text and "hint" in text
+    assert '"tell"' in text and '"ask"' in text and "not woken" in text
     assert "Codex on Windows" in text and "after 30 minutes without waking" in text
     assert "wake false" in SERVER_INSTRUCTIONS and "hint" in SERVER_INSTRUCTIONS
+    assert 'mode "tell"' in SERVER_INSTRUCTIONS and "fyi" in SERVER_INSTRUCTIONS
+    assert "background" in SERVER_INSTRUCTIONS and "background" in text
 
 
 def _fill(conn: sqlite3.Connection, a: Session, now: object) -> SendResult:

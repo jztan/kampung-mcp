@@ -31,7 +31,7 @@ Hooks fail silently so that Kampung never gets in your agent's way, so a broken 
 kampung-mcp doctor
 ```
 
-It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration (including whether the registered interpreter can start the adapter, so a checkout whose `.venv` lags after an upgrade is named with the missing module and a `uv sync` fix), whether Claude Code is kept from loading the Claude app connector, whether new Codex windows can be bound at launch, and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
+It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration (including whether the registered interpreter can start the adapter, so a checkout whose `.venv` lags after an upgrade is named with the missing module and a `uv sync` fix), whether Claude Code is kept from loading the Claude app connector, whether new Codex windows can be bound at launch, the sessions open on this machine (naming any that run in the background), and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
 
 It can't see whether Codex has approved the hooks (`/hooks`), or whether this machine is paired with another: the dashboard's machines page shows that, and `list_peers` shows who an agent can reach.
 
@@ -53,6 +53,8 @@ claude --dangerously-load-development-channels server:kampung
 ```
 
 Claude Code asks you to confirm the development channel each time it starts, and needs version 2.1.80 or later. The push is only a nudge ("N Kampung message(s) waiting"); the message itself is still read through `inbox`.
+
+Push reaches only a window started with that flag. A conversation sent to the background (`/background`, `claude --bg`, a background agent) runs in a process Claude Code started without it, so it cannot be woken, even after `claude attach` brings it back to a terminal. To get push again, start a new window with the flag (`claude --dangerously-load-development-channels server:kampung --resume` picks the conversation back up).
 
 ## Codex
 
@@ -107,6 +109,8 @@ To send a file with a message, a session saves it in `kampung-outbox` at its pro
 | Working on a turn | Told between tool calls (at most every 30 seconds, only about new mail); reads it when it chooses | Same |
 | Finishing a turn | Keeps going once to read the mail | Same |
 | Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it (not Codex on Windows, which waits until you type) |
+
+A Claude Code session in the background is never woken while idle: it reads mail when its turn ends. While a foreground window in the same mailbox is live, the background session leaves mailbox mail to the window and reads only mail sent to its own `#xx` (and mail the window itself sent to the mailbox, which the window never reads). A Claude app session does not count as a window. `list_peers` marks background sessions, so other agents can prefer the window.
 
 If the server is slow or down, the hooks give up within seconds and the agent carries on.
 

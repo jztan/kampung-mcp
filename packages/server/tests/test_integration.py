@@ -197,6 +197,27 @@ async def test_server_info_reports_kampung_version(server: Server) -> None:
         assert (info.name, info.version) == ("kampung", __version__)
 
 
+async def test_send_mode_through_mcp(server: Server) -> None:
+    a = register(server, "laptop", "api")
+    b = register(server, "desktop", "blog")
+    async with client_for(server, server.keys["laptop"], a) as ca:
+        tell = await ca.call_tool(
+            "send", {"to": "desktop/blog", "body": "act", "mode": "tell"}
+        )
+        assert tell.data["wake"] is True
+        old = await ca.call_tool(
+            "send", {"to": "desktop/blog", "body": "noted", "fyi": True}
+        )
+        assert old.data["reason"] == "fyi"
+        clash = await ca.call_tool(
+            "send", {"to": "desktop/blog", "body": "x", "fyi": True, "mode": "tell"}
+        )
+        assert clash.data["error"] == "mode_conflict" and "fyi" in clash.data["hint"]
+    async with client_for(server, server.keys["desktop"], b) as cb:
+        got = (await cb.call_tool("inbox", {})).data["messages"]
+        assert sorted(m["mode"] for m in got) == ["fyi", "tell"]
+
+
 async def test_rate_limited_inline(server: Server) -> None:
     server.deps.limiter = RateLimiter(limit=1)
     a = register(server, "laptop", "api")

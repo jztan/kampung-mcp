@@ -17,13 +17,14 @@
   </form>
   {% if page.rows %}
   <div class="scroll"><table>
-    <thead><tr><th>Sent (UTC)</th><th>From</th><th>To</th><th>Wake</th><th>State</th><th class="right">Size</th><th></th></tr></thead>
+    <thead><tr><th>Sent (UTC)</th><th>From</th><th>To</th><th>Mode</th><th>Wake</th><th>State</th><th class="right">Size</th><th></th></tr></thead>
     <tbody>
     {% for m in page.rows %}
       <tr>
         <td class="num">{{ m.sent_at | utc }}</td>
         <td class="mono">{{ m.sender }}</td>
         <td class="mono">{{ m.to }}</td>
+        <td><span class="tag">{{ m.mode }}</span></td>
         <td>{{ wake(m.wake) }}</td>
         <td>{{ pill(m.state) }}</td>
         <td class="right num">{{ m.size }} B{% if m.attachment_bytes is not none %}<br><span class="sub">+ <span class="mono att-name">{{ m.attachment_name }}</span>, {{ m.attachment_bytes }} B</span>{% endif %}</td>

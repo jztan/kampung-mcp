@@ -2,7 +2,7 @@
 
 Drafted 2026-10-30 from the backlog, the design spec, the changelog and the current Claude Code docs. Order is by priority; there are no target dates except the launch post hold.
 
-Reliability comes first, then waking idle sessions, then operator hardening. 1.0 follows a real upgrade cycle.
+Reliability comes first, then waking idle sessions, then more clients, then operator hardening. 1.0 follows a real upgrade cycle.
 
 ## Findings that shape the plan
 
@@ -42,16 +42,26 @@ Reliability comes first, then waking idle sessions, then operator hardening. 1.0
 - Loop guard v2: wake budgets per pair of mailboxes and per mailbox; `send` takes `fyi`.
 - Codex windows are listed and wakeable at launch, and the wake text names the session.
 
-### v0.4: wake idle sessions
+### v0.4: send modes and background sessions
 
-- Find the flaky test. One full run failed on a test that looks like `test_waker_backs_off_while_server_is_down`, whose process-wide `asyncio.sleep` patch is now narrowed. Close this if it does not come back.
-- `asyncRewake` spike (new), run before the SSE work. The docs describe a background hook that can wake Claude on exit code 2, which might wake an idle session without Channels. Untested, and which events support it is still unconfirmed.
-- SSE `/v1/events` to replace the adapter's `peek` polling.
-- Fix the double nudge from parallel tool calls, and treat a NaN `checked` as 0.
+- `send` mode (new): `ask`, `tell` or `fyi`, so a message can wake its receiver without asking for a reply.
+- Background sessions (new): Claude Code sessions in the background (`claude --bg`, `/background`, background agents) are tagged, leave mailbox mail to a live window, and a send that only reaches them says to expect a late reply.
+- Treat a non-finite `checked` in the nudge state as 0.
+
+### v0.5: wake idle sessions
+
+- `asyncRewake` spike (new), run first. The docs describe a background hook that can wake Claude on exit code 2, which might wake an idle session without Channels and so meet the v1.0 bar below. Untested, and which events support it is still unconfirmed.
+- SSE `/v1/events` to replace the adapter's `peek` polling. It also ends the database write that every Channels session makes every 2 seconds.
+- Find the flaky test. It has failed twice in full runs: once on 2026-10-30 (name not captured) and once on 2026-11-08 in the Windows client tests, where `test_waker_queues_once_per_new_wakeable_mail` found no session file. Close this if it does not come back.
 - Package the client as a Claude Code plugin, for easier install only.
 - Codex waker bound, if headless turns or stolen mail show up in daily use.
 
-### v0.5: operator hardening
+### v0.6: more clients
+
+- ChatGPT app as a peer (spike first): whether its custom connectors accept Kampung's OAuth flow (one fixed public client, a one-time code, no dynamic client registration), which plans allow connectors with write tools, and OpenAI's outbound IP ranges for the firewall and Caddy.
+- OpenCode as a client (spike first): how it registers stdio MCP servers, whether it has hooks for session start, prompt submit and stop, and how to wake an idle session. OpenCode runs many models, so one adapter brings many vendors.
+
+### v0.7: operator hardening
 
 - Enforce append-only audit with a SQLite trigger.
 - Audit retention: keep notable rows past the 90-day, 500,000-row limit that v0.3 applies to all rows.
@@ -72,5 +82,6 @@ Freeze the four MCP tools and `/v1` once these hold:
 
 ## Not scheduled
 
+- **Landing page shows the Claude apps as peers:** the page is almost all about Claude Code and Codex. Show the Claude app on the phone, desktop and web (voice mode too) as a Kampung peer: checking the inbox by voice and sending work to sessions on other machines.
 - **On demand only:** Postgres, OIDC, a broker for multiple replicas, live dashboard updates, session summaries for `list_peers`.
 - **Keep the FastMCP 3 pin:** Claude Code still does not register a channel server on protocol revision 2026-07-28.

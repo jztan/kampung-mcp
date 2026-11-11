@@ -141,7 +141,12 @@ def run_hook(
         input=json.dumps(event),
         text=True,
         capture_output=True,
-        env={**os.environ, **home_env(home)},
+        # A suite run from a Claude Code background session must not make
+        # every test's session a background one.
+        env={
+            **{k: v for k, v in os.environ.items() if k != "CLAUDE_JOB_DIR"},
+            **home_env(home),
+        },
         timeout=20,
     )
 
@@ -165,7 +170,7 @@ def peer_send(live: LiveServer, to: str, body: str, held: bool = False) -> None:
             repo="blog",
             hooks=True,
         )
-        mail.send(conn, s, to, body, None, utcnow(), fyi=held)
+        mail.send(conn, s, to, body, None, utcnow(), mode="fyi" if held else "ask")
     finally:
         conn.close()
 

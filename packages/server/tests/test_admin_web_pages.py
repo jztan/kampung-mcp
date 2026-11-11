@@ -271,7 +271,7 @@ def test_message_pages_show_wake_reason(
 ) -> None:
     a = make_session("laptop", "api")
     make_session("desktop", "api")
-    held = mail.send(conn, a, "desktop/api", "later", None, clock.now(), fyi=True)
+    held = mail.send(conn, a, "desktop/api", "later", None, clock.now(), mode="fyi")
     old = mail.send(conn, a, "desktop/api", "old", None, clock.now())
     conn.execute(
         "UPDATE messages SET depth = 4, wake = 0, wake_reason = NULL WHERE id = ?",
@@ -285,3 +285,47 @@ def test_message_pages_show_wake_reason(
     assert "held: fyi" in detail and "depth over 3" not in detail
     thread = web.get("/admin/conversations?a=desktop/api&b=laptop/api").text
     assert "held: fyi" in thread
+
+
+def test_message_pages_show_the_send_mode(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    a = make_session("laptop", "api")
+    make_session("desktop", "api")
+    tell = mail.send(conn, a, "desktop/api", "act", None, clock.now(), mode="tell")
+    mail.send(conn, a, "desktop/api", "q", None, clock.now())
+    login(web)
+    listing = web.get("/admin/messages").text
+    assert "<th>Mode</th>" in listing
+    assert ">tell<" in listing and ">ask<" in listing
+    detail = web.get(f"/admin/messages/{tell.id}").text
+    assert "<dt>Mode</dt>" in detail and ">tell<" in detail
+    assert "no reply needed" in detail
+    thread = web.get("/admin/conversations?a=desktop/api&b=laptop/api").text
+    assert ">tell<" in thread
+
+
+def test_sessions_page_tags_background_sessions(
+    web: TestClient, make_session: MakeSession
+) -> None:
+    make_session("laptop", "api")
+    login(web)
+    assert ">background<" not in web.get("/admin/sessions").text
+    make_session("laptop", "api", background=True)
+    assert ">background<" in web.get("/admin/sessions").text
+
+
+def test_a_send_to_background_sessions_only_is_labelled(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    a = make_session("laptop", "api")
+    make_session("desktop", "api", background=True)
+    r = mail.send(conn, a, "desktop/api", "late", None, clock.now())
+    login(web)
+    assert "wakes (background only)" in web.get(f"/admin/messages/{r.id}").text

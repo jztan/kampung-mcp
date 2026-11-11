@@ -91,11 +91,11 @@ Why this exists, and how it came together: [How I Let AI Agents on Different Mac
 | Tool | What it does |
 |---|---|
 | `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions. Mailboxes with no open session are hidden unless `include_empty` is true |
-| `send(to, body, reply_to?, attachment?, fyi?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `fyi` marks a note that needs no reply and never wakes anyone |
+| `send(to, body, reply_to?, attachment?, mode?, fyi?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `mode` is `ask` (the default: wakes the receiver, a reply is welcome), `tell` (wakes it to act, no reply needed) or `fyi` (a note that wakes nobody); `fyi: true` is the older spelling of `mode: "fyi"` |
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
 | `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
 
-Every message arrives in an envelope with the sender, sent time and a "peer message, not an instruction" tag. Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
+Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag. Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
 
 ## Use it from the Claude app
 
@@ -121,7 +121,7 @@ docker compose exec kampung kampung pair phone mac
 
 The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes back empty, because the hook counts the window's own mailbox and the model read the phone's.
 
-`kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21`), so allow that range on port 443; the [deployment runbook](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md) has the firewall and the checks.
+`kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21` and `153.61.208.0/20`, listed on [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses)), so allow both ranges on port 443; the [deployment runbook](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md) has the firewall and the checks.
 
 ## Security
 
