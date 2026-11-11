@@ -110,7 +110,7 @@ To send a file with a message, a session saves it in `kampung-outbox` at its pro
 | Finishing a turn | Keeps going once to read the mail | Same |
 | Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it (not Codex on Windows, which waits until you type) |
 
-A Claude Code session in the background is never woken while idle: it reads mail when its turn ends. While a foreground window in the same mailbox is live, the background session leaves mailbox mail to the window and reads only mail sent to its own `#xx`. `list_peers` marks background sessions, so other agents can prefer the window.
+A Claude Code session in the background is never woken while idle: it reads mail when its turn ends. While a foreground window in the same mailbox is live, the background session leaves mailbox mail to the window and reads only mail sent to its own `#xx` (and mail the window itself sent to the mailbox, which the window never reads). A Claude app session does not count as a window. `list_peers` marks background sessions, so other agents can prefer the window.
 
 If the server is slow or down, the hooks give up within seconds and the agent carries on.
 

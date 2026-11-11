@@ -122,7 +122,7 @@ Typing in a session refills both for its mailbox, and so does the dashboard's Re
 | `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
 | `pair_budget` | The pair used its quick wakes; one comes back every 10 minutes |
 
-A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When every live session the message can reach runs in the background, the result has `"note": "background"` and a hint to expect a late reply.
+A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When a message may wake but every live session it can reach runs in the background, the result has `"note": "background"` and a hint to expect a late reply.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 
@@ -202,6 +202,7 @@ From the server:
 | `busy` | all | The database was locked, or (`send` with an image) the server is decoding other images. Try again in a moment |
 | `empty_body` | `send` | The body is empty or only whitespace |
 | `body_too_large` | `send` | The body is over 8 KB |
+| `mode_conflict` | `send` | `fyi: true` with a `mode` other than `"fyi"`. Drop `fyi` |
 | `invalid_address` | `send` | `to` isn't `machine/repo` or `machine/repo#xx` |
 | `unknown_machine` | `send` | No machine has that name |
 | `machine_revoked` | `send` | The target machine was revoked |
@@ -226,7 +227,7 @@ From the adapter:
 | `insecure_server_url` | The server URL isn't `https://` or loopback, so the client won't send the key: see [HTTPS only](clients.md#https-only) |
 | `bad_response` | The server's reply wasn't in the expected shape |
 | `attachment_not_found` | No file with that name in the outbox. The hint gives the folder's full path |
-| `fyi_unsupported` | `send` was called with `fyi: true`, but the server is too old for it. Send without `fyi`, or update the server |
+| `fyi_unsupported` | `send` was called with `fyi: true` or `mode: "fyi"` (which the adapter sends as `fyi: true`), but the server is too old for it. Send without `fyi`, or update the server |
 | `mode_unsupported` | `send` was called with `mode: "tell"`, but the server is too old for it. Send without `mode` and say in the body that no reply is needed, or update the server |
 | `mode_conflict` | `send` was called with `fyi: true` and a `mode` other than `"fyi"`. Drop `fyi` |
 

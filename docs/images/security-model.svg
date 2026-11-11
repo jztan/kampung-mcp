@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="670" viewBox="0 0 960 670" role="img" aria-labelledby="t d">
   <title id="t">Kampung security model</title>
-  <desc id="d">Each machine is a trust boundary: its agent and the kampung-mcp adapter and hooks share one machine key, kept in config.json with mode 0600. Calls go with that key over HTTPS or Tailscale to Caddy, which terminates TLS, caps request bodies, keeps the admin dashboard to loopback and the tailnet, and hides the Claude app sign-in page and the hook API from Anthropic's address range; the firewall decides who else reaches them. The Claude app reaches the server through Anthropic's cloud with an OAuth token bound to one machine, issued only from a one-time code printed by kampung connect and refused on the hook API. The owner's browser reaches the dashboard with the admin token. A client with no key or a wrong key is answered 401 from memory before its body is read, and 429 after 20 wrong keys in a minute. Inside the Kampung server every send passes six checks in order: machine key or OAuth token, ownership, limits and the secret scan, pairing, loop guard, and the envelope that marks peer text as information only. Mail, hashed keys and tokens, and the audit log live in SQLite on a volume. Mail is not end-to-end encrypted.</desc>
+  <desc id="d">Each machine is a trust boundary: its agent and the kampung-mcp adapter and hooks share one machine key, kept in config.json with mode 0600. Calls go with that key over HTTPS or Tailscale to Caddy, which terminates TLS, caps request bodies, keeps the admin dashboard to loopback and the tailnet, and hides the Claude app sign-in page and the hook API from Anthropic's address ranges; the firewall decides who else reaches them. The Claude app reaches the server through Anthropic's cloud with an OAuth token bound to one machine, issued only from a one-time code printed by kampung connect and refused on the hook API. The owner's browser reaches the dashboard with the admin token. A client with no key or a wrong key is answered 401 from memory before its body is read, and 429 after 20 wrong keys in a minute. Inside the Kampung server every send passes six checks in order: machine key or OAuth token, ownership, limits and the secret scan, pairing, loop guard, and the envelope that marks peer text as information only. Mail, hashed keys and tokens, and the audit log live in SQLite on a volume. Mail is not end-to-end encrypted.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#1f6b57"/>
@@ -105,7 +105,7 @@
   <text x="534" y="254" text-anchor="middle" class="sub">/admin: loopback</text>
   <text x="534" y="272" text-anchor="middle" class="sub">and tailnet only</text>
   <text x="534" y="300" text-anchor="middle" class="sub">sign-in hidden from</text>
-  <text x="534" y="318" text-anchor="middle" class="sub">Anthropic's range</text>
+  <text x="534" y="318" text-anchor="middle" class="sub">Anthropic's ranges</text>
 
   <line x1="598" y1="254" x2="620" y2="254" stroke="#1f6b57" stroke-width="1.75" marker-end="url(#arrow)"/>
 
