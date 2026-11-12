@@ -211,3 +211,43 @@ def test_disconnect(
     assert cli.main(["disconnect", "phone"]) == 0
     out = capsys.readouterr().out
     assert "Disconnected phone; its machine and mail are kept." in out
+
+
+def _phone_grant(env: Path) -> str:
+    from kampung_server import oauth_store
+    from kampung_server.clock import utcnow
+    from kampung_server.models import load_machine
+
+    conn = db.connect(env)
+    phone = load_machine(conn, "phone")
+    assert phone is not None
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, phone.id, utcnow())
+    created = str(conn.execute("SELECT created_at FROM oauth_grants").fetchone()[0])
+    conn.close()
+    return created
+
+
+def test_owner_add_without_grant(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["key", "add", "phone"]) == 0
+    capsys.readouterr()
+    assert cli.main(["owner", "add", "phone"]) == 1
+    assert capsys.readouterr().err == (
+        "error: no_grant: Connect the Claude app first: kampung connect phone\n"
+    )
+
+
+def test_owner_add_prints_grant_time(
+    capsys: pytest.CaptureFixture[str], env: Path
+) -> None:
+    assert cli.main(["key", "add", "phone"]) == 0
+    created = _phone_grant(env)
+    capsys.readouterr()
+    assert cli.main(["owner", "list"]) == 0
+    assert capsys.readouterr().out == "No owners.\n"
+    assert cli.main(["owner", "add", "phone"]) == 0
+    assert created in capsys.readouterr().out
+    assert cli.main(["owner", "list"]) == 0
+    assert capsys.readouterr().out == f"phone  grant created {created}\n"
+    assert cli.main(["owner", "remove", "phone"]) == 0
+    assert "phone" in capsys.readouterr().out

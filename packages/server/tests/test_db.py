@@ -320,8 +320,6 @@ def test_schema_8_adds_idle_wake_to_old_sessions(tmp_path: Path) -> None:
         "last_seen, machine_id) VALUES (1, 'aa', 'other', '/w', 1, 't', 't', 1)"
     )
     db.migrate(old)
-    assert db.SCHEMA_VERSION == 8
-    assert old.execute("PRAGMA user_version").fetchone()[0] == 8
     assert old.execute("SELECT idle_wake FROM sessions").fetchone()[0] == 0
     old.close()
 
@@ -449,3 +447,22 @@ def test_incremental_vacuum_is_retried_when_the_first_vacuum_failed(
     db.migrate(conn)
     assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
     conn.close()
+
+
+def test_schema_9_adds_owner_columns(tmp_path: Path) -> None:
+    old = db.connect(tmp_path / "v8.db")
+    for version in range(1, 9):
+        for statement in db._statements(db._script(version)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=8")
+    old.execute(
+        "INSERT INTO machines (name, key_hash, created_at) VALUES ('m', x'00', 't')"
+    )
+    old.execute("INSERT INTO oauth_grants (machine_id, created_at) VALUES (1, 't')")
+    db.migrate(old)
+    assert db.SCHEMA_VERSION == 9
+    assert old.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert old.execute("SELECT owner FROM oauth_grants").fetchone()[0] == 0
+    cols = {r[1]: r for r in old.execute("PRAGMA table_info(messages)")}
+    assert cols["owner"][3] == 1 and cols["owner"][4] == "0"
+    old.close()
