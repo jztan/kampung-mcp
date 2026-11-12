@@ -465,5 +465,19 @@ def test_send_description_mentions_instruct() -> None:
     from kampung_server.guard import GuardSettings
     from kampung_server.tools import send_description
 
-    text = send_description(GuardSettings())
-    assert 'mode "instruct"' in text and "only when the owner" in text
+    text = " ".join(send_description(GuardSettings()).split())
+    assert 'mode "instruct"' in text
+    assert "When the owner, in this conversation, asks you" in text
+
+
+def test_send_description_maps_owner_requests_to_instruct() -> None:
+    # Real check 2: "tell desktop/api to merge it" went out as a plain ask,
+    # because the model matched the word "tell" to mode "tell".
+    from kampung_server.guard import GuardSettings
+    from kampung_server.tools import send_description
+
+    text = " ".join(send_description(GuardSettings()).split())
+    assert '"tell X to ..."' in text and '"have X ..."' in text
+    assert 'use mode "instruct"' in text
+    assert 'even when he says "tell"' in text
+    assert '"ask X whether ..."' in text
