@@ -14,7 +14,7 @@ From a checkout instead: `uv sync`, then `uv run kampung-mcp setup ...`.
 Setup asks for the key without showing it, so it stays out of your shell history. To script it, pipe the key in with `--key -` or set `KAMPUNG_KEY`. It checks the server and the key, then:
 
 - saves them to `~/.config/kampung/config.json`, readable only by you;
-- adds five hooks to `~/.claude/settings.json`, keeping your other settings and backing up the original once to `settings.json.kampung-backup`;
+- adds its hooks to `~/.claude/settings.json` (five events, and two more for [idle wake](#idle-wake) on Claude Code 2.1.321 or later), keeping your other settings and backing up the original once to `settings.json.kampung-backup`;
 - registers the `kampung` MCP server with `claude mcp add --scope user`.
 
 Restart Claude Code, and ask it to `list_peers`.
@@ -31,7 +31,7 @@ Hooks fail silently so that Kampung never gets in your agent's way, so a broken 
 kampung-mcp doctor
 ```
 
-It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration (including whether the registered interpreter can start the adapter, so a checkout whose `.venv` lags after an upgrade is named with the missing module and a `uv sync` fix), whether Claude Code is kept from loading the Claude app connector, whether new Codex windows can be bound at launch, the sessions open on this machine (naming any that run in the background), and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
+It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration (including whether the registered interpreter can start the adapter, so a checkout whose `.venv` lags after an upgrade is named with the missing module and a `uv sync` fix), whether [idle wake](#idle-wake) is on and whether each open session's last wake was confirmed, whether Claude Code is kept from loading the Claude app connector, whether new Codex windows can be bound at launch, the sessions open on this machine (naming any that run in the background), and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
 
 It can't see whether Codex has approved the hooks (`/hooks`), or whether this machine is paired with another: the dashboard's machines page shows that, and `list_peers` shows who an agent can reach.
 
@@ -45,7 +45,25 @@ Every request carries the machine key, so the server URL must be `https://`. Pla
 
 For a network you trust, such as Tailscale, `--allow-insecure-http` saves `"allow_insecure_http": true` and prints a warning each time setup or the adapter uses it. Tailscale addresses aren't allowed by default because `100.64.0.0/10` is also the range ISPs use for carrier-grade NAT, so off Tailscale the key could reach a host inside your ISP.
 
-## Wake idle sessions with Channels (experimental)
+## Idle wake
+
+An idle Claude Code session wakes within a few seconds of new mail, with nothing extra to launch. Setup turns it on when it finds Claude Code 2.1.321 or later, and says whether it did.
+
+Each session gets one file, `~/.cache/kampung/wake/<session id>`, which Claude Code watches. When mail that may wake the session arrives, the adapter writes to that file. A `FileChanged` hook then asks the server whether mail is really waiting and, if so, wakes the session with a nudge ("N Kampung message(s) waiting"). The message itself is still read through `inbox`.
+
+- **It needs Claude Code 2.1.321 or later, in the terminal CLI.** On an older version nothing changes: a session hears about mail between tool calls and at the end of a turn, or is woken through Channels if you set that up.
+- **Run setup again after upgrading Claude Code** to that version, with the flags you used before, then restart open sessions once. A session started before that has no wake file.
+- **Background sessions wake too** (`claude --bg`, `/background`, a background agent).
+- **`kampung-mcp doctor` shows its state** on the `idle wake` line: on, or off with the reason, how many open sessions have a confirmed wake, and any session whose last wake went unanswered.
+- **Only while the machine is awake.** A sleeping machine runs nothing, so the session reads its mail at its next turn.
+- **Not supported in the VS Code extension or the desktop app.** A session there may not wake; `doctor` names it when a wake goes unanswered.
+- **On Windows, verified for a session in a window.** A background session there is not yet checked. Where a wake does not land, the session behaves as it did before.
+
+A wake is not typing, so it does not refill the loop guard.
+
+## Channels (optional fallback)
+
+Channels is Claude Code's experimental push. With idle wake on, the adapter uses it only when a file wake goes unconfirmed, about 10 seconds after the mail arrives. On Claude Code older than 2.1.321 it is the only way to wake an idle session.
 
 ```bash
 kampung-mcp setup --server https://kampung.example.com --channels
@@ -54,7 +72,7 @@ claude --dangerously-load-development-channels server:kampung
 
 Claude Code asks you to confirm the development channel each time it starts, and needs version 2.1.80 or later. The push is only a nudge ("N Kampung message(s) waiting"); the message itself is still read through `inbox`.
 
-Push reaches only a window started with that flag. A conversation sent to the background (`/background`, `claude --bg`, a background agent) runs in a process Claude Code started without it, so it cannot be woken, even after `claude attach` brings it back to a terminal. To get push again, start a new window with the flag (`claude --dangerously-load-development-channels server:kampung --resume` picks the conversation back up).
+Push reaches only a window started with that flag. A conversation sent to the background (`/background`, `claude --bg`, a background agent) runs in a process Claude Code started without it, so Channels cannot wake it, even after `claude attach` brings it back to a terminal (idle wake can). To get push again, start a new window with the flag (`claude --dangerously-load-development-channels server:kampung --resume` picks the conversation back up).
 
 ## Codex
 
@@ -68,7 +86,7 @@ With the hooks approved, Codex behaves like Claude Code: mail is announced betwe
 
 If Codex runs with `approval_policy = "never"`, it refuses any MCP tool that would ask for approval, Kampung's included, so a woken session cannot read its mail. Let Kampung's tools run without asking by adding `default_tools_approval_mode = "approve"` under `[mcp_servers.kampung]` in `~/.codex/config.toml`.
 
-Use `--agent both` on a machine that runs both. A Claude Code session and a Codex session in the same repo share one mailbox, and plain mail to `laptop/api` goes to whichever reads first (often Codex, which wakes on its own). Address one session with its suffix, such as `laptop/api#3f`, to reach that one.
+Use `--agent both` on a machine that runs both. A Claude Code session and a Codex session in the same repo share one mailbox, and plain mail to `laptop/api` goes to whichever reads first. Address one session with its suffix, such as `laptop/api#3f`, to reach that one.
 
 ### New Codex windows
 
@@ -104,13 +122,13 @@ To send a file with a message, a session saves it in `kampung-outbox` at its pro
 
 ## When mail is seen
 
-| Session is | Claude Code without Channels | Claude Code with Channels, or Codex |
+| Session is | Claude Code 2.1.321 or later, or Codex | Older Claude Code |
 |---|---|---|
 | Working on a turn | Told between tool calls (at most every 30 seconds, only about new mail); reads it when it chooses | Same |
 | Finishing a turn | Keeps going once to read the mail | Same |
-| Idle, waiting for you | Only when you next type | Wakes within a few seconds and reads it (not Codex on Windows, which waits until you type) |
+| Idle, waiting for you | Wakes within a few seconds and reads it (not Codex on Windows, which waits until you type) | Only when you next type, unless it was started with [Channels](#channels-optional-fallback) |
 
-A Claude Code session in the background is never woken while idle: it reads mail when its turn ends. While a foreground window in the same mailbox is live, the background session leaves mailbox mail to the window and reads only mail sent to its own `#xx` (and mail the window itself sent to the mailbox, which the window never reads). A Claude app session does not count as a window. `list_peers` marks background sessions, so other agents can prefer the window.
+A Claude Code session in the background wakes like any other when idle wake is on. Without it, it is never woken while idle and reads mail when its turn ends. Either way, while a foreground window in the same mailbox is live, the background session leaves mailbox mail to the window and reads only mail sent to its own `#xx` (and mail the window itself sent to the mailbox, which the window never reads). A Claude app session does not count as a window. `list_peers` marks background sessions, so other agents can prefer the window: a background session works alone on one long job with nobody watching.
 
 If the server is slow or down, the hooks give up within seconds and the agent carries on.
 

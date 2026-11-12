@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import os
 import sys
+import time
 from typing import Any
 
 import pytest
@@ -95,6 +96,34 @@ def test_channel_nudge_on_new_wakeable_mail(
         ]
         peer_send(server, "laptop/api", "held one", held=True)  # wake = false
         assert not [m for m in mcp.read(5) if m.get("method")]
+    finally:
+        mcp.close()
+
+
+def test_file_wake_without_the_channels_flag(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    start = run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "cc-1",
+            "cwd": str(repo),
+            "source": "startup",
+        },
+        "--idle-wake",
+    )
+    assert start.returncode == 0 and "watchPaths" in start.stdout
+    mcp = RawMCP(home, repo)
+    try:
+        assert not experimental(mcp.initialize())
+        peer_send(server, "laptop/api", "hello")
+        end = time.time() + 5
+        while not hook.read_token(hook.wake_path("cc-1")) and time.time() < end:
+            mcp.read(0.1)
+        assert hook.read_token(hook.wake_path("cc-1"))
+        assert not [m for m in mcp.lines if m.get("method")]
     finally:
         mcp.close()
 
@@ -229,7 +258,7 @@ def test_an_outage_is_logged_once_however_its_error_reads(
     monkeypatch.setattr(adapter, "CHANNEL_MAX_BACKOFF", 0.001)
     resolver: Any = Found()
     loop = (
-        adapter._ChannelPush(resolver).poll()
+        adapter._WakePoller(resolver, True).poll()
         if poller == "channel"
         else adapter.CodexWaker(resolver, "codex").poll()
     )
@@ -278,7 +307,7 @@ async def test_push_when_one_message_replaces_another(
     fake_asyncio = SimpleNamespace(**vars(asyncio))
     fake_asyncio.sleep = fake_sleep
     monkeypatch.setattr(adapter, "asyncio", fake_asyncio)
-    push = adapter._ChannelPush(resolver)
+    push = adapter._WakePoller(resolver, True)
     push.session = Session()
     with pytest.raises(asyncio.CancelledError):
         await push.poll()

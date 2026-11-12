@@ -90,6 +90,21 @@ def test_register_takes_background(
     assert bad.status_code == 400
 
 
+def test_register_takes_idle_wake(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    r = client.post(
+        "/v1/sessions", headers=bearer(key), json={**BODY, "idle_wake": True}
+    )
+    assert r.status_code == 200
+    assert conn.execute("SELECT idle_wake FROM sessions").fetchone()[0] == 1
+    bad = client.post(
+        "/v1/sessions", headers=bearer(key), json={**BODY, "idle_wake": 1}
+    )
+    assert bad.status_code == 400
+
+
 def test_other_machines_session_looks_missing(
     client: TestClient, machines: Machines, conn: sqlite3.Connection
 ) -> None:

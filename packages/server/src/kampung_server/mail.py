@@ -248,9 +248,9 @@ def _decide(
     ):
         return d
     late = (
-        f"{peer} has only background sessions working now. Channels cannot "
-        "wake them, so it reads this when its current turn ends or when your "
-        "user attaches it (claude attach). Expect a late reply."
+        f"{peer} has only background sessions working now, and their client "
+        "cannot wake them. It reads this when its current turn ends or when "
+        "your user attaches it (claude attach). Expect a late reply."
     )
     return replace(
         d, note=d.note or "background", hint=f"{late} {d.hint}" if d.hint else late
@@ -265,10 +265,11 @@ def _background_only(
     now: datetime,
 ) -> bool:
     """Whether every live session the send can reach (never the sender's own)
-    runs in the background."""
+    runs in the background on a client that cannot wake it."""
     where = "id = ?" if target_session is not None else "mailbox_id = ?"
     rows = conn.execute(
-        f"SELECT background FROM sessions WHERE {where} AND ended_at IS NULL "
+        f"SELECT background, idle_wake FROM sessions WHERE {where} "
+        f"AND ended_at IS NULL "
         f"AND last_seen >= ? AND agent != '{CONNECTOR_AGENT}' AND id != ?",
         (
             target_session if target_session is not None else target_box,
@@ -276,7 +277,7 @@ def _background_only(
             sender_id,
         ),
     ).fetchall()
-    return bool(rows) and all(r["background"] for r in rows)
+    return bool(rows) and all(r["background"] and not r["idle_wake"] for r in rows)
 
 
 def _decide_wake(

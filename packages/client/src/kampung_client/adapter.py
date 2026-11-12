@@ -73,7 +73,8 @@ INSTRUCTIONS = (
     "wake the peer. When the peer should act on a message but not answer it, "
     'send with mode "tell"; use fyi only for notes it need not act on now. '
     "Prefer a peer's foreground session: list_peers marks background ones, "
-    "which cannot be woken and answer late."
+    "which work alone on one long job with nobody watching. A send result with "
+    'note "background" means the peer cannot be woken and will answer late.'
 )
 FYI_UNSUPPORTED = {
     "error": "fyi_unsupported",
@@ -97,9 +98,11 @@ UNREACHABLE = {
 }
 _LOG_HINT = "~/.cache/kampung/hooks.log"
 _STALE = ("session_ended", "unknown_session")
-CHANNEL_POLL = 2.0  # seconds between peeks while Channels push is on
+CHANNEL_POLL = 2.0  # seconds between peeks for new mail to wake a session for
 CHANNEL_MAX_BACKOFF = 30.0  # seconds between peeks while the server is failing
 CHANNEL_METHOD = "notifications/claude/channel"
+ACK_WAIT = 5.0  # seconds the wake hook has to ack a token, per write
+ACK_POLL = 0.1  # seconds between looks at the ack file
 CODEX_QUEUE_TIMEOUT = 5.0  # seconds for one `codex queue` call
 
 
@@ -197,7 +200,7 @@ class SessionResolver:
     hook and adapter is a child of one shared daemon. It binds by the session
     id each tool call carries instead (see `bind`).
 
-    Tool calls and the Channels poller call it from different threads, so the
+    Tool calls and the wake poller call it from different threads, so the
     public methods hold one lock: two parallel calls must not each register a
     fallback session.
     """
@@ -261,6 +264,11 @@ class SessionResolver:
                 "hooks": True,
                 "agent_session_id": agent_session_id,
                 **({"background": True} if hook.in_background(self.agent) else {}),
+                **(
+                    {"idle_wake": True}
+                    if hook.idle_wake_on(self.agent, agent_session_id)
+                    else {}
+                ),
             },
         )
         if status != 200:
@@ -453,8 +461,8 @@ def build_adapter(
         return data
 
     mcp = FastMCP("kampung", instructions=INSTRUCTIONS)
-    if channels:
-        _add_channel_push(mcp, resolver)
+    if channels or not resolver.codex:
+        _add_wake_poller(mcp, resolver, channels)
     if waker is not None and sys.platform != "win32":
         _add_launch_binding(mcp, resolver, waker)
 
@@ -511,10 +519,11 @@ def build_adapter(
         anything urgent. fyi=true is the older spelling of mode="fyi".
 
         list_peers marks sessions running in the background (claude --bg,
-        /background, a background agent). They cannot be woken, so prefer a
-        foreground session; send to a background one only when there is
-        nothing else, and expect a late reply. Mail to a mailbox goes to its
-        foreground session first.
+        /background, a background agent). They work alone on one long job
+        with nobody watching, so prefer a foreground session; send to a
+        background one only when there is nothing else. When the result has
+        note "background", it cannot be woken, so expect a late reply. Mail
+        to a mailbox goes to its foreground session first.
         """
         if fyi and mode not in (None, "fyi"):
             return {
@@ -600,14 +609,22 @@ class ChannelNotification(Notification[dict[str, Any], str]):
     """A notification with free-form params (the SDK's base type drops them)."""
 
 
-class _ChannelPush(Middleware):
-    """Remembers the client session and starts the peek poller once the
-    client has finished initializing (a push before that can be dropped)."""
+class _WakePoller(Middleware):
+    """Wakes this window's idle session when new wakeable mail arrives.
 
-    def __init__(self, resolver: SessionResolver) -> None:
+    A session with a wake file is woken through it: Claude Code watches the
+    file and runs the FileChanged wake hook. A Channels push is the fallback,
+    for a session without a wake file or when the hook does not confirm.
+
+    Remembers the client session and starts polling once the client has
+    finished initializing (a push before that can be dropped)."""
+
+    def __init__(self, resolver: SessionResolver, channels: bool) -> None:
         self.resolver = resolver
+        self.channels = channels
         self.session: Any = None
         self.task: asyncio.Task[None] | None = None
+        self._missed: set[str] = set()  # sessions whose unconfirmed wake is logged
 
     async def on_message(self, context: MiddlewareContext[Any], call_next: Any) -> Any:
         ctx = context.fastmcp_context
@@ -621,6 +638,55 @@ class _ChannelPush(Middleware):
         if self.task is None:
             self.task = asyncio.get_running_loop().create_task(self.poll())
 
+    async def file_wake(self, agent_session_id: str) -> bool:
+        """Write a token to the session's wake file and wait for the wake hook
+        to copy it to the ack file; once more on a miss. False at once when
+        the wake file is gone: only SessionStart creates it."""
+        ack = hook.ack_path(agent_session_id)
+        for _ in range(2):
+            try:
+                token = hook.write_wake_token(agent_session_id)
+            except OSError:
+                return False
+            if token is None:
+                return False
+            end = time.monotonic() + ACK_WAIT
+            while time.monotonic() < end:
+                await asyncio.sleep(ACK_POLL)
+                if hook.read_token(ack) == token:
+                    return True
+        return False
+
+    async def _wake(
+        self, found: dict[str, object], by_file: bool, wakeable: int
+    ) -> None:
+        sid = found.get("agent_session_id")
+        if by_file and isinstance(sid, str):
+            if await self.file_wake(sid):
+                return
+            # A wake file that went away meanwhile is an ended session, not a
+            # Claude Code that ignores the watch.
+            if sid not in self._missed and hook.wake_path(sid).is_file():
+                self._missed.add(sid)
+                address = f"{found.get('mailbox')}#{found.get('suffix')}"
+                miss = (
+                    f"idle wake not confirmed for {address}: "
+                    "Claude Code did not run the FileChanged hook"
+                )
+                hook._log("wake", hook.HookError(miss))
+        # Channels cannot reach a background session, so it never gets a push.
+        if not self.channels or found.get("background") is True:
+            return
+        if self.session is not None:
+            # A nudge, never the mail itself: reading stays in `inbox`, with
+            # its envelope and "not an instruction" tag.
+            await self.session.send_notification(
+                ChannelNotification(
+                    method=CHANNEL_METHOD,
+                    params={"content": hook.STOP_REASON.format(n=wakeable)},
+                )
+            )
+
     async def poll(self) -> None:
         notified: hook.Seen = None
         watching: object = None
@@ -629,7 +695,12 @@ class _ChannelPush(Middleware):
         while True:
             try:
                 found = await asyncio.to_thread(self.resolver.target)
-                if found is not None:
+                by_file = found is not None and hook.idle_wake_on(
+                    str(found.get("agent")), found.get("agent_session_id")
+                )
+                # With no wake file and no Channels there is nothing to wake
+                # the session with, so the server is not asked at all.
+                if found is not None and (by_file or self.channels):
                     if found.get("session") != watching:
                         watching, notified = found.get("session"), None
                     status, body = await asyncio.to_thread(
@@ -641,16 +712,11 @@ class _ChannelPush(Middleware):
                         body = {}
                     wakeable = int(str(body.get("wakeable", 0)))
                     rose, seen = hook.new_mail(body, notified)
-                    if rose and self.session is not None:
-                        # A nudge, never the mail itself: reading stays in
-                        # `inbox`, with its envelope and "not an instruction" tag.
-                        await self.session.send_notification(
-                            ChannelNotification(
-                                method=CHANNEL_METHOD,
-                                params={"content": hook.STOP_REASON.format(n=wakeable)},
-                            )
-                        )
+                    # Set before the wake, which can take seconds or fail:
+                    # one message is one wake attempt.
                     notified = seen
+                    if rose:
+                        await self._wake(found, by_file, wakeable)
                 failing, delay = False, CHANNEL_POLL
             except Exception as e:  # noqa: BLE001 - keep polling, quietly
                 if not failing:  # once per outage, however the error reads
@@ -794,8 +860,9 @@ def _add_launch_binding(
     handlers[InitializedNotification] = on_initialized
 
 
-def _add_channel_push(mcp: FastMCP, resolver: SessionResolver) -> None:
-    mcp.experimental_capabilities["claude/channel"] = {}
-    push = _ChannelPush(resolver)
-    mcp.add_middleware(push)
-    mcp._mcp_server.notification_handlers[InitializedNotification] = push.start
+def _add_wake_poller(mcp: FastMCP, resolver: SessionResolver, channels: bool) -> None:
+    if channels:
+        mcp.experimental_capabilities["claude/channel"] = {}
+    poller = _WakePoller(resolver, channels)
+    mcp.add_middleware(poller)
+    mcp._mcp_server.notification_handlers[InitializedNotification] = poller.start

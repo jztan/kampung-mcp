@@ -12,6 +12,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -40,7 +41,13 @@ MISSING_MODULE = re.compile(r"No module named '([^']+)'")
 INTERPRETER_PROBE = (
     "import kampung_client, kampung_client.adapter; print(kampung_client.__version__)"
 )
-POWERSHELL_HOOK = re.compile(r"& '((?:[^']|'')+)' '((?:[^']|'')+)'; exit 0")
+# The plain hook command in its PowerShell form: interpreter, script, flags.
+POWERSHELL_HOOK = re.compile(
+    r"& '((?:[^']|'')+)' '((?:[^']|'')+)'((?: --[a-z-]+)*); exit 0"
+)
+# Seconds a wake may wait for its answer before doctor calls it missed. The
+# adapter gives up on one after two rounds of 5.
+WAKE_SETTLE = 15.0
 
 
 @dataclass(frozen=True)
@@ -161,16 +168,23 @@ def _version_check(server_version: str) -> Check:
     )
 
 
+def _our_items(data: dict[str, Any], event: str) -> list[dict[str, Any]]:
+    """Our hook items on one event, in order."""
+    items = []
+    for entry in data.get("hooks", {}).get(event, []):
+        inner = entry.get("hooks") if isinstance(entry, dict) else None
+        for item in inner if isinstance(inner, list) else []:
+            if setup._is_ours(item):
+                items.append(item)
+    return items
+
+
 def _our_commands(data: dict[str, Any]) -> dict[str, str]:
     """Our hook command for each event that has one."""
     commands = {}
-    hooks = data.get("hooks", {})
     for event in setup.EVENTS:
-        for entry in hooks.get(event, []):
-            inner = entry.get("hooks") if isinstance(entry, dict) else None
-            for item in inner if isinstance(inner, list) else []:
-                if setup._is_ours(item):
-                    commands[event] = str(item["command"])
+        for item in _our_items(data, event):
+            commands[event] = str(item["command"])
     return commands
 
 
@@ -182,7 +196,8 @@ def _try_hook(command: str) -> tuple[str, str]:
     """
     powershell = POWERSHELL_HOOK.fullmatch(command)
     if powershell:
-        args = [part.replace("''", "'") for part in powershell.groups()]
+        args = [part.replace("''", "'") for part in powershell.groups()[:2]]
+        args += powershell.group(3).split()
     else:
         try:
             args = shlex.split(command)
@@ -229,6 +244,112 @@ def _hooks_check(agent: str, commands: dict[str, str], fix: str) -> Check:
     if agent == "codex":
         detail += "; Codex also needs them approved once with /hooks"
     return Check(OK, name, detail)
+
+
+def _has_flag(item: dict[str, Any], flag: str) -> bool:
+    """Whether a hook item's command passes this flag, in either shell's form
+    (`--wake;` in one, `--idle-wake ||` in the other)."""
+    command = str(item.get("command", ""))
+    return re.search(rf"(?<!\S){re.escape(flag)}(?![\w-])", command) is not None
+
+
+def _idle_wake_installed(data: dict[str, Any]) -> bool:
+    """Whether setup's idle wake entries are there: SessionStart makes the wake
+    file, FileChanged has the wake hook and the plain one, CwdChanged has the
+    plain one. Read by shape, not by path, so hooks written by another install
+    of the client count (the hooks check names that case)."""
+    changed = _our_items(data, "FileChanged")
+    return (
+        any(_has_flag(i, "--idle-wake") for i in _our_items(data, "SessionStart"))
+        and any(
+            i.get("asyncRewake") is True and _has_flag(i, "--wake") for i in changed
+        )
+        and any(i.get("asyncRewake") is not True for i in changed)
+        and bool(_our_items(data, "CwdChanged"))
+    )
+
+
+def _claude_version(query: Query) -> setup.Version | None:
+    try:
+        code, output = query(["claude", "--version"])
+    except OSError:
+        return None
+    return setup.parse_claude_version(output) if code == 0 else None
+
+
+def _last_wake(f: dict[str, object]) -> str:
+    """How the session's last file wake went: "confirmed", "missed", or ""
+    (none sent yet, one still in flight, or no wake file at all)."""
+    sid = f.get("agent_session_id")
+    if not isinstance(sid, str):
+        return ""
+    path = hook.wake_path(sid)
+    token = hook.read_token(path)
+    if not token:
+        return ""
+    if hook.read_token(hook.ack_path(sid)) == token:
+        return "confirmed"
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        return ""
+    return "missed" if age > WAKE_SETTLE else ""
+
+
+def _idle_wake_check(data: dict[str, Any], query: Query) -> Check:
+    """Whether an idle Claude Code session wakes for mail without Channels."""
+    name = "idle wake"
+    version = _claude_version(query)
+    floor = setup._dotted(setup.IDLE_WAKE_FLOOR)
+    older = ""  # set when Claude Code is below the floor
+    if version is not None and version < setup.IDLE_WAKE_FLOOR:
+        older = f"Claude Code {setup._dotted(version)} is older than {floor}"
+    if not _idle_wake_installed(data):
+        if version is None:
+            return Check(
+                WARN,
+                name,
+                "off: could not read the Claude Code version",
+                "Run kampung-mcp setup again once claude --version works.",
+            )
+        if older:
+            return Check(
+                WARN,
+                name,
+                f"off: {older}",
+                "Upgrade Claude Code, then run kampung-mcp setup again.",
+            )
+        return Check(
+            WARN,
+            name,
+            "off: the idle wake hooks are not installed",
+            "Run kampung-mcp setup again.",
+        )
+    if older:
+        return Check(
+            WARN, name, f"{older}; idle wake may not work", "Upgrade Claude Code."
+        )
+    files = [f for f in _open_sessions() if f.get("agent") == "claude-code"]
+    wakes = [_last_wake(f) for f in files]
+    missed = [
+        f"{f.get('mailbox')}#{f.get('suffix')}"
+        for f, wake in zip(files, wakes)
+        if wake == "missed"
+    ]
+    if missed:
+        return Check(
+            WARN,
+            name,
+            f"{', '.join(missed)}: the last wake was not confirmed",
+            "Idle wake needs the Claude Code terminal CLI (not the VS Code "
+            "extension or the desktop app). Restart the session; see hooks.log.",
+        )
+    return Check(
+        OK,
+        name,
+        f"on; {len(files)} open session(s), {wakes.count('confirmed')} with a "
+        "confirmed wake",
+    )
 
 
 def _mcp_check(agent: str, program: str, query: Query, fix: str) -> Check | None:
@@ -319,9 +440,10 @@ def _agent_checks(
     fix = f"Run kampung-mcp setup --server URL --agent {agent}."
     mcp = _mcp_check(agent, program, query, fix)
     try:
-        commands = _our_commands(setup._load_hooks_file(hooks_file))
+        data = setup._load_hooks_file(hooks_file)
     except setup.SetupError as e:
         return [c for c in (Check(FAIL, f"{agent} hooks", str(e)), mcp) if c]
+    commands = _our_commands(data)
     registered = mcp is not None and mcp.status != WARN
     if not commands and not registered:
         return []
@@ -331,7 +453,9 @@ def _agent_checks(
         return [mcp]
     if agent == "codex":
         return [_hooks_check(agent, commands, fix), mcp, _codex_launch_check()]
-    return [_hooks_check(agent, commands, fix), mcp]
+    if not commands:  # no hooks of ours: the hooks check says so, once
+        return [_hooks_check(agent, commands, fix), mcp]
+    return [_hooks_check(agent, commands, fix), _idle_wake_check(data, query), mcp]
 
 
 def _url_denied(pattern: object, url: str) -> bool:
@@ -459,11 +583,16 @@ def _open(f: dict[str, object]) -> bool:
     return live is not None and live[1] == first[1]
 
 
+def _open_sessions() -> list[dict[str, object]]:
+    """The session files of hooked sessions whose agent still runs."""
+    return [f for f in hook.list_session_files() if f.get("hooks") and _open(f)]
+
+
 def _sessions_check() -> Check:
     """The sessions this machine's hooks registered, with background ones named:
     a background session gets no Channels push and leaves mailbox mail to a
     window in the same mailbox."""
-    files = [f for f in hook.list_session_files() if f.get("hooks") and _open(f)]
+    files = _open_sessions()
     if not files:
         return Check(OK, "sessions", "no open sessions")
     background = [f for f in files if f.get("background") is True]
@@ -473,7 +602,8 @@ def _sessions_check() -> Check:
         names = ", ".join(f"{f.get('mailbox')}#{f.get('suffix')}" for f in background)
         detail += (
             f" ({names}: background sessions get no Channels push and leave "
-            "mailbox mail to a window there)"
+            "mailbox mail to a window there; with idle wake on they wake like "
+            "any other)"
         )
     return Check(OK, "sessions", detail)
 
