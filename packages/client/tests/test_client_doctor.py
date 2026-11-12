@@ -986,7 +986,12 @@ def test_idle_wake_is_on_when_the_hooks_come_from_another_install(
     other.parent.mkdir(parents=True)
     other.write_text("")
     path = _install_hooks(home)
-    path.write_text(path.read_text().replace(hook.__file__, str(other)))
+    # In the file a Windows path has every backslash doubled, so swap the
+    # JSON spelling of the path, and make sure something was swapped.
+    ours, theirs = json.dumps(hook.__file__)[1:-1], json.dumps(str(other))[1:-1]
+    before = path.read_text()
+    assert ours in before
+    path.write_text(before.replace(ours, theirs))
     checks = doctor.run_checks(_claude_at("2.1.322"))
     assert _by_name(checks, "claude-code hooks").status == doctor.WARN
     assert _by_name(checks, "idle wake") == doctor.Check(

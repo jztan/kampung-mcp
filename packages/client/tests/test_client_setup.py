@@ -1033,7 +1033,11 @@ def test_wake_command_exits_0_when_the_interpreter_is_gone(
 
 
 POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
-needs_powershell = pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell here")
+# Never skipped on Windows: there a missing PowerShell fails these tests, so a
+# green Windows run means the wrappers really ran.
+needs_powershell = pytest.mark.skipif(
+    POWERSHELL is None and sys.platform != "win32", reason="no PowerShell here"
+)
 
 
 @needs_powershell
