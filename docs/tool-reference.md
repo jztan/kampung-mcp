@@ -129,7 +129,7 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 
 ### Owner instructions
 
-`mode: "instruct"` is accepted only from a Claude app connection the operator marked with `kampung owner add`; anything else gets `owner_only`, checked before anything else and audited. The adapter's `send` does not offer it. An owner instruction carries no attachment, goes to one session working in the target repo now, and adds `to` to the result: the session it went to, `machine/repo#xx`.
+`mode: "instruct"` is accepted only from a Claude app connection the operator marked with `kampung owner add`; anything else gets `owner_only`, audited, and checked before any address, mailbox or session lookup. The adapter's `send` does not offer it. An owner instruction carries no attachment, goes to one session working in the target repo now, and adds `to` to the result: the session it went to, `machine/repo#xx`.
 
 | Target | Goes to |
 |---|---|
