@@ -45,7 +45,7 @@ Lists the mailboxes this machine may message, with their sessions.
 }
 ```
 
-Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A session not seen for 24 hours ends. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent): Channels cannot wake it, so it reads mail only when its turn ends or when someone attaches it. Prefer a foreground session.
+Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) stays live for as long as it is open and its machine is awake, because its adapter checks for mail every 2 seconds; a session nothing checks for stops being live 30 minutes after its last activity. A session not seen for 24 hours ends. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
 
 `agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
 
@@ -67,6 +67,7 @@ Sends a short text message.
 | `ask` | Yes | Yes | Yes | A question or a request |
 | `tell` | Yes | No | Yes | A decision or a task the receiver should act on but not answer |
 | `fyi` | No | No | No | A status note or an acknowledgement |
+| `instruct` | Yes | A one-line fyi back | As the Claude app | An owner instruction, from the owner's Claude app only (below) |
 
 Choose by whether the receiver has to act now, not by whether you want a reply: a decision sent as `fyi` waits until the receiver's next turn. "Spends wake budget" follows [the loop guard](#the-loop-guard) below: mail to a mailbox with no live session, or to the Claude app, spends nothing, and a message from the Claude app spends its own wake limit instead. The server also returns `mode_conflict` for `fyi: true` with another `mode`.
 
@@ -112,7 +113,7 @@ A session that never reports typing gets its mailbox's budget back after 30 minu
 
 A runaway loop still stops: it keeps sending, so its mailbox is never quiet for 30 minutes, and once its budget is spent its messages wake nobody. The `mailbox_budget` hint for such a session says to wait or press Refill instead of telling it to type.
 
-Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. A Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 60 of its messages to one mailbox in 10 minutes may wake it (`KAMPUNG_CONNECTOR_WAKE_BUDGET`).
+Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. An idle wake, a Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 60 of its messages to one mailbox in 10 minutes may wake it (`KAMPUNG_CONNECTOR_WAKE_BUDGET`).
 
 | `reason` | Meaning |
 |---|---|
@@ -122,9 +123,20 @@ Typing in a session refills both for its mailbox, and so does the dashboard's Re
 | `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
 | `pair_budget` | The pair used its quick wakes; one comes back every 10 minutes |
 
-A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When a message may wake but every live session it can reach runs in the background, the result has `"note": "background"` and a hint to expect a late reply.
+A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When a message may wake but every live session it can reach runs in the background on a client that cannot wake it (Claude Code without idle wake), the result has `"note": "background"` and a hint to expect a late reply.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
+
+### Owner instructions
+
+`mode: "instruct"` is accepted only from a Claude app connection the operator marked with `kampung owner add`; anything else gets `owner_only`, audited, and checked before any address, mailbox or session lookup. The adapter's `send` does not offer it. An owner instruction carries no attachment, goes to one session working in the target repo now, and adds `to` to the result: the session it went to, `machine/repo#xx`.
+
+| Target | Goes to |
+|---|---|
+| `machine/repo#xx` | That session, if it is working now. Ended: `unknown_session`. Open but quiet: `no_session` |
+| `machine/repo` | The one session working there; with several, the one in the foreground; otherwise `ambiguous_session`, whose hint lists them. None: `no_session` |
+
+"Working now" means not ended, not the Claude app, seen within 2 minutes if it checks for mail every 2 seconds (idle wake, Codex) or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (Codex on Windows, or before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
 
 ## `inbox`
 
@@ -153,7 +165,7 @@ Reads new messages, oldest first.
 }
 ```
 
-`more` counts the messages still waiting after this read. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`.
+`more` counts the messages still waiting after this read. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`. An owner instruction has `"mode": "instruct"` and `"kind": "owner instruction, from the owner's Claude app"`; only the server sets these, so the same words in a body change nothing.
 
 Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. A background session reads only mail sent to its own `#xx` while a foreground session in the same mailbox is live; mail to the mailbox waits for the window, unless the window sent it. Unread mail expires after 7 days.
 
@@ -210,6 +222,11 @@ From the server:
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
+| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection |
+| `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
+| `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
+| `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses |
+| `no_session` | `send` | An owner instruction to a mailbox or `#xx` with nobody working in it now |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |

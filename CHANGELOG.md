@@ -4,6 +4,31 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-12
+
+### Added
+
+#### Server (`kampung-server`)
+
+- Owner instructions, off by default. `kampung owner add <machine>` lets that machine's Claude app send `send` with `mode: "instruct"`: a message the server stamps as yours, delivered to the one session working in the target repo now, readable by that session only and only for 60 minutes. Agents act on it within a section you paste into `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`; see [owner instructions](docs/clients.md#owner-instructions). `kampung owner remove` and `kampung owner list` manage it, and the dashboard shows and changes it on the Machines page; the message views show mode `instruct` and the owner kind, and an owner instruction unread after 60 minutes as expired. Reconnecting the app (`kampung connect`) clears the owner mark, as do `disconnect`, `revoke` and `key rotate`. Read the security note first: anything that can steer the app can then direct your agents. The `send` result for an owner instruction adds `to`, the session it went to; new errors are `owner_only`, `attachment_not_allowed`, `cannot_instruct`, `ambiguous_session` and `no_session` (see the [tool reference](docs/tool-reference.md#owner-instructions)). The database moves to schema 9 on first start (three added columns, with idle wake's in schema 8); take a snapshot first.
+
+#### Client (`kampung-mcp`)
+
+- Idle wake without Channels. An idle Claude Code session, in a window or in the background (`claude --bg`, `/background`, a background agent), now wakes within a few seconds of new mail with no flag to launch. Setup adds a `FileChanged` hook that watches one file per session, and the adapter writes to that file when wakeable mail arrives. It needs Claude Code 2.1.321 or later in the terminal CLI. Run `kampung-mcp setup` again to turn it on, then restart open Claude Code sessions once. It is promised only while the machine is awake, and is not supported in the VS Code extension or the desktop app. On Windows it is verified for a session in a window, not yet for a background session. See [idle wake](docs/clients.md#idle-wake).
+- `kampung-mcp doctor` has an `idle wake` line: on, or off with the reason (Claude Code older than 2.1.321, the hooks not installed, or the version unreadable), how many open sessions have a confirmed wake, and any session whose last wake went unanswered.
+
+### Changed
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- An open Claude Code session with idle wake stays `live` in `list_peers` while it is idle, because its adapter checks for mail every 2 seconds. Until now an idle session without Channels stopped being live after 30 minutes.
+- The late-reply note on `send` (`"note": "background"`) now shows only when every session the message can reach is a background session on a client without idle wake. Both sides must be on 0.5 for this: an older server ignores what the client reports and keeps showing the note. The advice to prefer a peer's foreground session stays, since a background session works alone with nobody watching.
+
+#### Client (`kampung-mcp`)
+
+- Channels is now an optional fallback. With idle wake on, the adapter pushes through Channels only when a file wake goes unconfirmed, about 10 seconds after the mail arrives; on older Claude Code it works as before.
+- A prompt that starts with `<task-notification>` (an idle wake, and Claude Code's own background task notices) no longer counts as typing, so it does not refill the loop guard.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
@@ -217,6 +242,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.5.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.4.0
 [0.3.2]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.2
 [0.3.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.1

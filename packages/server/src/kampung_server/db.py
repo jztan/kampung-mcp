@@ -10,7 +10,7 @@ from pathlib import Path
 # A schema file is frozen once it is pushed: a database at version n never
 # runs schema_<n>.sql again, so a later edit never reaches it, and anyone may
 # have run a pushed develop build. Changes go in a new file.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 # Deleted attachments give space back, and the WAL is trimmed after a
 # checkpoint, so a busy week cannot leave the volume full.
 JOURNAL_SIZE_LIMIT = 64 * 1024 * 1024

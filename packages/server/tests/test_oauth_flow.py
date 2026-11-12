@@ -435,3 +435,49 @@ def test_parallel_refreshes_of_different_tokens_each_keep_their_retry(
         + [lambda: refresh(server, b["refresh_token"])]
     )
     assert all(r.status_code == 200 for r in again), [r.text for r in again]
+
+
+async def test_tool_send_instruct_needs_an_owner_grant(server: Server) -> None:
+    tokens = connect(server)
+    register(server, "desktop", "blog")
+    args = {"to": "desktop/blog", "body": "merge it", "mode": "instruct"}
+    async with client_for(server, tokens["access_token"]) as phone:
+        r = await phone.call_tool("send", args)
+        assert r.data["error"] == "owner_only"
+        server.admin.owner_add("phone", "admin:cli")
+        r = await phone.call_tool("send", args)
+        assert r.data["wake"] is True and r.data["to"].startswith("desktop/blog#")
+    desktop = register(server, "desktop", "api")
+    async with Client(
+        StreamableHttpTransport(
+            f"{server.url}/mcp",
+            headers={
+                "Authorization": f"Bearer {server.keys['desktop']}",
+                "x-kampung-session": desktop,
+            },
+        )
+    ) as d:
+        r = await d.call_tool("send", {**args, "to": "phone/claude"})
+        assert r.data["error"] == "owner_only"
+
+
+def test_send_description_mentions_instruct() -> None:
+    from kampung_server.guard import GuardSettings
+    from kampung_server.tools import send_description
+
+    text = " ".join(send_description(GuardSettings()).split())
+    assert 'mode "instruct"' in text
+    assert "When the owner, in this conversation, asks you" in text
+
+
+def test_send_description_maps_owner_requests_to_instruct() -> None:
+    # Real check 2: "tell desktop/api to merge it" went out as a plain ask,
+    # because the model matched the word "tell" to mode "tell".
+    from kampung_server.guard import GuardSettings
+    from kampung_server.tools import send_description
+
+    text = " ".join(send_description(GuardSettings()).split())
+    assert '"tell X to ..."' in text and '"have X ..."' in text
+    assert 'use mode "instruct"' in text
+    assert 'even when he says "tell"' in text
+    assert '"ask X whether ..."' in text

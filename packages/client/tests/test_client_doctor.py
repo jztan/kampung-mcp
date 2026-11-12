@@ -4,8 +4,11 @@ import shutil
 import socket
 import sys
 import tempfile
+import time
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,6 +21,8 @@ def _registered(cmd: list[str]) -> tuple[int, str]:
 
 
 def _claude_registered(cmd: list[str]) -> tuple[int, str]:
+    if cmd == ["claude", "--version"]:
+        return 0, "2.1.322 (Claude Code)"
     return _registered(cmd) if cmd[0] == "claude" else _unregistered(cmd)
 
 
@@ -29,13 +34,15 @@ def _no_agent_cli(cmd: list[str]) -> tuple[int, str]:
     raise FileNotFoundError(cmd[0])
 
 
-def _install_hooks(home: Path, command: str | None = None) -> Path:
-    setup._merge_hooks(
-        setup._claude_settings_path(),
-        {},
-        command or setup.hook_command(hook.__file__),
-        5,
-    )
+def _install_hooks(
+    home: Path, command: str | None = None, idle_wake: bool = True
+) -> Path:
+    """What setup writes for Claude Code, or `command` on the five events."""
+    items = setup.claude_hook_items(idle_wake, setup._windows())
+    if command is not None:
+        item = {"type": "command", "command": command, "timeout": 5}
+        items = {event: [item] for event in setup.EVENTS}
+    setup._merge_hooks(setup._claude_settings_path(), {}, items)
     return setup._claude_settings_path()
 
 
@@ -116,6 +123,7 @@ def test_a_healthy_machine_passes_every_check(home: Path, server: LiveServer) ->
         "key",
         "version",
         "claude-code hooks",
+        "idle wake",
         "claude-code mcp",
         "claude-code connector",
         "sessions",
@@ -483,7 +491,14 @@ def test_recent_hook_failures_warn_with_the_latest(
     assert "too old" not in log.detail
 
 
-def _session_file(sid: str, mailbox: str, background: bool, pid: int) -> None:
+def _session_file(
+    sid: str,
+    mailbox: str,
+    background: bool,
+    pid: int,
+    agent: str = "claude-code",
+    hooks: bool = True,
+) -> None:
     start = hook._lookup(pid)
     assert start is not None
     hook.write_session_file(
@@ -492,7 +507,9 @@ def _session_file(sid: str, mailbox: str, background: bool, pid: int) -> None:
             "session": "1",
             "suffix": sid[-2:],
             "mailbox": mailbox,
-            "hooks": True,
+            "hooks": hooks,
+            "agent": agent,
+            "agent_session_id": sid,
             "background": background,
             "ancestors": [[pid, start[1]]],
         },
@@ -698,3 +715,378 @@ def test_a_broken_registration_still_fails_when_the_version_differs(
 )
 def test_url_deny_matching_follows_claude_code(pattern: str, denied: bool) -> None:
     assert doctor._url_denied(pattern, "https://mail.example.com/mcp") is denied
+
+
+# Idle wake ----------------------------------------------------------------
+
+IDLE_RESTART = (
+    "Idle wake needs the Claude Code terminal CLI (not the VS Code extension or "
+    "the desktop app). Restart the session; see hooks.log."
+)
+
+
+def _claude_says(answer: tuple[int, str] | OSError) -> doctor.Query:
+    """Claude Code set up, with this answer to `claude --version`."""
+
+    def query(cmd: list[str]) -> tuple[int, str]:
+        if cmd == ["claude", "--version"]:
+            if isinstance(answer, OSError):
+                raise answer
+            return answer
+        return _claude_registered(cmd)
+
+    return query
+
+
+def _claude_at(version: str) -> doctor.Query:
+    return _claude_says((0, f"{version} (Claude Code)"))
+
+
+UNREADABLE = [
+    (1, "2.1.322 (Claude Code)"),
+    (0, "no version here"),
+    FileNotFoundError("claude"),
+    TimeoutError("claude --version"),
+]
+
+
+def _wake(sid: str, acked: bool, age: float = 0.0) -> None:
+    """A wake sent to the session `age` seconds ago, answered or not."""
+    hook.ensure_wake_file(sid)
+    assert hook.write_wake_token(sid)
+    if acked:
+        hook.write_ack(sid)
+    at = time.time() - age
+    os.utime(hook.wake_path(sid), (at, at))
+
+
+def _idle_wake(query: doctor.Query) -> doctor.Check:
+    return _by_name(doctor.run_checks(query), "idle wake")
+
+
+def test_idle_wake_comes_right_after_the_hooks_check(
+    home: Path, server: LiveServer
+) -> None:
+    names = [c.name for c in _healthy(server, home)]
+    assert names.index("idle wake") == names.index("claude-code hooks") + 1
+
+
+def test_idle_wake_off_on_old_claude_code(home: Path, server: LiveServer) -> None:
+    _install_hooks(home, idle_wake=False)
+    assert _idle_wake(_claude_at("2.1.320")) == doctor.Check(
+        doctor.WARN,
+        "idle wake",
+        "off: Claude Code 2.1.320 is older than 2.1.321",
+        "Upgrade Claude Code, then run kampung-mcp setup again.",
+    )
+
+
+@pytest.mark.parametrize("version", ["2.1.321", "2.1.322", "3.0.0"])
+def test_idle_wake_off_when_not_installed(
+    home: Path, server: LiveServer, version: str
+) -> None:
+    _install_hooks(home, idle_wake=False)
+    assert _idle_wake(_claude_at(version)) == doctor.Check(
+        doctor.WARN,
+        "idle wake",
+        "off: the idle wake hooks are not installed",
+        "Run kampung-mcp setup again.",
+    )
+
+
+@pytest.mark.parametrize("answer", UNREADABLE, ids=repr)
+def test_idle_wake_off_when_the_version_is_unreadable(
+    home: Path, server: LiveServer, answer: tuple[int, str] | OSError
+) -> None:
+    _install_hooks(home, idle_wake=False)
+    assert _idle_wake(_claude_says(answer)) == doctor.Check(
+        doctor.WARN,
+        "idle wake",
+        "off: could not read the Claude Code version",
+        "Run kampung-mcp setup again once claude --version works.",
+    )
+
+
+def test_idle_wake_installed_on_old_claude_code_warns(
+    home: Path, server: LiveServer
+) -> None:
+    _install_hooks(home)
+    assert _idle_wake(_claude_at("2.1.320")) == doctor.Check(
+        doctor.WARN,
+        "idle wake",
+        "Claude Code 2.1.320 is older than 2.1.321; idle wake may not work",
+        "Upgrade Claude Code.",
+    )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [_claude_at("2.1.321"), _claude_at("2.2.0"), _claude_says((1, ""))],
+    ids=["floor", "newer", "unreadable"],
+)
+def test_idle_wake_on_counts_confirmed_sessions(
+    home: Path, server: LiveServer, query: doctor.Query
+) -> None:
+    _install_hooks(home)
+    _session_file("cc-aa", "laptop/api", False, os.getpid())
+    _wake("cc-aa", acked=True, age=60)
+    _session_file("cc-bb", "laptop/api", True, os.getpid())
+    hook.ensure_wake_file("cc-bb")  # no wake sent yet
+    _session_file("cc-dd", "laptop/blog", False, os.getpid())  # no wake file
+    # Not counted: Codex, a session without hooks, and a process that ended.
+    _session_file("cx-ee", "laptop/api", False, os.getpid(), agent="codex")
+    _wake("cx-ee", acked=False, age=60)
+    _session_file("cc-ff", "laptop/api", False, os.getpid(), hooks=False)
+    _wake("cc-ff", acked=False, age=60)
+    hook.write_session_file(
+        "cc-gg",
+        {
+            "session": "9",
+            "suffix": "gg",
+            "mailbox": "laptop/old",
+            "hooks": True,
+            "agent": "claude-code",
+            "agent_session_id": "cc-gg",
+            "background": False,
+            "ancestors": [[os.getpid(), "not its start time"]],
+        },
+    )
+    _wake("cc-gg", acked=False, age=60)
+    assert _idle_wake(query) == doctor.Check(
+        doctor.OK, "idle wake", "on; 3 open session(s), 1 with a confirmed wake"
+    )
+
+
+def test_idle_wake_on_with_no_open_sessions(home: Path, server: LiveServer) -> None:
+    _install_hooks(home)
+    assert _idle_wake(_claude_at("2.1.322")) == doctor.Check(
+        doctor.OK, "idle wake", "on; 0 open session(s), 0 with a confirmed wake"
+    )
+
+
+def test_idle_wake_warns_for_a_session_whose_last_wake_was_missed(
+    home: Path, server: LiveServer
+) -> None:
+    _install_hooks(home)
+    _session_file("cc-aa", "laptop/api", False, os.getpid())
+    _wake("cc-aa", acked=False, age=60)
+    _session_file("cc-bb", "laptop/api", False, os.getpid())
+    _wake("cc-bb", acked=True, age=60)
+    assert _idle_wake(_claude_at("2.1.322")) == doctor.Check(
+        doctor.WARN,
+        "idle wake",
+        "laptop/api#aa: the last wake was not confirmed",
+        IDLE_RESTART,
+    )
+
+
+def test_idle_wake_names_every_session_that_missed_its_wake(
+    home: Path, server: LiveServer
+) -> None:
+    _install_hooks(home)
+    _session_file("cc-aa", "laptop/api", False, os.getpid())
+    _wake("cc-aa", acked=False, age=60)
+    # An earlier wake was answered, the latest one was not.
+    _session_file("cc-bb", "laptop/blog", True, os.getpid())
+    _wake("cc-bb", acked=True, age=600)
+    _wake("cc-bb", acked=False, age=60)
+    check = _idle_wake(_claude_says((1, "")))
+    assert check.status == doctor.WARN
+    assert check.detail == (
+        "laptop/api#aa, laptop/blog#bb: the last wake was not confirmed"
+    )
+    assert check.fix == IDLE_RESTART
+
+
+def test_a_wake_in_flight_is_not_a_miss(home: Path, server: LiveServer) -> None:
+    _install_hooks(home)
+    _session_file("cc-aa", "laptop/api", False, os.getpid())
+    _wake("cc-aa", acked=False, age=doctor.WAKE_SETTLE - 5)
+    assert _idle_wake(_claude_at("2.1.322")) == doctor.Check(
+        doctor.OK, "idle wake", "on; 1 open session(s), 0 with a confirmed wake"
+    )
+    _wake("cc-aa", acked=False, age=doctor.WAKE_SETTLE + 5)
+    assert _idle_wake(_claude_at("2.1.322")).status == doctor.WARN
+
+
+def test_the_wake_settle_time_is_15_seconds() -> None:
+    assert doctor.WAKE_SETTLE == 15.0
+
+
+def test_idle_wake_reads_a_session_file_without_an_id(
+    home: Path, server: LiveServer
+) -> None:
+    _install_hooks(home)
+    hook.write_session_file(
+        "cc-aa",
+        {
+            "session": "1",
+            "suffix": "aa",
+            "mailbox": "laptop/api",
+            "hooks": True,
+            "agent": "claude-code",
+            "agent_session_id": None,
+            "ancestors": [],
+        },
+    )
+    assert _idle_wake(_claude_at("2.1.322")) == doctor.Check(
+        doctor.OK, "idle wake", "on; 1 open session(s), 0 with a confirmed wake"
+    )
+
+
+def _drop(event: str, keep: Callable[[dict[str, Any]], bool]) -> Callable[..., None]:
+    def change(hooks: dict[str, Any]) -> None:
+        entry = hooks[event][0]
+        entry["hooks"] = [item for item in entry["hooks"] if keep(item)]
+
+    return change
+
+
+def _plain_session_start(hooks: dict[str, Any]) -> None:
+    item = hooks["SessionStart"][0]["hooks"][0]
+    item["command"] = item["command"].replace(" --idle-wake", "")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        _plain_session_start,
+        lambda hooks: hooks.pop("FileChanged"),
+        lambda hooks: hooks.pop("CwdChanged"),
+        _drop("FileChanged", lambda item: "asyncRewake" not in item),
+        _drop("FileChanged", lambda item: "asyncRewake" in item),
+        _drop("CwdChanged", lambda item: False),
+    ],
+    ids=[
+        "SessionStart without the flag",
+        "no FileChanged",
+        "no CwdChanged",
+        "no wake hook",
+        "no plain FileChanged hook",
+        "CwdChanged emptied",
+    ],
+)
+def test_idle_wake_is_off_when_part_of_it_is_missing(
+    home: Path, server: LiveServer, change: Callable[[dict[str, Any]], object]
+) -> None:
+    path = _install_hooks(home)
+    data = json.loads(path.read_text())
+    change(data["hooks"])
+    path.write_text(json.dumps(data))
+    check = _idle_wake(_claude_at("2.1.322"))
+    assert check.status == doctor.WARN
+    assert check.detail == "off: the idle wake hooks are not installed"
+
+
+def test_idle_wake_is_on_when_the_hooks_come_from_another_install(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    """A doctor run from a checkout, with hooks that a tool install wrote."""
+    other = tmp_path / "tool" / "kampung_client" / "hook.py"
+    other.parent.mkdir(parents=True)
+    other.write_text("")
+    path = _install_hooks(home)
+    # In the file a Windows path has every backslash doubled, so swap the
+    # JSON spelling of the path, and make sure something was swapped.
+    ours, theirs = json.dumps(hook.__file__)[1:-1], json.dumps(str(other))[1:-1]
+    before = path.read_text()
+    assert ours in before
+    path.write_text(before.replace(ours, theirs))
+    checks = doctor.run_checks(_claude_at("2.1.322"))
+    assert _by_name(checks, "claude-code hooks").status == doctor.WARN
+    assert _by_name(checks, "idle wake") == doctor.Check(
+        doctor.OK, "idle wake", "on; 0 open session(s), 0 with a confirmed wake"
+    )
+
+
+def test_idle_wake_ignores_other_tools_hooks_on_its_events(
+    home: Path, server: LiveServer
+) -> None:
+    path = _install_hooks(home, idle_wake=False)
+    data = json.loads(path.read_text())
+    other = {"type": "command", "command": "direnv reload --wake", "asyncRewake": True}
+    data["hooks"]["FileChanged"] = [{"matcher": ".envrc", "hooks": [other]}, "junk"]
+    data["hooks"]["CwdChanged"] = [{"hooks": [other]}, {"hooks": "junk"}]
+    path.write_text(json.dumps(data))
+    assert _idle_wake(_claude_at("2.1.322")).detail == (
+        "off: the idle wake hooks are not installed"
+    )
+
+
+def test_codex_only_machine_has_no_idle_wake_check(
+    home: Path, server: LiveServer
+) -> None:
+    def codex_only(cmd: list[str]) -> tuple[int, str]:
+        return _registered(cmd) if cmd[0] == "codex" else _unregistered(cmd)
+
+    setup._merge_codex_hooks({})
+    names = [c.name for c in doctor.run_checks(codex_only)]
+    assert "codex mcp" in names
+    assert "idle wake" not in names
+
+
+def test_no_idle_wake_check_without_claude_code_hooks(
+    home: Path, server: LiveServer
+) -> None:
+    """Registered with Claude Code but no hooks of ours: the hooks check says so."""
+    checks = doctor.run_checks(_claude_registered)
+    assert _by_name(checks, "claude-code hooks").status == doctor.FAIL
+    assert "idle wake" not in [c.name for c in checks]
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_the_hooks_check_runs_a_command_with_flags(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch, windows: bool
+) -> None:
+    monkeypatch.setattr(setup, "_windows", lambda: windows)
+    path = _install_hooks(home)
+    start = json.loads(path.read_text())["hooks"]["SessionStart"][0]["hooks"][0]
+    assert " --idle-wake" in start["command"]
+    assert ("shell" in start) is windows
+    checks = doctor.run_checks(_claude_registered)
+    assert _by_name(checks, "claude-code hooks") == doctor.Check(
+        doctor.OK, "claude-code hooks", "all 5 events run"
+    )
+    assert _by_name(checks, "idle wake").status == doctor.OK
+
+
+def _flag_checker(tmp_path: Path) -> Path:
+    """A stand-in hook that fails unless it is run with exactly --idle-wake."""
+    script = tmp_path / "it's here" / "kampung_client" / "hook.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "import sys\nraise SystemExit(0 if sys.argv[1:] == ['--idle-wake'] else 3)\n"
+    )
+    return script
+
+
+@pytest.mark.parametrize(
+    "command", [setup.hook_command, setup.powershell_hook_command], ids=["sh", "ps"]
+)
+def test_try_hook_passes_the_flags_on(
+    tmp_path: Path, command: Callable[..., str]
+) -> None:
+    script = _flag_checker(tmp_path)
+    # WARN, not FAIL: it ran and exited 0, and it is not this install's hook.
+    status, detail = doctor._try_hook(command(str(script), "--idle-wake"))
+    assert (status, "hooks run" in detail) == (doctor.WARN, True)
+    status, detail = doctor._try_hook(command(str(script)))
+    assert (status, detail) == (doctor.FAIL, "the hook failed with exit 3")
+
+
+def test_try_hook_does_not_read_the_wake_command_as_the_powershell_form() -> None:
+    """Only the plain form is run by doctor; the wake wrapper must not match."""
+    command = setup.powershell_wake_hook_command(hook.__file__)
+    assert doctor.POWERSHELL_HOOK.fullmatch(command) is None
+
+
+def test_background_sessions_note_says_idle_wake_reaches_them(
+    home: Path, server: LiveServer
+) -> None:
+    _session_file("cc-bb", "laptop/api", True, os.getpid())
+    check = _by_name(_healthy(server, home), "sessions")
+    assert check.detail == (
+        "0 window(s), 1 background (laptop/api#bb: background sessions get no "
+        "Channels push and leave mailbox mail to a window there; with idle wake "
+        "on they wake like any other)"
+    )

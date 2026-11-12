@@ -104,6 +104,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.channels,
                 args.allow_insecure_http,
                 connector_name=args.connector_name,
+                claude_version=(
+                    setup.read_claude_version() if "claude-code" in agents else None
+                ),
             )
         except setup.SetupError as e:
             print(f"error: {e}", file=sys.stderr)

@@ -158,6 +158,12 @@ SECURITY_PHRASES = {
     "of refresh retry",
     "OAUTH_ROTATED_RETENTION": f"stay on record {L.OAUTH_ROTATED_RETENTION.days} days",
     "MAX_OAUTH_BODY_BYTES": f"{L.MAX_OAUTH_BODY_BYTES // 1024} KB on `/token`",
+    "OWNER_INSTRUCTION_TTL": f"| Owner instruction read deadline | "
+    f"{_minutes(L.OWNER_INSTRUCTION_TTL)} minutes",
+    "OWNER_BIND_WINDOW": f"seen within {_minutes(L.OWNER_BIND_WINDOW)} minutes "
+    "if it checks for mail every 2 seconds",
+    "OWNER_CODEX_TYPED_WINDOW": f"a Codex session typed in within "
+    f"{_minutes(L.OWNER_CODEX_TYPED_WINDOW)} minutes",
 }
 
 

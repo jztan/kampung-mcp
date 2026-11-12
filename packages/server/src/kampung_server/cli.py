@@ -44,6 +44,14 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "disconnect", help="remove a machine's Claude app connection"
     ).add_argument("name")
+    owner = sub.add_parser(
+        "owner", help="let a Claude app send owner instructions"
+    ).add_subparsers(dest="owner_command", required=True)
+    owner.add_parser("add", help="mark the machine's Claude app grant").add_argument(
+        "name"
+    )
+    owner.add_parser("remove", help="clear the mark").add_argument("name")
+    owner.add_parser("list", help="list owner grants")
     sub.add_parser("serve", help="run the HTTP server")
     return p
 
@@ -124,6 +132,21 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "disconnect":
             admin.disconnect(args.name, ACTOR)
             print(f"Disconnected {args.name}; its machine and mail are kept.")
+        elif args.command == "owner" and args.owner_command == "add":
+            created = admin.owner_add(args.name, ACTOR)
+            print(
+                f"{args.name}'s Claude app may now send owner instructions "
+                f"(grant created {created})."
+            )
+        elif args.command == "owner" and args.owner_command == "remove":
+            admin.owner_remove(args.name, ACTOR)
+            print(f"{args.name}'s Claude app may no longer send owner instructions.")
+        elif args.command == "owner":
+            owners = admin.list_owners()
+            if not owners:
+                print("No owners.")
+            for name, created in owners:
+                print(f"{name}  grant created {created}")
         elif args.command == "serve":
             if not admin.list_machines():
                 print(NO_KEYS, file=sys.stderr)

@@ -133,6 +133,33 @@ def grant_for_machine(conn: sqlite3.Connection, machine_id: int) -> int | None:
     return int(row[0]) if row else None
 
 
+def is_owner(conn: sqlite3.Connection, machine_id: int) -> bool:
+    """Whether the machine's Claude app grant may send owner instructions."""
+    row = conn.execute(
+        "SELECT owner FROM oauth_grants WHERE machine_id = ?", (machine_id,)
+    ).fetchone()
+    return bool(row and row[0])
+
+
+def set_owner(conn: sqlite3.Connection, machine_id: int, owner: bool) -> str | None:
+    """Set or clear the owner flag on the machine's grant. Returns the grant's
+    created_at, or None when the machine has no grant."""
+    row = conn.execute(
+        "UPDATE oauth_grants SET owner = ? WHERE machine_id = ? RETURNING created_at",
+        (int(owner), machine_id),
+    ).fetchone()
+    return str(row[0]) if row else None
+
+
+def owner_grants(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """(machine name, grant created_at) for every owner grant, by name."""
+    rows = conn.execute(
+        "SELECT m.name, g.created_at FROM oauth_grants g "
+        "JOIN machines m ON m.id = g.machine_id WHERE g.owner = 1 ORDER BY m.name"
+    ).fetchall()
+    return [(str(r[0]), str(r[1])) for r in rows]
+
+
 def delete_grant(conn: sqlite3.Connection, grant_id: int, now: datetime) -> None:
     """Drop the grant and end the connector session that used it."""
     row = conn.execute(

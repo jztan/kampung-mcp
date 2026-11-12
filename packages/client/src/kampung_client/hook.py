@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,14 @@ NUDGE_INTERVAL = 30.0  # seconds between mid-turn peeks per session
 TURN_STALE = 600.0
 CHANNEL_PREFIX = "<channel"  # how a Channels push arrives as a UserPromptSubmit
 WAKE_PREFIX = "[kampung]"  # how a `codex queue` wake arrives as a UserPromptSubmit
+# How a turn Claude Code starts by itself arrives as a UserPromptSubmit: a
+# wake from the FileChanged hook, or one of its own background task notices.
+TASK_PREFIX = "<task-notification>"
+# A wake file with no session file is kept this long: SessionStart creates it
+# before the register call writes the session file. Known limit: a session
+# whose register failed and that then sat untouched for over a day loses its
+# wake file until its next SessionStart.
+WAKE_ORPHAN_AGE = 86400.0
 AGENTS = ("claude-code", "codex")
 CODEX_END_DEADLINE = 2.5  # Codex cancels SessionEnd hooks at 3 s
 SESSION_FILE_MAX_AGE = 7 * 86400  # Codex files have no ancestry to sweep by
@@ -54,6 +63,11 @@ LOG_MAX_BYTES = 1024 * 1024  # hooks.log rolls to hooks.log.1 at this size
 
 class HookError(Exception):
     """Anything that should make a hook give up quietly."""
+
+
+class Wake(Exception):
+    """Raised by the wake hook with the text for the model. `main` prints it
+    to stderr and exits 2, which makes Claude Code start a turn."""
 
 
 class InsecureServerError(HookError):
@@ -455,6 +469,99 @@ def delete_session_file(agent_session_id: str) -> None:
         pass
 
 
+# Idle wake (Claude Code): the adapter writes a fresh token into the session's
+# wake file, Claude Code runs the FileChanged hook because SessionStart asked
+# it to watch that file, and the hook answers through the ack file. The wake
+# file existing is the one switch: only SessionStart with --idle-wake makes it.
+
+
+def wake_dir() -> Path:
+    return cache_dir() / "wake"
+
+
+def _wake_name(agent_session_id: str) -> str:
+    safe = _NAME_BAD.sub("_", agent_session_id)
+    # "", "." and ".." would name the folder itself or its parent.
+    return safe if safe.strip(".") else f"_{safe}"
+
+
+def wake_path(agent_session_id: str) -> Path:
+    return wake_dir() / _wake_name(agent_session_id)
+
+
+def ack_path(agent_session_id: str) -> Path:
+    return wake_dir() / f"{_wake_name(agent_session_id)}.ack"
+
+
+def ensure_wake_file(agent_session_id: str) -> Path:
+    """Create the session's wake file, empty, if it is missing. An existing
+    file is left alone, content and times: a change would fire the watch."""
+    path = wake_path(agent_session_id)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)  # a folder made by an older run or umask
+    except OSError:
+        pass
+    os.close(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600))
+    return path
+
+
+def write_wake_token(agent_session_id: str) -> str | None:
+    """Put a fresh random token in the session's wake file, which is what
+    wakes it. Never creates the file: without one, idle wake is off."""
+    path = wake_path(agent_session_id)
+    if not path.is_file():
+        return None
+    token = secrets.token_hex(16)
+    tmp = path.with_name(f".{path.name}.tmp{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+    os.replace(tmp, path)
+    return token
+
+
+def write_ack(agent_session_id: str) -> str:
+    """Copy the wake file's token to the ack file, which tells the adapter
+    that Claude Code ran the wake hook for that token. Returns the token."""
+    token = read_token(wake_path(agent_session_id))
+    path = ack_path(agent_session_id)
+    tmp = path.with_name(f".{path.name}.tmp{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+    return token
+
+
+def read_token(path: Path) -> str:
+    try:
+        return path.read_text().strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def delete_wake_files(agent_session_id: str) -> None:
+    for path in (wake_path(agent_session_id), ack_path(agent_session_id)):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def idle_wake_on(agent: str, agent_session_id: object) -> bool:
+    """Whether this session can be woken through its wake file."""
+    return (
+        agent == "claude-code"
+        and isinstance(agent_session_id, str)
+        and wake_path(agent_session_id).is_file()
+    )
+
+
 def list_session_files() -> list[dict[str, object]]:
     files = []
     for path in sorted(sessions_dir().glob("*.json")):
@@ -468,7 +575,9 @@ def list_session_files() -> list[dict[str, object]]:
 
 
 def sweep_stale_files() -> int:
-    """Delete session files whose nearest recorded ancestor is no longer alive."""
+    """Delete session files whose nearest recorded ancestor is no longer alive,
+    with their wake files, and wake files left without a session file.
+    Returns the session files removed."""
     removed = 0
     now = time.time()
     for path in sessions_dir().glob("*.json"):
@@ -488,8 +597,26 @@ def sweep_stale_files() -> int:
             continue  # unknown is not dead: keep the file
         if live is None or live[1] != start:
             path.unlink(missing_ok=True)
+            delete_wake_files(path.stem)
             removed += 1
+    _sweep_orphan_wake_files(now)
     return removed
+
+
+def _sweep_orphan_wake_files(now: float) -> None:
+    try:
+        paths = list(wake_dir().iterdir())
+    except OSError:
+        return  # no wake folder: idle wake was never on
+    for path in paths:
+        name = path.name.removesuffix(".ack")
+        try:
+            if (sessions_dir() / f"{name}.json").exists():
+                continue
+            if now - path.stat().st_mtime > WAKE_ORPHAN_AGE:
+                path.unlink()
+        except OSError:
+            continue
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -579,6 +706,8 @@ def register(
     if background:
         # Sent only when set: a server before 0.4 ignores it either way.
         body["background"] = True
+    if idle_wake_on(agent, agent_session_id):
+        body["idle_wake"] = True  # likewise: a server before 0.5 ignores it
     status, data = api("POST", "/v1/sessions", body, timeout)
     if status != 200:
         raise HookError(f"register failed: HTTP {status} {data.get('error')}")
@@ -668,11 +797,32 @@ def _call(
     raise HookError(f"{action}: gave up")
 
 
+def watch_output(event: Event, name: str) -> dict[str, object] | None:
+    """What a hook prints to make Claude Code watch this session's wake file,
+    or None when the session has none."""
+    sid = event.get("session_id")
+    if not isinstance(sid, str) or not idle_wake_on(_agent(event), sid):
+        return None
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": name,
+            "watchPaths": [str(wake_path(sid))],
+        }
+    }
+
+
 def on_session_start(event: Event, clock: _Clock) -> dict[str, object] | None:
-    sweep_stale_files()
+    sweep_stale_files()  # first: it may remove this session's files from a dead run
+    watch = None
+    if _agent(event) != "codex" and event.get("_kampung_idle_wake"):
+        ensure_wake_file(str(event["session_id"]))
+        watch = watch_output(event, "SessionStart")
+        # The watch does not depend on the server: main prints it even when
+        # the register call below fails or outlives the deadline.
+        event["_kampung_output"] = watch
     _register_and_save(event, clock)
     if _agent(event) != "codex":
-        return None
+        return watch
     # The Codex adapter learns its session only from a tool call; this one
     # binds it early, so idle wake works, and reads anything already waiting.
     return {
@@ -714,8 +864,10 @@ def on_user_prompt(event: Event, clock: _Clock) -> None:
     # A turn started by a Channels push also fires UserPromptSubmit, with the
     # notification as the prompt. That is not the user typing, so it must not
     # reset the loop guard.
-    # A `codex queue` wake is the same case for Codex.
-    if str(event.get("prompt", "")).lstrip().startswith((CHANNEL_PREFIX, WAKE_PREFIX)):
+    # A `codex queue` wake is the same case for Codex, and so is a turn
+    # Claude Code starts by itself (a file wake, a background task notice).
+    prompt = str(event.get("prompt", "")).lstrip()
+    if prompt.startswith((CHANNEL_PREFIX, WAKE_PREFIX, TASK_PREFIX)):
         return
     # Registers when the session file is missing (SessionStart failed earlier):
     # a deliberate departure from fail-open, so the window recovers.
@@ -819,10 +971,58 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
     return result
 
 
+def peek_only(event: Event, clock: _Clock) -> dict[str, object] | None:
+    """One peek for the session in the session file, or None when there is no
+    file or the server refuses. Never registers: a file change must not bring
+    an ended session back."""
+    data = read_session_file(str(event["session_id"]))
+    if data is None:
+        return None
+    path = f"/v1/sessions/{data['session']}/peek"
+    status, body = api("GET", path, None, clock.timeout())
+    return body if status == 200 else None
+
+
+def on_cwd_changed(event: Event, clock: _Clock) -> dict[str, object] | None:
+    # Claude Code drops the watch when the working directory changes.
+    return watch_output(event, "CwdChanged")
+
+
+def _same_file(a: str, b: Path) -> bool:
+    def norm(path: str) -> str:
+        return os.path.normcase(os.path.realpath(path))
+
+    return norm(a) == norm(str(b))
+
+
+def on_file_changed(event: Event, clock: _Clock) -> dict[str, object] | None:
+    """Two hooks share this event. The plain one returns the watch again,
+    because another hook's own watch list replaces ours. The --wake one (an
+    asyncRewake hook) answers a change to this session's wake file: it acks
+    the token, then wakes the session when wakeable mail waits."""
+    if not event.get("_kampung_wake"):
+        return watch_output(event, "FileChanged")
+    sid = event.get("session_id")
+    changed = event.get("file_path")
+    if not isinstance(sid, str) or not isinstance(changed, str):
+        return None
+    if not idle_wake_on(_agent(event), sid) or not _same_file(changed, wake_path(sid)):
+        return None
+    # Ack first: any failure from here on exits 0, so a change that was not
+    # acked never also wakes, and the adapter's fallback cannot double it.
+    write_ack(sid)
+    body = peek_only(event, clock)
+    wakeable = int(str(body.get("wakeable", 0))) if body else 0
+    if wakeable > 0:
+        raise Wake(STOP_BLOCK_REASON.format(n=wakeable))
+    return None
+
+
 def on_session_end(event: Event, clock: _Clock) -> None:
     sid = str(event["session_id"])
     _nudge_path(event).unlink(missing_ok=True)
     end_turn(sid)
+    delete_wake_files(sid)
     data = _session(event)
     # Local cleanup first: if the HTTP call outlives the deadline, the file
     # must not be left behind for an ended session.
@@ -836,6 +1036,8 @@ HANDLERS: dict[str, Callable[[Event, _Clock], dict[str, object] | None]] = {
     "Stop": on_stop,
     "PostToolUse": on_post_tool_use,
     "SessionEnd": on_session_end,
+    "CwdChanged": on_cwd_changed,
+    "FileChanged": on_file_changed,
 }
 
 
@@ -860,7 +1062,12 @@ def _log(name: str, error: BaseException) -> None:
 
 
 def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
-    """Run one hook event. Always exits 0; prints at most one JSON object.
+    """Run one hook event. Prints at most one JSON object and exits 0, except
+    that the wake hook exits 2 with its reason on stderr (see Wake).
+
+    A handler may leave a result in event["_kampung_output"] before it calls
+    the server; that result is printed when the handler then fails or passes
+    the deadline.
 
     The handler runs in a daemon thread so that anything the HTTP timeouts do
     not bound (DNS lookups, ps, git) is still cut off at the deadline.
@@ -868,12 +1075,16 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
     """
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--agent", default="claude-code")
+    parser.add_argument("--idle-wake", action="store_true")
+    parser.add_argument("--wake", action="store_true")
     args, _ = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
     agent = args.agent if args.agent in AGENTS else "claude-code"
     deadline = HOOK_DEADLINE
     name = "unknown"
     result: list[dict[str, object] | None] = []
     errors: list[BaseException] = []
+    event: Any = None
+    printed = False
     try:
         event = json.load(stdin or sys.stdin)
         if not isinstance(event, dict):
@@ -882,7 +1093,10 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
         handler = HANDLERS.get(name)
         if handler is None:
             return 0
+        event.pop("_kampung_output", None)  # only a handler may set it
         event["_kampung_agent"] = agent
+        event["_kampung_idle_wake"] = args.idle_wake
+        event["_kampung_wake"] = args.wake
         if agent == "codex" and name == "SessionEnd":
             deadline = CODEX_END_DEADLINE
         clock = _Clock(deadline)
@@ -904,9 +1118,22 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
         if errors:
             raise errors[0]
         if result and result[0] is not None:
+            printed = True
             print(json.dumps(result[0]))
+    except Wake as wake:
+        try:
+            print(str(wake), file=sys.stderr)
+        except (OSError, ValueError):
+            return 0  # nowhere to put the reason: do not wake without one
+        return 2
     except Exception as e:  # noqa: BLE001 - a hook must never fail the agent
         _log(name, e)
+        pending = event.get("_kampung_output") if isinstance(event, dict) else None
+        if pending is not None and not printed:
+            try:
+                print(json.dumps(pending))
+            except Exception:  # noqa: BLE001 - nothing left to report to
+                pass
     return 0
 
 

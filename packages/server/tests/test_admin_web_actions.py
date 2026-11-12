@@ -210,3 +210,24 @@ def test_new_key_and_post_result_pages_do_not_auto_refresh(
     assert "did not match" in wrong and "data-auto-refresh" not in wrong
     expired = web.post("/admin/machines", data={"csrf": "nope", "name": "x"})
     assert expired.status_code == 403 and "data-auto-refresh" not in expired.text
+
+
+def test_owner_add_and_remove_buttons(
+    web: TestClient, conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    from kampung_server import db, oauth_store
+
+    csrf = login(web)
+    form = {"csrf": csrf}
+    page = web.post("/admin/machines/laptop/owner", data=form).text
+    assert "Connect the Claude app first: kampung connect laptop" in page
+    laptop = machines["laptop"][0].id
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, laptop, clock.now())
+    page = web.post("/admin/machines/laptop/owner", data=form).text
+    assert "may now send owner instructions" in page
+    assert oauth_store.is_owner(conn, laptop)
+    web.post("/admin/machines/laptop/owner/delete", data=form)
+    assert not oauth_store.is_owner(conn, laptop)
+    assert audit_rows(conn) == ["owner_add", "owner_remove"]
+    assert web.post("/admin/machines/laptop/owner", data={}).status_code == 403

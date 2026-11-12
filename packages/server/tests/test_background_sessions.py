@@ -119,3 +119,40 @@ def test_a_live_claude_app_session_does_not_hold_back_a_background_one(
     assert [m["body"] for m in inbox(conn, bg, 20, clock.now()).messages] == [
         "for the project"
     ]
+
+
+def test_a_background_session_with_idle_wake_gets_no_late_hint(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    make_session("desktop", "blog", background=True, idle_wake=True)
+    r = send(conn, a, "desktop/blog", "x", None, clock.now())
+    assert r.wake is True and r.note is None and r.hint is None
+
+
+def test_one_wakeable_background_session_is_enough(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    make_session("desktop", "blog", background=True)
+    make_session("desktop", "blog", background=True, idle_wake=True)
+    assert send(conn, a, "desktop/blog", "x", None, clock.now()).note is None
+
+
+def test_a_revive_updates_idle_wake(
+    conn: sqlite3.Connection, make_session: MakeSession
+) -> None:
+    first = make_session("laptop", agent_session_id="cc-1", idle_wake=True)
+    assert first.idle_wake is True
+    again = make_session("laptop", agent_session_id="cc-1")
+    assert again.id == first.id and again.idle_wake is False
+
+
+def test_the_late_hint_says_the_client_cannot_wake_them(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    a = make_session("laptop", "api")
+    make_session("desktop", "blog", background=True)
+    r = send(conn, a, "desktop/blog", "x", None, clock.now())
+    assert r.hint and "their client cannot wake them" in r.hint
+    assert "Channels" not in r.hint

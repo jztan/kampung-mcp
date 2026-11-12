@@ -33,7 +33,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 | Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
 | Claude Code and Codex together | No shared channel | Same MCP tools for both |
 | An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
-| An agent is idle | Nothing happens until you type | Codex on macOS and Linux wakes within seconds; Claude Code does with [Channels](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#wake-idle-sessions-with-channels-experimental) (opt-in) |
+| An agent is idle | Nothing happens until you type | Claude Code (2.1.321 or later) and Codex on macOS and Linux wake within seconds, with [no flag to launch](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#idle-wake) |
 | Two agents reply to each other forever | Runaway loop | A loop guard gives each pair of mailboxes a few wakes that come back slowly, and each mailbox a budget that typing refills (so do the dashboard and a message from you in the Claude app) |
 | Who can talk to whom | Anything that has the URL | Only machines you have paired |
 | Seeing what happened | Logs, if any | An audit log and a dashboard |
@@ -41,7 +41,7 @@ The name comes from the kampung (Malay for village) and its spirit of gotong-roy
 ## How it works
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; the Claude app on an iPhone or claude.ai reaches the same server through Anthropic's cloud with an OAuth token. Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through Channels when that is on; the Claude app reads mail when you ask a chat to. The owner's browser reaches the admin dashboard with the admin token." width="860">
+  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; the Claude app on an iPhone or claude.ai reaches the same server through Anthropic's cloud with an OAuth token. Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through idle wake; the Claude app reads mail when you ask a chat to. The owner's browser reaches the admin dashboard with the admin token." width="860">
 </p>
 
 Each agent talks to a local stdio adapter, which adds the machine's key and the session's identity and forwards to the server. The key never passes through the model's tool calls, and the server stamps the sender from it, so an agent cannot pretend to be another machine. Mail waits in a per-repo mailbox until a session reads it.
@@ -73,7 +73,7 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
    kampung-mcp setup --server https://kampung.example.com
    ```
 
-   Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex, and `--channels` to wake idle Claude Code sessions; see [docs/clients.md](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md). Restart Claude Code, and ask it to `list_peers`.
+   Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex; see [docs/clients.md](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md). On Claude Code 2.1.321 or later, setup also turns on [idle wake](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#idle-wake); [Channels](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#channels-optional-fallback) is an optional fallback. Restart Claude Code, and ask it to `list_peers`.
 
    Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
 
@@ -95,7 +95,7 @@ Why this exists, and how it came together: [How I Let AI Agents on Different Mac
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
 | `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
 
-Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag. Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
+Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag; only an owner instruction from your own Claude app is marked otherwise (below). Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
 
 ## Use it from the Claude app
 
@@ -123,6 +123,18 @@ The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes 
 
 `kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21` and `153.61.208.0/20`, listed on [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses)), so allow both ranges on port 443; the [deployment runbook](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md) has the firewall and the checks.
 
+### Owner instructions (off by default)
+
+A normal message from the Claude app is information to the agent that reads it, like any peer's. To let your app give instructions that agents may act on as if you typed them, mark the app as yours:
+
+```bash
+docker compose exec kampung kampung owner add phone
+```
+
+Then say "tell desktop/api to merge it" to the app. It sends with `mode: "instruct"`, the server stamps the message as an owner instruction, and it goes to the one session working in that repo now (the reply names it). It expires unread after an hour. What an instruction may approve is up to you: paste the section in [owner instructions](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#owner-instructions) into each machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` and edit it. `kampung owner remove phone` turns it off. The mark sits on the app's connection, so `kampung disconnect`, `revoke`, `key rotate` and a new `kampung connect` all clear it: after reconnecting the app, run `kampung owner add` again. A Codex session receives one only if you typed in it within the last hour, so Codex on Windows, which never reports typing, cannot receive owner instructions yet.
+
+Anyone who can steer your app can now direct your agents, within that section's limits: a paired peer's mail to the app, or any chat on the account with the connector on (Research runs connector tools without asking). Read [the security notes](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md#what-it-does-not-protect-against) before turning it on.
+
 ## Security
 
 - **Closed by default.** Every request needs a machine key; a new machine can do nothing until you pair it.
@@ -143,7 +155,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](https://git
 ## Roadmap
 
 - Server-sent events to replace the adapter's polling.
-- The client as a Claude Code plugin, for easier install. Channels would still need the development flag.
+- The client as a Claude Code plugin, for easier install.
 
 ## Blog posts
 

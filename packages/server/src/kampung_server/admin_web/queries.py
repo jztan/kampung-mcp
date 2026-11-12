@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 
 from ..clock import ts
-from ..limits import LIVE_WINDOW
+from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL
 
 LIMIT = 100
 THREAD_PREVIEW = 1000  # characters of each body a thread shows; Open has the rest
@@ -60,6 +60,10 @@ class MachineRow:
     paired_with: list[str]
     last_seen: str | None
     created_at: str
+    # The Claude app connection: when its grant was made, and whether it may
+    # send owner instructions.
+    grant_created_at: str | None = None
+    owner: bool = False
 
 
 @dataclass
@@ -136,18 +140,24 @@ def wake_label(r: sqlite3.Row) -> str:
 
 
 def mode_of(r: sqlite3.Row) -> str:
-    """The send mode: ask, tell or fyi (schema 6; older rows read as ask)."""
+    """The send mode: instruct, ask, tell or fyi (schema 6; older rows read as
+    ask)."""
+    if r["owner"]:
+        return "instruct"
     return "fyi" if r["fyi"] else "tell" if r["no_reply"] else "ask"
 
 
 # Queued means undelivered and unexpired; no-wake is queued mail the loop guard
 # held back. Expired mail stays in the table until the sweep removes it.
+# An owner instruction expires for reading after its own deadline, long
+# before its row does.
+_OWNER_EXPIRED = "(msg.owner = 1 AND msg.sent_at <= :owner_cutoff)"
 _MSG_STATE = (
     "CASE WHEN msg.delivered_at IS NOT NULL THEN 'delivered' "
-    "WHEN msg.expires_at <= :now THEN 'expired' "
+    f"WHEN msg.expires_at <= :now OR {_OWNER_EXPIRED} THEN 'expired' "
     "WHEN msg.wake = 0 THEN 'no-wake' ELSE 'queued' END"
 )
-_QUEUED = "msg.delivered_at IS NULL AND msg.expires_at > :now"
+_QUEUED = f"msg.delivered_at IS NULL AND msg.expires_at > :now AND NOT {_OWNER_EXPIRED}"
 _SESSION_ADDRESS = "m.name || '/' || mb.repo || '#' || s.suffix"
 _MSG_FROM = (
     "FROM messages msg "
@@ -167,12 +177,17 @@ def _live_since(now: datetime) -> str:
     return ts(now - LIVE_WINDOW)
 
 
+def _at(now: datetime) -> dict[str, object]:
+    """The time parameters every message query takes."""
+    return {"now": ts(now), "owner_cutoff": ts(now - OWNER_INSTRUCTION_TTL)}
+
+
 def _count(conn: sqlite3.Connection, sql: str, params: dict[str, object]) -> int:
     return int(conn.execute(sql, params).fetchone()[0])
 
 
 def overview(conn: sqlite3.Connection, now: datetime) -> Overview:
-    p: dict[str, object] = {"now": ts(now), "live": _live_since(now)}
+    p: dict[str, object] = {**_at(now), "live": _live_since(now)}
     oldest = conn.execute(
         f"SELECT MIN(sent_at) FROM messages msg WHERE {_QUEUED}", p
     ).fetchone()[0]
@@ -207,8 +222,10 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
     rows = conn.execute(
         "SELECT m.id, m.name, m.revoked_at, m.created_at, "
         "(SELECT MAX(s.last_seen) FROM sessions s JOIN mailboxes mb "
-        " ON mb.id = s.mailbox_id WHERE mb.machine_id = m.id) AS last_seen "
-        "FROM machines m ORDER BY m.revoked_at IS NOT NULL, m.name"
+        " ON mb.id = s.mailbox_id WHERE mb.machine_id = m.id) AS last_seen, "
+        "g.created_at AS grant_created_at, coalesce(g.owner, 0) AS owner "
+        "FROM machines m LEFT JOIN oauth_grants g ON g.machine_id = m.id "
+        "ORDER BY m.revoked_at IS NOT NULL, m.name"
     ).fetchall()
     pairs = conn.execute(
         "SELECT a.name AS a, b.name AS b FROM pairings p "
@@ -225,6 +242,8 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
             paired_with=sorted(peers.get(r["name"], [])),
             last_seen=r["last_seen"],
             created_at=r["created_at"],
+            grant_created_at=r["grant_created_at"],
+            owner=bool(r["owner"]),
         )
         for r in rows
     ]
@@ -242,7 +261,7 @@ def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
         f" AND {_QUEUED}) AS oldest "
         "FROM mailboxes mb JOIN machines m ON m.id = mb.machine_id "
         "ORDER BY address",
-        {"now": ts(now), "live": _live_since(now)},
+        {**_at(now), "live": _live_since(now)},
     ).fetchall()
     return [
         MailboxRow(r["address"], r["live"], r["total"], r["queued"], r["oldest"])
@@ -302,18 +321,20 @@ def messages(
     states = {
         "queued": _QUEUED,
         "delivered": "msg.delivered_at IS NOT NULL",
-        "expired": "msg.delivered_at IS NULL AND msg.expires_at <= :now",
+        "expired": (
+            f"msg.delivered_at IS NULL AND (msg.expires_at <= :now OR {_OWNER_EXPIRED})"
+        ),
     }
     conds = [states.get(state, "1")]
     if no_wake_only:
         conds.append("msg.wake = 0")
     if mailbox:
         conds.append("tm.name || '/' || tmb.repo = :mailbox")
-    p: dict[str, object] = {"now": ts(now), "mailbox": mailbox}
+    p: dict[str, object] = {**_at(now), "mailbox": mailbox}
     where = " AND ".join(conds)
     rows = conn.execute(
         f"SELECT msg.id, msg.sent_at, msg.depth, msg.wake, msg.wake_reason, "
-        "msg.fyi, msg.no_reply, LENGTH(CAST(msg.body AS BLOB)) "
+        "msg.fyi, msg.no_reply, msg.owner, LENGTH(CAST(msg.body AS BLOB)) "
         f"AS size, att.bytes AS att_bytes, att.name AS att_name, "
         f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, "
         f"{_MSG_STATE} AS state {_MSG_FROM} WHERE {where} "
@@ -352,7 +373,7 @@ def message(
         " JOIN machines dm ON dm.id = dmb.machine_id "
         " WHERE ds.id = msg.delivered_to) AS delivered_address "
         f"{_MSG_FROM} WHERE msg.id = :id",
-        {"now": ts(now), "id": message_id},
+        {**_at(now), "id": message_id},
     ).fetchone()
     if r is None:
         return None
@@ -481,7 +502,7 @@ def conversations(conn: sqlite3.Connection, now: datetime) -> list[ConversationR
         f"SELECT {_FROM_BOX} AS fa, {_TO_BOX} AS ta, msg.sent_at, "
         f"CASE WHEN {_QUEUED} THEN 1 ELSE 0 END AS queued {_MSG_FROM}) "
         f"GROUP BY a, b ORDER BY last_at DESC LIMIT {LIMIT}",
-        {"now": ts(now)},
+        _at(now),
     ).fetchall()
     return [
         ConversationRow(r["a"], r["b"], r["n"], r["queued"], r["last_at"]) for r in rows
@@ -493,14 +514,14 @@ def thread(
 ) -> Page[ThreadMessage]:
     """The newest messages between two mailboxes, in either direction, shown
     oldest first."""
-    p: dict[str, object] = {"now": ts(now), "a": a, "b": b}
+    p: dict[str, object] = {**_at(now), "a": a, "b": b}
     where = (
         f"(({_FROM_BOX} = :a AND {_TO_BOX} = :b) "
         f"OR ({_FROM_BOX} = :b AND {_TO_BOX} = :a))"
     )
     rows = conn.execute(
         f"SELECT msg.id, msg.sent_at, msg.depth, msg.wake, msg.wake_reason, "
-        f"msg.fyi, msg.no_reply, msg.body, {_FROM_BOX} AS from_box, "
+        f"msg.fyi, msg.no_reply, msg.owner, msg.body, {_FROM_BOX} AS from_box, "
         f"{_MSG_SENDER} AS sender, {_MSG_TO} AS recipient, {_MSG_STATE} AS state "
         f"{_MSG_FROM} WHERE {where} "
         f"ORDER BY msg.sent_at DESC, msg.id DESC LIMIT {LIMIT}",

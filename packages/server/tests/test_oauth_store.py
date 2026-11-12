@@ -191,3 +191,31 @@ def test_sweep_drops_stale_access_and_rotated_refresh_after_retention(
         oauth_store.sweep_oauth(conn, clock.now())
     left = conn.execute("SELECT token_hash FROM oauth_tokens").fetchall()
     assert [bytes(r[0]) for r in left] == [hash_key("kpr_2")]
+
+
+def test_set_owner_needs_a_grant(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    with db.transaction(conn):
+        assert oauth_store.set_owner(conn, _laptop(machines), True) is None
+        assert oauth_store.is_owner(conn, _laptop(machines)) is False
+        assert oauth_store.owner_grants(conn) == []
+
+
+def test_owner_flag_dies_with_the_grant(
+    conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    laptop = _laptop(machines)
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, laptop, clock.now())
+        created = oauth_store.set_owner(conn, laptop, True)
+    assert created is not None
+    assert oauth_store.is_owner(conn, laptop) is True
+    assert oauth_store.owner_grants(conn) == [("laptop", created)]
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, laptop, clock.now())
+    assert oauth_store.is_owner(conn, laptop) is False
+    with db.transaction(conn):
+        oauth_store.set_owner(conn, laptop, True)
+        oauth_store.delete_grant_for_machine(conn, laptop, clock.now())
+    assert oauth_store.is_owner(conn, laptop) is False

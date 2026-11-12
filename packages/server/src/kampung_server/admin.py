@@ -85,6 +85,44 @@ class AdminService:
         finally:
             conn.close()
 
+    def owner_add(self, name: str, actor: str) -> str:
+        """Let the machine's Claude app grant send owner instructions. Returns
+        the grant's created_at, so the operator can check it is the right one."""
+        return self._owner(name, actor, add=True)
+
+    def owner_remove(self, name: str, actor: str) -> None:
+        self._owner(name, actor, add=False)
+
+    def _owner(self, name: str, actor: str, *, add: bool) -> str:
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                machine = _require(conn, name)
+                if oauth_store.grant_for_machine(conn, machine.id) is None:
+                    raise KampungError(
+                        "no_grant",
+                        f"Connect the Claude app first: kampung connect {name}",
+                    )
+                if not add and not oauth_store.is_owner(conn, machine.id):
+                    raise KampungError(
+                        "not_an_owner", f"{name}'s Claude app is not an owner."
+                    )
+                created = oauth_store.set_owner(conn, machine.id, add)
+                assert created is not None
+                action = "owner_add" if add else "owner_remove"
+                audit.record(conn, now, actor, action, {"machine": name})
+        finally:
+            conn.close()
+        return created
+
+    def list_owners(self) -> list[tuple[str, str]]:
+        conn = self._connect()
+        try:
+            return oauth_store.owner_grants(conn)
+        finally:
+            conn.close()
+
     def pair(self, a: str, b: str, actor: str) -> None:
         self._pairing(a, b, actor, add=True)
 

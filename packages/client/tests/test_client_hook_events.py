@@ -48,6 +48,23 @@ def event(name: str, sid: str = "cc-1", **kw: object) -> dict[str, object]:
     return {"hook_event_name": name, "session_id": sid, **kw}
 
 
+def start_idle(
+    home: Path, repo: Path, sid: str = "cc-1", source: str = "startup"
+) -> dict[str, object]:
+    r = run_hook(
+        home,
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": sid,
+            "cwd": str(repo),
+            "source": source,
+        },
+        "--idle-wake",
+    )
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)  # type: ignore[no-any-return]
+
+
 def test_session_start_registers_and_writes_file(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
@@ -589,3 +606,322 @@ def test_codex_stop_cut_off_at_the_deadline_ends_the_turn(
     ev = json.dumps(event("Stop", "cx-1", stop_hook_active=False))
     assert hook.main(["--agent", "codex"], io.StringIO(ev)) == 0
     assert not hook.turn_active("cx-1")
+
+
+# Idle wake: the wake file and the watch ---------------------------------
+
+
+@pytest.mark.parametrize("source", ["startup", "resume", "clear", "compact", "fork"])
+def test_session_start_with_idle_wake_returns_the_watch(
+    home: Path, server: LiveServer, repo: Path, source: str
+) -> None:
+    out = start_idle(home, repo, source=source)
+    wake = hook.wake_path("cc-1")
+    assert out == {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "watchPaths": [str(wake)],
+        }
+    }
+    assert wake.read_text() == ""
+    if os.name != "nt":
+        assert wake.parent.stat().st_mode & 0o777 == 0o700
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(1,)]
+
+
+def test_session_start_without_the_flag_is_unchanged(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)  # asserts stdout == ""
+    assert not hook.wake_dir().exists()
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(0,)]
+
+
+def test_codex_ignores_idle_wake(home: Path, server: LiveServer, repo: Path) -> None:
+    ev = {"hook_event_name": "SessionStart", "session_id": "cx-1", "cwd": str(repo)}
+    plain = run_hook(home, ev, "--agent", "codex")
+    flagged = run_hook(home, ev, "--agent", "codex", "--idle-wake")
+    assert flagged.stdout == plain.stdout and "watchPaths" not in flagged.stdout
+    assert not hook.wake_dir().exists()
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(0,)]
+
+
+def test_the_watch_is_returned_when_the_server_is_down(home: Path, repo: Path) -> None:
+    write_config(home, "http://127.0.0.1:9", "kmp_x")  # nothing listens there
+    out = start_idle(home, repo)
+    watch = out["hookSpecificOutput"]["watchPaths"]  # type: ignore[index]
+    assert watch == [str(hook.wake_path("cc-1"))]
+
+
+def test_the_watch_is_returned_when_register_outlives_the_deadline(
+    home: Path,
+    server: LiveServer,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    release = threading.Event()
+
+    def stuck(*args: object, **kwargs: object) -> dict[str, object]:
+        # The cut-off handler thread lives on after `main` returns. It must
+        # end with this test and save nothing: a session file written late
+        # would land in whichever test runs then.
+        release.wait(30)
+        raise hook.HookError("released")
+
+    monkeypatch.setattr(hook, "HOOK_DEADLINE", 0.3)
+    monkeypatch.setattr(hook, "register", stuck)
+    ev = {
+        "hook_event_name": "SessionStart",
+        "session_id": "cc-1",
+        "cwd": str(repo),
+        "source": "startup",
+    }
+    try:
+        assert hook.main(["--idle-wake"], io.StringIO(json.dumps(ev))) == 0
+        out = json.loads(capsys.readouterr().out)
+        watch = out["hookSpecificOutput"]["watchPaths"]
+        assert watch == [str(hook.wake_path("cc-1"))]
+    finally:
+        release.set()
+
+
+def test_a_later_register_reports_idle_wake_only_with_a_wake_file(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)  # no flag, no wake file
+    run_hook(home, event("UserPromptSubmit", prompt="hi", cwd=str(repo)))
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(0,)]
+    hook.ensure_wake_file("cc-1")
+    hook.delete_session_file("cc-1")  # forces a re-register
+    run_hook(home, event("UserPromptSubmit", prompt="hi", cwd=str(repo)))
+    assert db_query(server, "SELECT idle_wake FROM sessions") == [(1,)]
+
+
+def test_a_task_notification_prompt_is_not_typing(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    prompt = "<task-notification>\n<summary>Stop hook feedback</summary>"
+    run_hook(home, event("UserPromptSubmit", prompt=prompt, cwd=str(repo)))
+    assert db_query(server, "SELECT typed_at FROM sessions") == [(None,)]
+
+
+def test_session_end_deletes_the_wake_and_ack_files(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.ack_path("cc-1").write_text("t")
+    run_hook(home, event("SessionEnd", reason="clear"))
+    assert not hook.wake_path("cc-1").exists() and not hook.ack_path("cc-1").exists()
+
+
+def test_session_end_deletes_the_wake_file_without_a_session_file(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    hook.ensure_wake_file("cc-1")
+    run_hook(home, event("SessionEnd", reason="clear"))
+    assert not hook.wake_path("cc-1").exists()
+
+
+# Idle wake: the FileChanged wake hook and the hooks that keep the watch ----
+
+
+def changed(sid: str = "cc-1", path: Path | None = None) -> dict[str, object]:
+    return event(
+        "FileChanged",
+        sid,
+        event="change",
+        file_path=str(path or hook.wake_path(sid)),
+    )
+
+
+def test_wake_hook_exits_2_with_the_reason_when_mail_waits(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    token = hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "hello")
+    r = run_hook(home, changed(), "--wake")
+    assert r.returncode == 2 and r.stdout == ""
+    assert r.stderr.strip() == BLOCK_REASON
+    assert hook.read_token(hook.ack_path("cc-1")) == token
+    log = home / ".cache" / "kampung" / "hooks.log"
+    assert not log.exists() or "Wake" not in log.read_text()
+
+
+def test_wake_hook_acks_and_exits_0_without_mail(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    token = hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "held", held=True)
+    r = run_hook(home, changed(), "--wake")
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+    assert hook.read_token(hook.ack_path("cc-1")) == token
+
+
+def test_wake_hook_acks_each_new_token(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.write_wake_token("cc-1")
+    run_hook(home, changed(), "--wake")
+    second = hook.write_wake_token("cc-1")
+    run_hook(home, changed(), "--wake")
+    assert hook.read_token(hook.ack_path("cc-1")) == second
+    names = sorted(p.name for p in hook.wake_dir().iterdir())
+    assert names == ["cc-1", "cc-1.ack"]  # no temp file left
+
+
+def test_wake_hook_ignores_another_file(
+    home: Path, server: LiveServer, repo: Path, tmp_path: Path
+) -> None:
+    start_idle(home, repo)
+    hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "hello")
+    r = run_hook(home, changed(path=tmp_path / "other-tool.env"), "--wake")
+    assert r.returncode == 0 and not hook.ack_path("cc-1").exists()
+
+
+def test_wake_hook_ignores_another_sessions_wake_file(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.ensure_wake_file("cc-2")
+    peer_send(server, "laptop/api", "hello")
+    r = run_hook(home, changed(path=hook.wake_path("cc-2")), "--wake")
+    assert r.returncode == 0 and not hook.ack_path("cc-1").exists()
+    assert not hook.ack_path("cc-2").exists()
+
+
+def test_wake_hook_without_a_file_path_exits_0(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    peer_send(server, "laptop/api", "hello")
+    r = run_hook(home, event("FileChanged"), "--wake")
+    assert (r.returncode, r.stdout) == (0, "")
+    assert not hook.ack_path("cc-1").exists()
+
+
+def test_wake_hook_matches_its_file_under_another_spelling(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "hello")
+    wake = hook.wake_path("cc-1")
+    other = wake.parent / ".." / "wake" / wake.name
+    assert run_hook(home, changed(path=other), "--wake").returncode == 2
+
+
+@pytest.mark.parametrize("status", [404, 409, 500])
+def test_wake_hook_never_registers_or_revives(
+    home: Path, repo: Path, status: int
+) -> None:
+    httpd, hits = scripted_server(status)
+    try:
+        write_config(home, f"http://127.0.0.1:{httpd.server_port}", "kmp_x")
+        hook.write_session_file("cc-1", {"session": "2", "agent": "claude-code"})
+        hook.ensure_wake_file("cc-1")
+        token = hook.write_wake_token("cc-1")
+        r = run_hook(home, changed(), "--wake")
+    finally:
+        httpd.shutdown()
+    assert r.returncode == 0 and hits == ["GET /v1/sessions/2/peek"]
+    assert hook.read_token(hook.ack_path("cc-1")) == token
+
+
+def test_wake_hook_exits_0_on_a_broken_config(home: Path, repo: Path) -> None:
+    (home / ".config" / "kampung").mkdir(parents=True)
+    (home / ".config" / "kampung" / "config.json").write_text("{not json")
+    hook.ensure_wake_file("cc-1")
+    assert run_hook(home, changed(), "--wake").returncode == 0
+
+
+def test_wake_hook_exits_0_without_a_session_file(
+    home: Path, server: LiveServer
+) -> None:
+    hook.ensure_wake_file("cc-1")
+    token = hook.write_wake_token("cc-1")
+    assert run_hook(home, changed(), "--wake").returncode == 0
+    assert hook.read_token(hook.ack_path("cc-1")) == token
+
+
+def test_wake_hook_that_cannot_ack_does_not_wake(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "hello")
+    hook.ack_path("cc-1").mkdir()  # the ack cannot be written over a folder
+    r = run_hook(home, changed(), "--wake")
+    assert (r.returncode, r.stderr) == (0, "")
+    assert "FileChanged" in (home / ".cache" / "kampung" / "hooks.log").read_text()
+
+
+def test_wake_hook_exits_0_past_the_deadline(
+    home: Path,
+    server: LiveServer,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    start_idle(home, repo)
+    hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "hello")
+    monkeypatch.setattr(hook, "HOOK_DEADLINE", 0.3)
+    monkeypatch.setattr(hook, "peek_only", lambda *a, **k: time.sleep(3))
+    assert hook.main(["--wake"], io.StringIO(json.dumps(changed()))) == 0
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("", "")
+
+
+@pytest.mark.parametrize("name", ["CwdChanged", "FileChanged"])
+def test_keep_watch_hooks_return_the_wake_file_without_a_server_call(
+    home: Path, repo: Path, name: str
+) -> None:
+    httpd, hits = scripted_server(200)
+    try:
+        write_config(home, f"http://127.0.0.1:{httpd.server_port}", "kmp_x")
+        hook.ensure_wake_file("cc-1")
+        r = run_hook(home, event(name, file_path="/elsewhere/.env", cwd=str(repo)))
+    finally:
+        httpd.shutdown()
+    assert r.returncode == 0 and hits == []
+    assert json.loads(r.stdout) == {
+        "hookSpecificOutput": {
+            "hookEventName": name,
+            "watchPaths": [str(hook.wake_path("cc-1"))],
+        }
+    }
+
+
+def test_the_plain_file_changed_hook_never_wakes(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "hello")
+    r = run_hook(home, changed())  # the wake file changed, but no --wake
+    assert r.returncode == 0 and "watchPaths" in r.stdout
+    assert not hook.ack_path("cc-1").exists()
+
+
+@pytest.mark.parametrize("name", ["CwdChanged", "FileChanged"])
+def test_keep_watch_hooks_print_nothing_without_a_wake_file(
+    home: Path, server: LiveServer, name: str
+) -> None:
+    r = run_hook(home, event(name, file_path="/elsewhere/.env"))
+    assert (r.returncode, r.stdout) == (0, "") and not hook.wake_dir().exists()
+
+
+def test_codex_never_wakes_through_the_file_hook(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start_idle(home, repo)
+    hook.write_wake_token("cc-1")
+    peer_send(server, "laptop/api", "hello")
+    r = run_hook(home, changed(), "--wake", "--agent", "codex")
+    assert r.returncode == 0 and not hook.ack_path("cc-1").exists()
