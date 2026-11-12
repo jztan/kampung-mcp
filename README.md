@@ -95,7 +95,7 @@ Why this exists, and how it came together: [How I Let AI Agents on Different Mac
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
 | `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
 
-Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag. Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](docs/tool-reference.md) for results and errors.
+Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag; only an owner instruction from your own Claude app is marked otherwise (below). Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](docs/tool-reference.md) for results and errors.
 
 ## Use it from the Claude app
 
@@ -131,7 +131,7 @@ A normal message from the Claude app is information to the agent that reads it, 
 docker compose exec kampung kampung owner add phone
 ```
 
-Then say "tell desktop/api to merge it" to the app. It sends with `mode: "instruct"`, the server stamps the message as an owner instruction, and it goes to the one session working in that repo now (the reply names it). It expires unread after an hour. What an instruction may approve is up to you: paste the section in [owner instructions](docs/clients.md#owner-instructions) into each machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` and edit it. `kampung owner remove phone` turns it off, and so does `kampung disconnect phone`.
+Then say "tell desktop/api to merge it" to the app. It sends with `mode: "instruct"`, the server stamps the message as an owner instruction, and it goes to the one session working in that repo now (the reply names it). It expires unread after an hour. What an instruction may approve is up to you: paste the section in [owner instructions](docs/clients.md#owner-instructions) into each machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` and edit it. `kampung owner remove phone` turns it off, and so does `kampung disconnect phone`. A Codex session receives one only if you typed in it within the last hour, so Codex on Windows, which never reports typing, cannot receive owner instructions yet.
 
 Anyone who can steer your app can now direct your agents, within that section's limits: a paired peer's mail to the app, or any chat on the account with the connector on (Research runs connector tools without asking). Read [the security notes](SECURITY.md#what-it-does-not-protect-against) before turning it on.
 

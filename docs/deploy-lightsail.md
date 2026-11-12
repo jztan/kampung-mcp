@@ -147,7 +147,7 @@ docker compose version
 The server runs from a published image, but Compose still needs `docker-compose.yml` and the Caddyfile from the repo. Clone the release you want to run, v0.4.0 or later for the Claude app connector (step 14), whose Caddyfile covers both of Anthropic's ranges; the default branch, `develop`, holds unreleased work:
 
 ```bash
-git clone --branch v0.4.0 https://github.com/jztan/kampung-mcp.git
+git clone --branch v0.5.0 https://github.com/jztan/kampung-mcp.git
 cd kampung-mcp
 ```
 
@@ -158,7 +158,7 @@ Git says you're in a "detached HEAD" state. That's normal for a release tag.
 ```bash
 cp .env.example .env
 chmod 600 .env
-nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.4.0
+nano .env    # set KAMPUNG_DOMAIN=kampung.example.com and KAMPUNG_IMAGE_TAG=0.5.0
 ```
 
 Keep `KAMPUNG_IMAGE_TAG` on the version you cloned, so the image matches the Compose file. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
