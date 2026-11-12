@@ -42,7 +42,7 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 - Loop guard v2: wake budgets per pair of mailboxes and per mailbox; `send` takes `fyi`.
 - Codex windows are listed and wakeable at launch, and the wake text names the session.
 
-### v0.4: send modes and background sessions
+### v0.4: send modes and background sessions (released 2026-11-11)
 
 - `send` mode (new): `ask`, `tell` or `fyi`, so a message can wake its receiver without asking for a reply.
 - Background sessions (new): Claude Code sessions in the background (`claude --bg`, `/background`, background agents) are tagged, leave mailbox mail to a live window, and a send that only reaches them says to expect a late reply.
@@ -52,13 +52,13 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 
 - Idle wake without Channels (new): a file each session watches and a `FileChanged` hook wake an idle Claude Code session, in a window or in the background, with no flag to launch. Needs Claude Code 2.1.321 or later. On Windows it is verified for a session in a window, not yet for a background session. Channels stays as an optional fallback.
 - Owner instructions (new): the owner's Claude app can send `mode: "instruct"`, a server-stamped message an agent may act on as the owner typing, within limits the owner sets in his own instruction file. Off by default (`kampung owner add`).
+
+### v0.6: more clients
+
 - SSE `/v1/events` to replace the adapter's `peek` polling, after idle wake. It also ends the database write that every polling session makes every 2 seconds.
 - Find the flaky test. It has failed twice in full runs: once on 2026-10-30 (name not captured) and once on 2026-11-08 in the Windows client tests, where `test_waker_queues_once_per_new_wakeable_mail` found no session file. Close this if it does not come back.
 - Package the client as a Claude Code plugin, for easier install only.
 - Codex waker bound, if headless turns or stolen mail show up in daily use.
-
-### v0.6: more clients
-
 - Session labels in `list_peers` and the dashboard (new), automatic only: the session's git branch, plus a one-line summary the agent sets and keeps up to date itself (never prompt text). Two live windows in one mailbox can then be told apart.
 - ChatGPT app as a peer (spike first): whether its custom connectors accept Kampung's OAuth flow (one fixed public client, a one-time code, no dynamic client registration), which plans allow connectors with write tools, and OpenAI's outbound IP ranges for the firewall and Caddy.
 - OpenCode as a client (spike first): how it registers stdio MCP servers, whether it has hooks for session start, prompt submit and stop, and how to wake an idle session. OpenCode runs many models, so one adapter brings many vendors.
