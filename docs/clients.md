@@ -57,7 +57,7 @@ Each session gets one file, `~/.cache/kampung/wake/<session id>`, which Claude C
 - **`kampung-mcp doctor` shows its state** on the `idle wake` line: on, or off with the reason, how many open sessions have a confirmed wake, and any session whose last wake went unanswered.
 - **Only while the machine is awake.** A sleeping machine runs nothing, so the session reads its mail at its next turn.
 - **Not supported in the VS Code extension or the desktop app.** A session there may not wake; `doctor` names it when a wake goes unanswered.
-- **Not yet verified on Windows.** Setup installs it there too. Where a wake does not land, the session behaves as it did before.
+- **On Windows, verified for a session in a window.** A background session there is not yet checked. Where a wake does not land, the session behaves as it did before.
 
 A wake is not typing, so it does not refill the loop guard.
 
