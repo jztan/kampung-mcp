@@ -123,6 +123,18 @@ The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes 
 
 `kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21` and `153.61.208.0/20`, listed on [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses)), so allow both ranges on port 443; the [deployment runbook](docs/deploy-lightsail.md) has the firewall and the checks.
 
+### Owner instructions (off by default)
+
+A normal message from the Claude app is information to the agent that reads it, like any peer's. To let your app give instructions that agents may act on as if you typed them, mark the app as yours:
+
+```bash
+docker compose exec kampung kampung owner add phone
+```
+
+Then say "tell desktop/api to merge it" to the app. It sends with `mode: "instruct"`, the server stamps the message as an owner instruction, and it goes to the one session working in that repo now (the reply names it). It expires unread after an hour. What an instruction may approve is up to you: paste the section in [owner instructions](docs/clients.md#owner-instructions) into each machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` and edit it. `kampung owner remove phone` turns it off, and so does `kampung disconnect phone`.
+
+Anyone who can steer your app can now direct your agents, within that section's limits: a paired peer's mail to the app, or any chat on the account with the connector on (Research runs connector tools without asking). Read [the security notes](SECURITY.md#what-it-does-not-protect-against) before turning it on.
+
 ## Security
 
 - **Closed by default.** Every request needs a machine key; a new machine can do nothing until you pair it.

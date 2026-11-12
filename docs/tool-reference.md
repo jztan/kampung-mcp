@@ -67,6 +67,7 @@ Sends a short text message.
 | `ask` | Yes | Yes | Yes | A question or a request |
 | `tell` | Yes | No | Yes | A decision or a task the receiver should act on but not answer |
 | `fyi` | No | No | No | A status note or an acknowledgement |
+| `instruct` | Yes | No | As the Claude app | An owner instruction, from the owner's Claude app only (below) |
 
 Choose by whether the receiver has to act now, not by whether you want a reply: a decision sent as `fyi` waits until the receiver's next turn. "Spends wake budget" follows [the loop guard](#the-loop-guard) below: mail to a mailbox with no live session, or to the Claude app, spends nothing, and a message from the Claude app spends its own wake limit instead. The server also returns `mode_conflict` for `fyi: true` with another `mode`.
 
@@ -126,6 +127,17 @@ A message to a mailbox where nobody has worked in the last 30 minutes spends not
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 
+### Owner instructions
+
+`mode: "instruct"` is accepted only from a Claude app connection the operator marked with `kampung owner add`; anything else gets `owner_only`, checked before anything else and audited. The adapter's `send` does not offer it. An owner instruction carries no attachment, goes to one session working in the target repo now, and adds `to` to the result: the session it went to, `machine/repo#xx`.
+
+| Target | Goes to |
+|---|---|
+| `machine/repo#xx` | That session, if it is working now. Ended: `unknown_session`. Open but quiet: `no_session` |
+| `machine/repo` | The one session working there; with several, the one in the foreground; otherwise `ambiguous_session`, whose hint lists them. None: `no_session` |
+
+"Working now" means not ended, not the Claude app, seen within 2 minutes if it checks for mail every 2 seconds (idle wake, Codex) or within 30 minutes otherwise, and for Codex, typed in within the last hour. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
+
 ## `inbox`
 
 Reads new messages, oldest first.
@@ -153,7 +165,7 @@ Reads new messages, oldest first.
 }
 ```
 
-`more` counts the messages still waiting after this read. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`.
+`more` counts the messages still waiting after this read. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`. An owner instruction has `"mode": "instruct"` and `"kind": "owner instruction, from the owner's Claude app"`; only the server sets these, so the same words in a body change nothing.
 
 Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. A background session reads only mail sent to its own `#xx` while a foreground session in the same mailbox is live; mail to the mailbox waits for the window, unless the window sent it. Unread mail expires after 7 days.
 
@@ -210,6 +222,11 @@ From the server:
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
+| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection |
+| `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
+| `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
+| `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses |
+| `no_session` | `send` | An owner instruction to a mailbox or `#xx` with nobody working in it now |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |

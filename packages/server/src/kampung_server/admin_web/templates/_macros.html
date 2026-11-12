@@ -1,5 +1,5 @@
 {% macro pill(state) -%}
-{% set kinds = {"live": "ok", "idle": "warn", "ended": "", "queued": "acc", "no-wake": "warn", "delivered": "ok", "expired": "", "active": "ok", "revoked": "bad"} %}
+{% set kinds = {"live": "ok", "idle": "warn", "ended": "", "queued": "acc", "no-wake": "warn", "delivered": "ok", "expired": "", "active": "ok", "revoked": "bad", "owner": "acc"} %}
 <span class="pill {{ kinds.get(state, '') }}">{{ state | capitalize }}</span>
 {%- endmacro %}
 {% macro wake(label) -%}

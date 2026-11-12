@@ -226,3 +226,73 @@ def test_thread_cuts_long_bodies(
     mail.send(conn, a, "desktop/blog", "x" * 5000, None, clock.now())
     [m] = queries.thread(conn, clock.now(), "desktop/blog", "laptop/api").rows
     assert len(m.body) == queries.THREAD_PREVIEW and m.cut == 5000 - len(m.body)
+
+
+def _owner_instruction(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> str:
+    from kampung_server import db, oauth_store
+    from kampung_server.models import load_machine
+
+    laptop = load_machine(conn, "laptop")
+    assert laptop is not None
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, laptop.id, clock.now())
+        oauth_store.set_owner(conn, laptop.id, True)
+    phone = make_session(
+        "laptop", repo="claude", agent="claude-app", hooks=False, cwd="Claude app"
+    )
+    make_session("desktop", "api")
+    r = mail.send(
+        conn,
+        phone,
+        "desktop/api",
+        "merge it",
+        None,
+        clock.now(),
+        mode="instruct",
+        connector=True,
+    )
+    return r.id
+
+
+def test_machine_row_shows_grant_and_owner(
+    conn: sqlite3.Connection,
+    admin: AdminService,
+    machines: Machines,
+    clock: FakeClock,
+) -> None:
+    from kampung_server import db, oauth_store
+
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, machines["laptop"][0].id, clock.now())
+    rows = {r.name: r for r in queries.machines(conn, clock.now())}
+    assert rows["laptop"].grant_created_at is not None
+    assert rows["laptop"].owner is False
+    assert rows["desktop"].grant_created_at is None
+    admin.owner_add("laptop", "admin:cli")
+    rows = {r.name: r for r in queries.machines(conn, clock.now())}
+    assert rows["laptop"].owner is True
+
+
+def test_owner_row_mode_and_expiry(
+    conn: sqlite3.Connection,
+    machines: Machines,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    msg_id = _owner_instruction(conn, make_session, clock)
+    [row] = queries.messages(conn, clock.now(), None).rows
+    assert (row.mode, row.state) == ("instruct", "queued")
+    detail = queries.message(conn, clock.now(), msg_id)
+    assert detail is not None and detail.mode == "instruct"
+    clock.advance(minutes=61)
+    now = clock.now()
+    assert queries.overview(conn, now).queued == 0
+    assert queries.overview(conn, now).oldest_queued_at is None
+    box = {m.address: m for m in queries.mailboxes(conn, now)}["desktop/api"]
+    assert (box.queued, box.oldest_queued_at) == (0, None)
+    assert queries.messages(conn, now, None).rows == []
+    [expired] = queries.messages(conn, now, None, state="expired").rows
+    assert expired.state == "expired"
+    assert all(c.queued == 0 for c in queries.conversations(conn, now))

@@ -325,3 +325,74 @@ def test_revoke_and_rotate_drop_the_grant(
 
 
 from datetime import timedelta  # noqa: E402
+
+
+def test_owner_add_refuses_without_grant(
+    admin: AdminService, machines: dict[str, object]
+) -> None:
+    with pytest.raises(KampungError) as e:
+        admin.owner_add("laptop", "admin:cli")
+    assert e.value.code == "no_grant"
+    assert e.value.hint == "Connect the Claude app first: kampung connect laptop"
+
+
+def test_owner_add_remove_audited(
+    admin: AdminService,
+    conn: sqlite3.Connection,
+    machines: dict[str, object],
+    clock: FakeClock,
+) -> None:
+    from kampung_server import oauth_store
+
+    laptop_id = _grant(admin, conn, clock)
+    created = admin.owner_add("laptop", "admin:cli")
+    assert (
+        created
+        == conn.execute(
+            "SELECT created_at FROM oauth_grants WHERE machine_id = ?", (laptop_id,)
+        ).fetchone()[0]
+    )
+    assert oauth_store.is_owner(conn, laptop_id)
+    assert admin.list_owners() == [("laptop", created)]
+    admin.owner_remove("laptop", "admin:cli")
+    assert not oauth_store.is_owner(conn, laptop_id)
+    assert admin.list_owners() == []
+    rows = conn.execute(
+        "SELECT actor, action, detail FROM audit WHERE action LIKE 'owner_%' "
+        "ORDER BY id"
+    ).fetchall()
+    assert [(r[0], r[1], json.loads(r[2])) for r in rows] == [
+        ("admin:cli", "owner_add", {"machine": "laptop"}),
+        ("admin:cli", "owner_remove", {"machine": "laptop"}),
+    ]
+
+
+def test_owner_remove_when_not_owner(
+    admin: AdminService,
+    conn: sqlite3.Connection,
+    machines: dict[str, object],
+    clock: FakeClock,
+) -> None:
+    with pytest.raises(KampungError) as e:
+        admin.owner_remove("laptop", "admin:cli")
+    assert e.value.code == "no_grant"
+    _grant(admin, conn, clock)
+    with pytest.raises(KampungError) as e:
+        admin.owner_remove("laptop", "admin:cli")
+    assert e.value.code == "not_an_owner"
+
+
+@pytest.mark.parametrize("step", ["disconnect", "revoke", "rotate_key"])
+def test_disconnect_revoke_rotate_end_owner(
+    admin: AdminService,
+    conn: sqlite3.Connection,
+    machines: dict[str, object],
+    clock: FakeClock,
+    step: str,
+) -> None:
+    from kampung_server import oauth_store
+
+    laptop_id = _grant(admin, conn, clock)
+    admin.owner_add("laptop", "admin:cli")
+    getattr(admin, step)("laptop", "admin:cli")
+    assert not oauth_store.is_owner(conn, laptop_id)

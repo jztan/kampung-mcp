@@ -10,6 +10,15 @@ LIVE_WINDOW = timedelta(minutes=30)
 # back after this long without a waking send instead.
 NOHOOK_MAILBOX_REFILL = timedelta(minutes=30)
 TARGET_FALLBACK = timedelta(hours=24)
+# Owner instructions: unread after this long, one can no longer be read or
+# wake anyone (the row keeps MESSAGE_TTL).
+OWNER_INSTRUCTION_TTL = timedelta(minutes=60)
+# A session that polls (idle wake, Codex) refreshes last_seen every 2 seconds,
+# so one not seen for this long is gone and cannot be bound.
+OWNER_BIND_WINDOW = timedelta(minutes=2)
+# A Codex thread is bound only if someone typed in it this recently: a closed
+# thread stays loaded and wakeable.
+OWNER_CODEX_TYPED_WINDOW = timedelta(minutes=60)
 SEND_RATE = 60
 SEND_RATE_WINDOW = timedelta(seconds=60)
 REGISTER_RATE = 60

@@ -329,3 +329,43 @@ def test_a_send_to_background_sessions_only_is_labelled(
     r = mail.send(conn, a, "desktop/api", "late", None, clock.now())
     login(web)
     assert "wakes (background only)" in web.get(f"/admin/messages/{r.id}").text
+
+
+def test_machines_page_owner_column(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    seeded: Seeded,
+    admin: AdminService,
+    clock: FakeClock,
+) -> None:
+    from kampung_server import db, oauth_store
+    from kampung_server.models import load_machine
+
+    login(web)
+    page = web.get("/admin/machines").text
+    assert "/owner" not in page  # no grant, no buttons
+    laptop = load_machine(conn, "laptop")
+    assert laptop is not None
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, laptop.id, clock.now())
+    page = web.get("/admin/machines").text
+    assert 'action="/admin/machines/laptop/owner"' in page
+    assert 'action="/admin/machines/desktop/owner"' not in page
+    admin.owner_add("laptop", "admin:cli")
+    page = web.get("/admin/machines").text
+    assert 'action="/admin/machines/laptop/owner/delete"' in page
+    assert "Owner" in page
+
+
+def test_messages_page_marks_owner(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    from test_admin_web_queries import _owner_instruction
+
+    msg_id = _owner_instruction(conn, make_session, clock)
+    login(web)
+    assert ">instruct<" in web.get("/admin/messages").text
+    assert "instruct" in web.get(f"/admin/messages/{msg_id}").text
