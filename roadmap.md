@@ -59,6 +59,7 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 
 ### v0.6: more clients
 
+- Session labels in `list_peers` and the dashboard (new), automatic only: the session's git branch, plus a one-line summary the agent sets and keeps up to date itself (never prompt text). Two live windows in one mailbox can then be told apart.
 - ChatGPT app as a peer (spike first): whether its custom connectors accept Kampung's OAuth flow (one fixed public client, a one-time code, no dynamic client registration), which plans allow connectors with write tools, and OpenAI's outbound IP ranges for the firewall and Caddy.
 - OpenCode as a client (spike first): how it registers stdio MCP servers, whether it has hooks for session start, prompt submit and stop, and how to wake an idle session. OpenCode runs many models, so one adapter brings many vendors.
 
@@ -84,5 +85,5 @@ Freeze the four MCP tools and `/v1` once these hold:
 ## Not scheduled
 
 - **Landing page shows the Claude apps as peers:** the page is almost all about Claude Code and Codex. Show the Claude app on the phone, desktop and web (voice mode too) as a Kampung peer: checking the inbox by voice and sending work to sessions on other machines.
-- **On demand only:** Postgres, OIDC, a broker for multiple replicas, live dashboard updates, session summaries for `list_peers`.
+- **On demand only:** Postgres, OIDC, a broker for multiple replicas, live dashboard updates.
 - **Keep the FastMCP 3 pin:** Claude Code still does not register a channel server on protocol revision 2026-07-28.
