@@ -67,7 +67,7 @@ Sends a short text message.
 | `ask` | Yes | Yes | Yes | A question or a request |
 | `tell` | Yes | No | Yes | A decision or a task the receiver should act on but not answer |
 | `fyi` | No | No | No | A status note or an acknowledgement |
-| `instruct` | Yes | No | As the Claude app | An owner instruction, from the owner's Claude app only (below) |
+| `instruct` | Yes | A one-line fyi back | As the Claude app | An owner instruction, from the owner's Claude app only (below) |
 
 Choose by whether the receiver has to act now, not by whether you want a reply: a decision sent as `fyi` waits until the receiver's next turn. "Spends wake budget" follows [the loop guard](#the-loop-guard) below: mail to a mailbox with no live session, or to the Claude app, spends nothing, and a message from the Claude app spends its own wake limit instead. The server also returns `mode_conflict` for `fyi: true` with another `mode`.
 
@@ -136,7 +136,7 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 | `machine/repo#xx` | That session, if it is working now. Ended: `unknown_session`. Open but quiet: `no_session` |
 | `machine/repo` | The one session working there; with several, the one in the foreground; otherwise `ambiguous_session`, whose hint lists them. None: `no_session` |
 
-"Working now" means not ended, not the Claude app, seen within 2 minutes if it checks for mail every 2 seconds (idle wake, Codex) or within 30 minutes otherwise, and for Codex, typed in within the last hour. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
+"Working now" means not ended, not the Claude app, seen within 2 minutes if it checks for mail every 2 seconds (idle wake, Codex) or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (Codex on Windows, or before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
 
 ## `inbox`
 
