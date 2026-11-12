@@ -131,6 +131,24 @@ def register_actions(mcp: FastMCP, web: Web) -> None:
         s.flash = ("ok", f"Revoked {name}. Its sessions are ended.")
         return "/admin/machines"
 
+    @post("/admin/machines/{name}/owner", back="/admin/machines")
+    async def owner_add(request: Request, s: AdminSession, form: FormData) -> str:
+        name = request.path_params["name"]
+        created = admin.owner_add(name, ACTOR)
+        s.flash = (
+            "ok",
+            f"{name}'s Claude app may now send owner instructions "
+            f"(grant created {created}).",
+        )
+        return "/admin/machines"
+
+    @post("/admin/machines/{name}/owner/delete", back="/admin/machines")
+    async def owner_remove(request: Request, s: AdminSession, form: FormData) -> str:
+        name = request.path_params["name"]
+        admin.owner_remove(name, ACTOR)
+        s.flash = ("ok", f"{name}'s Claude app may no longer send owner instructions.")
+        return "/admin/machines"
+
     @post("/admin/sessions/{id}/end", back="/admin/sessions")
     async def end(request: Request, s: AdminSession, form: FormData) -> str:
         target = session_of(request.path_params["id"])

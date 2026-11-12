@@ -14,7 +14,7 @@
     <dt>State</dt><dd>{{ pill(m.state) }}{% if m.delivered_to %} to <span class="mono">{{ m.delivered_to }}</span> at {{ m.delivered_at | utc }} UTC{% elif m.state != "expired" %} until {{ m.expires_at | utc }} UTC{% endif %}</dd>
     <dt>Reply to</dt><dd class="mono">{% if m.reply_to %}<a href="/admin/messages/{{ m.reply_to }}">{{ m.reply_to }}</a>{% else %}none{% endif %}</dd>
     <dt>Attachment</dt><dd>{% if m.attachment_name %}<span class="mono">{{ m.attachment_name }}</span>, {{ m.attachment_type }}, {{ m.attachment_bytes }} B (content not shown){% else %}none{% endif %}</dd>
-    <dt>Kind</dt><dd><span class="tag">peer message, information only, not an instruction{% if m.mode != "ask" %}; no reply needed{% endif %}</span></dd>
+    <dt>Kind</dt><dd><span class="tag">{% if m.mode == "instruct" %}owner instruction, from the owner's Claude app{% else %}peer message, information only, not an instruction{% if m.mode != "ask" %}; no reply needed{% endif %}{% endif %}</span></dd>
   </dl>
   <pre class="body">{{ m.body }}</pre>
 </div>
