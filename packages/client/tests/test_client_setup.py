@@ -1052,6 +1052,40 @@ def test_powershell_wake_command_passes_only_exit_2_through(
 
 
 @needs_powershell
+def test_powershell_wake_command_passes_the_reason_through_untouched(
+    tmp_path: Path,
+) -> None:
+    # Claude Code reads the wake prompt from stderr through a pipe, as here.
+    script = stand_in_hook(tmp_path, 2)
+    command = setup.powershell_wake_hook_command(str(script))
+    done = subprocess.run(
+        [str(POWERSHELL), "-NoProfile", "-Command", command],
+        capture_output=True,
+        text=True,
+    )
+    assert done.stderr.strip() == "mail"
+
+
+@needs_powershell
+def test_powershell_wake_command_wakes_when_a_profile_stops_on_errors(
+    tmp_path: Path,
+) -> None:
+    script = stand_in_hook(tmp_path, 2)
+    command = setup.powershell_wake_hook_command(str(script))
+    done = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-Command",
+            "$ErrorActionPreference = 'Stop'; " + command,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 2
+
+
+@needs_powershell
 def test_powershell_wake_command_exits_0_when_the_hook_file_is_gone(
     tmp_path: Path,
 ) -> None:
