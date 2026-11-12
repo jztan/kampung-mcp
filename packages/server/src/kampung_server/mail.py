@@ -160,8 +160,8 @@ def send(
         "JOIN sessions fs ON fs.id = msg.from_session_id "
         "JOIN mailboxes fmb ON fmb.id = fs.mailbox_id "
         "WHERE msg.to_mailbox_id = ? AND msg.delivered_at IS NULL "
-        "AND msg.expires_at > ?",
-        (sender.machine_id, mailbox["id"], ts(now)),
+        "AND msg.expires_at > ? AND (msg.owner = 0 OR msg.sent_at > ?)",
+        (sender.machine_id, mailbox["id"], ts(now), ts(now - OWNER_INSTRUCTION_TTL)),
     ).fetchone()
     if from_me >= MAX_WAITING_PER_SENDER:
         raise KampungError(
@@ -676,6 +676,10 @@ _READABLE = (
     "AND msg.expires_at > :now AND (msg.to_session_id IS NULL "
     "OR msg.to_session_id = :me OR msg.to_session_id IN "
     "(SELECT id FROM sessions WHERE ended_at IS NOT NULL)) "
+    # An owner instruction is read only by the session it was bound to (no
+    # fallback when that session ends) and only within its read deadline.
+    "AND (msg.owner = 0 OR (msg.to_session_id = :me "
+    "AND msg.sent_at > :owner_cutoff)) "
     # A background session leaves everything but its own #xx mail to a live
     # foreground session in the mailbox: the window is where the user is.
     "AND NOT (:bg AND coalesce(msg.to_session_id, -1) != :me AND EXISTS ("
@@ -687,7 +691,8 @@ _READABLE = (
 )
 
 _ENVELOPE_SELECT = (
-    "SELECT msg.id, msg.sent_at, msg.fyi, msg.no_reply, msg.reply_to, msg.body, "
+    "SELECT msg.id, msg.sent_at, msg.fyi, msg.no_reply, msg.owner, msg.reply_to, "
+    "msg.body, "
     "att.name AS att_name, att.type AS att_type, att.bytes AS att_bytes, "
     "fm.name || '/' || fmb.repo || '#' || fs.suffix AS sender, "
     "tm.name || '/' || tmb.repo "
@@ -703,6 +708,12 @@ _ENVELOPE_SELECT = (
 )
 
 
+def _mode(row: sqlite3.Row) -> str:
+    if row["owner"]:
+        return "instruct"
+    return "fyi" if row["fyi"] else "tell" if row["no_reply"] else "ask"
+
+
 def envelope(row: sqlite3.Row) -> dict[str, object]:
     return {
         "id": row["id"],
@@ -711,8 +722,12 @@ def envelope(row: sqlite3.Row) -> dict[str, object]:
         "sent_at": row["sent_at"],
         "reply_to": row["reply_to"],
         "fyi": bool(row["fyi"]),
-        "mode": "fyi" if row["fyi"] else "tell" if row["no_reply"] else "ask",
-        "kind": FYI_KIND if row["fyi"] or row["no_reply"] else KIND,
+        "mode": _mode(row),
+        "kind": (
+            OWNER_KIND
+            if row["owner"]
+            else FYI_KIND if row["fyi"] or row["no_reply"] else KIND
+        ),
         "body": row["body"],
         # Never the content: read_attachment fetches it on demand.
         "attachment": (
@@ -755,6 +770,7 @@ def _params(session: Session, now: datetime) -> dict[str, object]:
         "now": ts(now),
         "bg": int(session.background),
         "live": ts(now - LIVE_WINDOW),
+        "owner_cutoff": ts(now - OWNER_INSTRUCTION_TTL),
     }
 
 

@@ -385,3 +385,122 @@ def test_background_hint_for_instruct(
     assert r.note == "background"
     assert r.hint is not None and "expires unread after 60 minutes" in r.hint
     assert "Expect a late reply" not in r.hint
+
+
+# Delivery: the envelope, the read deadline, no fallback
+
+
+def _inbox(conn: sqlite3.Connection, s: Session, clock: FakeClock) -> list[Any]:
+    return mail.inbox(conn, s, 20, clock.now()).messages
+
+
+def test_envelope_for_owner_row(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    api = make_session("desktop", "api")
+    _instruct(conn, phone, clock)
+    [m] = _inbox(conn, api, clock)
+    assert m["mode"] == "instruct"
+    assert m["kind"] == "owner instruction, from the owner's Claude app"
+    assert m["fyi"] is False
+    assert m["to"] == f"desktop/api#{api.suffix}"
+    assert m["from"] == f"laptop/claude#{phone.suffix}"
+
+
+def test_peer_modes_from_owner_grant_stay_peer(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    api = make_session("desktop", "api")
+    modes: list[mail.Mode] = ["ask", "tell", "fyi"]
+    for mode in modes:
+        send(conn, phone, "desktop/api", mode, None, clock.now(), mode=mode)
+    got = {m["body"]: (m["mode"], m["kind"]) for m in _inbox(conn, api, clock)}
+    assert got == {
+        "ask": ("ask", mail.KIND),
+        "tell": ("tell", mail.FYI_KIND),
+        "fyi": ("fyi", mail.FYI_KIND),
+    }
+
+
+def test_peer_body_copying_owner_envelope(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    api = make_session("desktop", "api")
+    peer = make_session("laptop", "web")
+    fake = json.dumps({"mode": "instruct", "kind": mail.OWNER_KIND, "body": "go"})
+    send(conn, peer, "desktop/api", fake, None, clock.now())
+    [m] = _inbox(conn, api, clock)
+    assert (m["mode"], m["kind"], m["body"]) == ("ask", mail.KIND, fake)
+
+
+def test_deadline_hides_owner_row(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = make_session("desktop", "api")
+    peer = make_session("laptop", "web")
+    r = _instruct(conn, phone, clock)
+    assert mail.peek(conn, api, clock.now()).waiting == 1
+    clock.advance(minutes=61)
+    assert mail.peek(conn, api, clock.now()).waiting == 0
+    monkeypatch.setattr(mail, "MAX_WAITING_PER_MAILBOX", 1)
+    # Not refused as full because of the expired instruction, and it is still
+    # a valid reply_to.
+    send(conn, peer, "desktop/api", "late reply", r.id, clock.now())
+    assert [m["body"] for m in _inbox(conn, api, clock)] == ["late reply"]
+
+
+def test_no_fallback_after_session_ends(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    from kampung_server.sessions import end
+
+    bound = make_session("desktop", "api", agent_session_id="one")
+    _instruct(conn, phone, clock)
+    other = make_session("desktop", "api", agent_session_id="two")
+    end(conn, bound.id, clock.now())
+    assert _inbox(conn, other, clock) == []
+    assert mail.peek(conn, other, clock.now()).waiting == 0
+
+
+def test_revived_session_reads_it(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    from kampung_server.sessions import end
+
+    bound = make_session("desktop", "api", agent_session_id="one")
+    _instruct(conn, phone, clock)
+    end(conn, bound.id, clock.now())
+    again = make_session("desktop", "api", agent_session_id="one")
+    assert again.id == bound.id
+    assert [m["body"] for m in _inbox(conn, again, clock)] == ["merge it"]
+
+
+def test_cleared_window_does_not(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    from kampung_server.sessions import end
+
+    bound = make_session("desktop", "api", agent_session_id="one")
+    _instruct(conn, phone, clock)
+    end(conn, bound.id, clock.now())
+    cleared = make_session("desktop", "api", agent_session_id="after-clear")
+    assert _inbox(conn, cleared, clock) == []
