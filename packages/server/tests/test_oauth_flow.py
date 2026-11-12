@@ -443,7 +443,7 @@ async def test_tool_send_instruct_needs_an_owner_grant(server: Server) -> None:
     args = {"to": "desktop/blog", "body": "merge it", "mode": "instruct"}
     async with client_for(server, tokens["access_token"]) as phone:
         r = await phone.call_tool("send", args)
-        assert r.data["error"] == "not_owner"
+        assert r.data["error"] == "owner_only"
         server.admin.owner_add("phone", "admin:cli")
         r = await phone.call_tool("send", args)
         assert r.data["wake"] is True and r.data["to"].startswith("desktop/blog#")
@@ -458,7 +458,7 @@ async def test_tool_send_instruct_needs_an_owner_grant(server: Server) -> None:
         )
     ) as d:
         r = await d.call_tool("send", {**args, "to": "phone/claude"})
-        assert r.data["error"] == "not_owner"
+        assert r.data["error"] == "owner_only"
 
 
 def test_send_description_mentions_instruct() -> None:

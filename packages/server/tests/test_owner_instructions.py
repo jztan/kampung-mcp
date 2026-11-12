@@ -116,9 +116,9 @@ def test_instruct_from_non_owner_grant(
     p = _phone(make_session)
     make_session("desktop", "api")
     e = _error(_instruct, conn, p, clock)
-    assert (e.code, e.hint) == ("not_owner", NOT_OWNER_HINT)
+    assert (e.code, e.hint) == ("owner_only", NOT_OWNER_HINT)
     assert _messages(conn) == 0
-    assert _denied(conn) == [{"to": "desktop/api", "reason": "not_owner"}]
+    assert _denied(conn) == [{"to": "desktop/api", "reason": "owner_only"}]
 
 
 def test_instruct_from_machine_key(
@@ -130,18 +130,18 @@ def test_instruct_from_machine_key(
     laptop_api = make_session("laptop", "api")
     make_session("desktop", "api")
     assert _error(_instruct, conn, laptop_api, clock, connector=False).code == (
-        "not_owner"
+        "owner_only"
     )
     # A machine-key session on the owner's machine with the flag set: still no.
     assert _error(_instruct, conn, laptop_api, clock, connector=True).code == (
-        "not_owner"
+        "owner_only"
     )
     assert _messages(conn) == 0
     assert len(_denied(conn)) == 2
 
 
 @pytest.mark.parametrize("case", ["unknown", "unpaired", "full"])
-def test_not_owner_comes_before_lookups(
+def test_owner_only_comes_before_lookups(
     conn: sqlite3.Connection,
     make_session: MakeSession,
     clock: FakeClock,
@@ -160,8 +160,8 @@ def test_not_owner_comes_before_lookups(
         to = "far/api"
     else:
         monkeypatch.setattr(mail, "MAX_WAITING_PER_MAILBOX", 0)
-    assert _error(_instruct, conn, p, clock, to=to).code == "not_owner"
-    assert _denied(conn) == [{"to": to, "reason": "not_owner"}]
+    assert _error(_instruct, conn, p, clock, to=to).code == "owner_only"
+    assert _denied(conn) == [{"to": to, "reason": "owner_only"}]
 
 
 def test_owner_remove_bites_next_send(
@@ -176,7 +176,7 @@ def test_owner_remove_bites_next_send(
     assert laptop is not None
     with db.transaction(conn):
         oauth_store.set_owner(conn, laptop.id, False)
-    assert _error(_instruct, conn, phone, clock).code == "not_owner"
+    assert _error(_instruct, conn, phone, clock).code == "owner_only"
 
 
 def test_peer_modes_need_no_owner(

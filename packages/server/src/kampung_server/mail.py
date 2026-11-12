@@ -109,9 +109,9 @@ def send(
             and sender.agent == CONNECTOR_AGENT
             and oauth_store.is_owner(conn, sender.machine_id)
         ):
-            audit.record(conn, now, actor, "denied", {"to": to, "reason": "not_owner"})
+            audit.record(conn, now, actor, "denied", {"to": to, "reason": "owner_only"})
             raise KampungError(
-                "not_owner",
+                "owner_only",
                 "Only the owner's Claude app may send owner instructions. "
                 "Send with mode ask or tell.",
             )

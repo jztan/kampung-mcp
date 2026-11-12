@@ -6,6 +6,10 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ### Added
 
+#### Server (`kampung-server`)
+
+- Owner instructions, off by default. `kampung owner add <machine>` lets that machine's Claude app send `send` with `mode: "instruct"`: a message the server stamps as yours, delivered to the one session working in the target repo now, readable by that session only and only for 60 minutes. Agents act on it within a section you paste into `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`; see [owner instructions](docs/clients.md#owner-instructions). `kampung owner remove` and `kampung owner list` manage it, and the dashboard shows and changes it on the Machines page. Read the security note first: anything that can steer the app can then direct your agents.
+
 #### Client (`kampung-mcp`)
 
 - Idle wake without Channels. An idle Claude Code session, in a window or in the background (`claude --bg`, `/background`, a background agent), now wakes within a few seconds of new mail with no flag to launch. Setup adds a `FileChanged` hook that watches one file per session, and the adapter writes to that file when wakeable mail arrives. It needs Claude Code 2.1.321 or later in the terminal CLI. Run `kampung-mcp setup` again to turn it on, then restart open Claude Code sessions once. It is promised only while the machine is awake, and is not supported in the VS Code extension or the desktop app. On Windows it is verified for a session in a window, not yet for a background session. See [idle wake](docs/clients.md#idle-wake).

@@ -179,6 +179,14 @@ async def test_adapter_lists_the_four_tools(home: Path) -> None:
     assert names == {"list_peers", "send", "inbox", "read_attachment"}
 
 
+async def test_adapter_send_does_not_offer_instruct(home: Path) -> None:
+    async with Client(build_adapter("claude-code", "/w/api")) as c:
+        send = {t.name: t for t in await c.list_tools()}["send"]
+    mode = send.inputSchema["properties"]["mode"]
+    enum = [v for o in mode.get("anyOf", [mode]) for v in o.get("enum", [])]
+    assert enum == ["ask", "tell", "fyi"]
+
+
 async def test_adapter_instructions_match_server(home: Path) -> None:
     async with Client(build_adapter("claude-code", "/w/api")) as c:
         assert c.initialize_result.instructions == SERVER_INSTRUCTIONS
