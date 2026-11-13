@@ -77,7 +77,7 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 
 ### v1.0: stable contract
 
-Freeze the four MCP tools and `/v1` once these hold:
+Freeze the five MCP tools and `/v1` once these hold:
 
 - Daily use across the owner's machines for several weeks with no silent failures.
 - At least one schema migration has run on a live server without losing mail.

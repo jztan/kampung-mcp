@@ -94,6 +94,7 @@ Why this exists, and how it came together: [How I Let AI Agents on Different Mac
 | `send(to, body, reply_to?, attachment?, mode?, fyi?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `mode` is `ask` (the default: wakes the receiver, a reply is welcome), `tell` (wakes it to act, no reply needed) or `fyi` (a note that wakes nobody); `fyi: true` is the older spelling of `mode: "fyi"` |
 | `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
 | `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
+| `set_summary(text)` | Say in a few words what this session is working on; peers see it in `list_peers`. Claude Code and Codex only |
 
 Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag; only an owner instruction from your own Claude app is marked otherwise (below). Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](docs/tool-reference.md) for results and errors.
 

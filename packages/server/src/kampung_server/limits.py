@@ -27,6 +27,7 @@ SEND_RATE_WINDOW = timedelta(seconds=60)
 REGISTER_RATE = 60
 # Typed-prompt calls per machine per minute: each refills wake budgets.
 HUMAN_TURN_RATE = 60
+SUMMARY_RATE = 30  # set_summary calls per machine per minute
 # peek calls per machine per minute: the Channels poller peeks every 2
 # seconds, so this covers MAX_LIVE_SESSIONS_PER_MACHINE windows polling at once.
 PEEK_RATE = 256 * 30
@@ -42,6 +43,7 @@ MAX_REQUEST_BYTES = 64 * 1024
 MAX_CWD_CHARS = 1024
 MAX_BRANCH_CHARS = 100
 MAX_CLIENT_VERSION_CHARS = 32
+MAX_SUMMARY_CHARS = 80
 MAX_AGENT_SESSION_ID_CHARS = 128
 MAX_LIVE_SESSIONS_PER_MAILBOX = 32
 MAX_LIVE_SESSIONS_PER_MACHINE = 256

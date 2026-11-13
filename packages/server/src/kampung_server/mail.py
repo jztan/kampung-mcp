@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Literal
 
-from . import attachments, audit, db, guard, oauth_store
+from . import attachments, audit, db, guard, oauth_store, sessions
 from .addressing import parse_address
 from .attachments import Attachment
 from .clock import age, ago, parse_ts, ts
@@ -905,6 +905,21 @@ def peek(conn: sqlite3.Connection, session: Session, now: datetime) -> PeekResul
     return PeekResult(row[0], row[1], newest[0] if newest else None)
 
 
+def set_summary(conn: sqlite3.Connection, session: Session, text: str) -> str | None:
+    """Set the session's summary (None clears it) and return what is stored."""
+    if session.agent == CONNECTOR_AGENT:
+        raise KampungError(
+            "not_for_app",
+            "The Claude app's session is shared by every chat, so it has no "
+            "summary.",
+        )
+    summary = sessions.check_summary(text)
+    if summary is not None:
+        _scan(summary, None)  # peers see it
+    conn.execute("UPDATE sessions SET summary = ? WHERE id = ?", (summary, session.id))
+    return summary
+
+
 def _owner_lost_text(conn: sqlite3.Connection, session: Session) -> str | None:
     lost = oauth_store.owner_lost(conn, session.machine_id)
     if lost is None:
@@ -966,6 +981,7 @@ def list_peers(
                         "suffix": s.suffix,
                         "cwd": s.cwd,
                         "branch": s.branch,
+                        "summary": s.summary,
                         "agent": s.agent,
                         "live": is_live(s, now),
                         "background": s.background,
