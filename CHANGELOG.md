@@ -16,6 +16,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Server (`kampung-server`)
 
+- The Claude app now picks `mode: "instruct"` more reliably when you ask it to get a session to do something. Its `send` description leads with that rule and is half as long (the app could cut the old one off before reaching it), and the `mode` field has its own description. The owner-instructions section to paste into `CLAUDE.md` or `AGENTS.md` gains a line: a session that declines because a message is not an owner instruction asks for it to be resent with mode instruct.
 - `list_peers` and `send` now say when a peer's machine has gone quiet (probably asleep), instead of calling it live. Each session in `list_peers` has `reachable` (false once an idle-wake session has not checked for mail for 2 minutes; null when Kampung cannot tell) and `seen` ("6 min ago"). A `send` to such a session returns `"note": "unreachable"` with when it was last seen and a hint to tell your user if it is urgent; the message still waits and wakes it when the machine is back, and spends no wake budget. The dashboard shows these sessions as Unreachable and their mailboxes as "asleep?".
 
 ## [0.5.0] - 2026-11-12
