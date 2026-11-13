@@ -218,14 +218,11 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             now = deps.clock()
             deps.peek_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
-            sent = request.query_params.get("branch", _ABSENT)
-            branch = _reported_branch(sent)
+            branch = _reported_branch(request.query_params.get("branch", _ABSENT))
+            result = dict(mail.peek(conn, s, now).to_dict())
             if not isinstance(branch, sessions.Keep):
                 sessions.set_branch(conn, s.id, branch)
-            result = dict(mail.peek(conn, s, now).to_dict())
-            if sent is not _ABSENT:
-                kept = isinstance(branch, sessions.Keep)
-                result["branch"] = s.branch if kept else branch
+                result["branch"] = branch  # echoed only when stored
             return result
 
         return await _run(deps, request, handler)
