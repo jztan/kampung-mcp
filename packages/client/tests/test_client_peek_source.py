@@ -177,3 +177,79 @@ async def test_an_ended_session_is_not_mistaken_for_an_older_server(
     async with _pumping(source, sid, []):
         await _until(lambda: source.state == "ended")
         assert not source.old_server
+
+
+async def test_a_revived_session_gets_its_stream_back(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    # The sweep ends a session after a long sleep; the hooks later revive the
+    # same id. The adapter must stream again, not poll for the rest of its life.
+    sid = _session(tmp_path)
+    source = adapter.PeekSource()
+    async with _pumping(source, sid, []):
+        await _until(lambda: source.state == "streaming")
+        server.admin.end_session(int(sid), "admin:cli")
+        await _until(lambda: source.state == "ended")
+        again = hook.register("claude-code", str(tmp_path / "api"), True, SID)
+        assert str(again["session"]) == sid  # revived: the same row
+        await _until(lambda: source.state == "streaming")
+
+
+async def test_streaming_waits_for_the_first_event(home: Path, tmp_path: Path) -> None:
+    # A proxy that sends the headers but buffers the body: no event ever
+    # arrives, so the adapter must keep polling rather than wait on a stream.
+    import socket
+    import threading
+
+    import uvicorn
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse, StreamingResponse
+    from starlette.routing import Route
+
+    from client_testlib import write_config
+
+    peeks: list[str] = []
+
+    async def silent(request: Request) -> StreamingResponse:
+        async def never() -> Any:
+            await asyncio.sleep(3600)
+            yield ""
+
+        return StreamingResponse(never(), media_type="text/event-stream")
+
+    async def peek(request: Request) -> JSONResponse:
+        peeks.append(request.url.path)
+        return JSONResponse({"waiting": 0, "wakeable": 0, "newest": None})
+
+    app = Starlette(
+        routes=[
+            Route("/v1/sessions/{sid}/events", silent),
+            Route("/v1/sessions/{sid}/peek", peek),
+        ]
+    )
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    srv = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            timeout_graceful_shutdown=1,
+        )
+    )
+    threading.Thread(target=srv.run, daemon=True).start()
+    while not srv.started:
+        await asyncio.sleep(0.02)
+    write_config(home, f"http://127.0.0.1:{port}", "kmp_x")
+    source = adapter.PeekSource()
+    try:
+        async with _pumping(source, "7", []):
+            await asyncio.sleep(0.5)
+            assert source.state == "connecting"
+            assert len(peeks) >= 3  # still polling
+    finally:
+        srv.should_exit = True

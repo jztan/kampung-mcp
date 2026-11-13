@@ -805,6 +805,7 @@ class PeekSource:
         self.retry_at = 0.0
         self.retry = STREAM_RETRY
         self.last_peek = 0.0
+        self._last_status = 0
         self._logged = False
 
     async def get(self, sid: object) -> tuple[dict[str, object], bool]:
@@ -815,7 +816,12 @@ class PeekSource:
         if self.state != "streaming":
             if not self.old_server and self.state == "down" and now >= self.retry_at:
                 self._start()
-            return await self._poll(), False
+            body = await self._poll()
+            if self.state == "ended" and self._last_status == 200:
+                # Revived under the same id (the hooks, after a long sleep or
+                # an admin end): stream again rather than poll for good.
+                self.state, self.retry_at, self.retry = "down", 0.0, STREAM_RETRY
+            return body, False
         if now - self.last_peek >= HEARTBEAT:
             return await self._poll(), False
         try:
@@ -844,6 +850,7 @@ class PeekSource:
         status, body = await asyncio.to_thread(
             hook.api, "GET", f"/v1/sessions/{self.sid}/peek"
         )
+        self._last_status = status
         return body if status == 200 else {}
 
     def _start(self) -> None:
@@ -885,8 +892,9 @@ class PeekSource:
                     return
                 if r.status_code != 200:
                     raise ConnectionError(f"event stream: HTTP {r.status_code}")
-                self.state, self.retry, self._logged = "streaming", STREAM_RETRY, False
-                self.last_peek = time.monotonic()
+                # Streaming only from the first event (the server sends one at
+                # once): a proxy that buffers the body would otherwise leave
+                # us waiting on a stream that never speaks.
                 name = ""
                 async for line in r.aiter_lines():
                     if line.startswith("event: "):
@@ -898,6 +906,10 @@ class PeekSource:
                             return
                         if name == "peek" and isinstance(data, dict):
                             self.latest = data
+                            if self.state != "streaming":
+                                self.state, self.retry = "streaming", STREAM_RETRY
+                                self._logged = False
+                                self.last_peek = time.monotonic()
                             self.fresh.set()
 
 
