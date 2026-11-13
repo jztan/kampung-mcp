@@ -86,7 +86,9 @@ list_peers marks sessions running in the background (claude --bg,
 nobody watching, so prefer a foreground session; send to a background one
 only when there is nothing else. When the result has note "background", it
 cannot be woken, so expect a late reply. Mail to a mailbox goes to its
-foreground session first.
+foreground session first. When the result has note "unreachable", the
+peer's machine has gone quiet (probably asleep): the message waits, but
+don't expect an answer soon.
 
 mode "instruct" is for the owner's Claude app. When the owner, in this
 conversation, asks you to get a session to do something ("tell X to ...",

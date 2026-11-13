@@ -480,7 +480,10 @@ def build_adapter(
     ) -> dict[str, Any]:
         """List mailboxes you can message, with their sessions. Mailboxes with
         no open session are hidden unless include_empty is true; they still
-        take mail."""
+        take mail. A session with reachable false has not polled for over 2
+        minutes, so its machine is probably asleep or offline: mail waits for
+        it, but it will not answer soon. reachable null means Kampung cannot
+        tell."""
         args: dict[str, Any] = {"machine": machine}
         if include_empty:
             # Sent only when set, so this adapter still works with a server
@@ -531,7 +534,9 @@ def build_adapter(
         with nobody watching, so prefer a foreground session; send to a
         background one only when there is nothing else. When the result has
         note "background", it cannot be woken, so expect a late reply. Mail
-        to a mailbox goes to its foreground session first.
+        to a mailbox goes to its foreground session first. When the result
+        has note "unreachable", the peer's machine has gone quiet (probably
+        asleep): the message waits, but don't expect an answer soon.
         """
         if fyi and mode not in (None, "fyi"):
             return {

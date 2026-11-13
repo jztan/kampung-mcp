@@ -8,7 +8,7 @@ from typing import Literal
 from . import attachments, audit, db, guard, oauth_store
 from .addressing import parse_address
 from .attachments import Attachment
-from .clock import ago, ts
+from .clock import age, ago, ts
 from .errors import KampungError
 from .identity import is_paired
 from .ids import new_message_id
@@ -22,6 +22,7 @@ from .limits import (
     MESSAGE_TTL,
     NOHOOK_MAILBOX_REFILL,
     OWNER_BIND_WINDOW,
+    POLL_WINDOW,
     OWNER_CODEX_TYPED_WINDOW,
     OWNER_INSTRUCTION_TTL,
 )
@@ -69,6 +70,11 @@ class SendResult:
     hint: str | None = None
     # The session an owner instruction was bound to, machine/repo#xx.
     to: str | None = None
+    # Set only with note "unreachable": every target session has stopped
+    # polling (its machine is probably asleep); when it was last heard from.
+    reachable: bool | None = None
+    last_seen: str | None = None
+    seen: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -82,6 +88,9 @@ class _Decision:
     spent: bool = False
     budget: dict[str, object] | None = None
     hint: str | None = None
+    reachable: bool | None = None
+    last_seen: str | None = None
+    seen: str | None = None
 
 
 def send(
@@ -272,6 +281,9 @@ def send(
         decision.budget,
         decision.hint,
         bound,
+        reachable=decision.reachable,
+        last_seen=decision.last_seen,
+        seen=decision.seen,
     )
 
 
@@ -402,6 +414,29 @@ def _background_only(
     return bool(rows) and all(r["background"] and not r["idle_wake"] for r in rows)
 
 
+def _unreachable(
+    live: list[sqlite3.Row], sender: Session, peer: str, now: datetime
+) -> _Decision | None:
+    """When every live target other than the sender is an idle-wake session
+    that has stopped polling, its machine is probably asleep: the message
+    waits and wakes it on return, spends nothing, and the sender is told."""
+    others = [r for r in live if r["id"] != sender.id]
+    stale = ts(now - POLL_WINDOW)
+    if not others or not all(r["idle_wake"] and r["last_seen"] < stale for r in others):
+        return None
+    newest: str = max(r["last_seen"] for r in others)
+    return _Decision(
+        True,
+        note="unreachable",
+        hint=f"{peer} has not been heard from for {age(newest, now)}; its "
+        "machine may be asleep or offline. Your message waits and wakes it "
+        "when it is back. If this is urgent, tell your user.",
+        reachable=False,
+        last_seen=newest,
+        seen=ago(newest, now),
+    )
+
+
 def _decide_wake(
     conn: sqlite3.Connection,
     sender: Session,
@@ -421,13 +456,15 @@ def _decide_wake(
         )
     if target_session is not None:
         live = conn.execute(
-            "SELECT agent FROM sessions WHERE id = ? AND ended_at IS NULL "
+            "SELECT id, agent, idle_wake, last_seen FROM sessions "
+            "WHERE id = ? AND ended_at IS NULL "
             "AND last_seen >= ?",
             (target_session, ts(now - LIVE_WINDOW)),
         ).fetchall()
     else:
         live = conn.execute(
-            "SELECT agent FROM sessions WHERE mailbox_id = ? AND ended_at IS NULL "
+            "SELECT id, agent, idle_wake, last_seen FROM sessions "
+            "WHERE mailbox_id = ? AND ended_at IS NULL "
             "AND last_seen >= ?",
             (target_box, ts(now - LIVE_WINDOW)),
         ).fetchall()
@@ -460,6 +497,9 @@ def _decide_wake(
             hint=f"{peer} is the Claude app, which reads mail only when its user "
             "asks. It is in its inbox; there is nothing to wake.",
         )
+    unreachable = _unreachable(live, sender, peer, now)
+    if unreachable is not None:
+        return unreachable
     if sender.agent == CONNECTOR_AGENT:
         return _connector_send(conn, sender, target_box, now, g, instruct)
     if sender.typed_at is None:
@@ -596,7 +636,9 @@ def _connector_send(
         # Mail to a mailbox with nobody in it woke nobody, so it does not count.
         "SELECT count(*) FROM messages WHERE from_session_id = ? "
         "AND to_mailbox_id = ? AND wake = 1 "
-        "AND coalesce(wake_reason, '') != 'no_session' AND sent_at > ?",
+        # Nor did mail to a session whose machine had gone quiet.
+        "AND coalesce(wake_reason, '') NOT IN ('no_session', 'unreachable') "
+        "AND sent_at > ?",
         (sender.id, target_box, ts(now - CONNECTOR_WAKE_WINDOW)),
     ).fetchone()[0]
     if woken >= g.connector_wake_budget:
