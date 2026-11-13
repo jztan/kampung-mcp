@@ -741,8 +741,13 @@ def register(
     agent_session_id: str | None = None,
     timeout: float = 2.0,
     ancestry: bool = True,
+    report_branch: bool = True,
 ) -> dict[str, object]:
     """Register (or revive) a session and return its session-file contents.
+
+    Without `report_branch` the branch is left as the server has it: the
+    adapter cannot tell a session's folder (every Codex window shares one
+    daemon), so only the hooks report it.
 
     Without `ancestry` the file records no ancestors: Codex files are adopted
     by session id, and every Codex process shares one long-lived daemon.
@@ -764,7 +769,8 @@ def register(
         body["idle_wake"] = True  # likewise: a server before 0.5 ignores it
     # A server before 0.6 ignores both.
     branch = git_branch(cwd) or ""
-    body["branch"] = branch
+    if report_branch:
+        body["branch"] = branch
     version = client_version()
     if version is not None:
         body["client_version"] = version
@@ -786,7 +792,7 @@ def register(
         "agent_session_id": agent_session_id,
         "ancestors": [list(a) for a in ancestors()] if ancestry else [],
         "background": background,
-        "branch_sent": branch,
+        **({"branch_sent": branch} if report_branch else {}),
     }
 
 
