@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pill, csrf_field %}
+{% from "_macros.html" import pill, csrf_field, client %}
 {% block content %}
 {% if new_key %}<div class="flash" role="status">Created machine <b>{{ new_key[0] }}</b>. Copy its key now, it is not shown again: <span class="mono">{{ new_key[1] }}</span></div>{% endif %}
 <div class="split">
   <div class="panel">
-    <div class="panel-head"><h2>Machines</h2><span class="sub">A machine can only message machines it is paired with.</span></div>
+    <div class="panel-head"><h2>Machines</h2><span class="sub">A machine can only message machines it is paired with. Client is the newest version its sessions reported.</span></div>
     {% if rows %}
     <div class="scroll"><table>
-      <thead><tr><th>Name</th><th>Status</th><th>Paired with</th><th>Claude app</th><th>Last seen</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Status</th><th>Paired with</th><th>Claude app</th><th>Client</th><th>Last seen</th><th>Created</th><th></th></tr></thead>
       <tbody>
       {% for m in rows %}
         <tr>
@@ -17,6 +17,7 @@
           <td>{% if m.grant_created_at %}{% if m.owner %}{{ pill("owner") }}{% else %}<span class="muted">connected</span>{% endif %}
             <form class="inline-form" method="post" action="/admin/machines/{{ m.name | urlencode }}/owner{% if m.owner %}/delete{% endif %}">{{ csrf_field(csrf) }}<button class="btn sm" type="submit">{% if m.owner %}Remove owner{% else %}Make owner{% endif %}</button></form>
           {% else %}<span class="muted">none</span>{% endif %}</td>
+          <td>{{ client(m.client_version, version) }}</td>
           <td class="num">{{ m.last_seen | ago }}</td>
           <td class="num muted">{{ (m.created_at | utc)[:10] }}</td>
           <td class="right">{% if m.active %}<a class="btn sm danger" href="/admin/machines/{{ m.name | urlencode }}/revoke">Revoke</a>{% endif %}</td>

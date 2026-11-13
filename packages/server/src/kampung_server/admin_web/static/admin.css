@@ -89,6 +89,7 @@ a { color: var(--accent); }
 .panel-head .sub { color: var(--muted); font-size: 12.5px; }
 td .sub { color: var(--muted); font-size: 12px; white-space: nowrap; }
 /* Attachment names run to 100 characters: wrap them, never widen the table. */
+td .branch { display: inline-block; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 td .sub .att-name { display: inline-block; max-width: 24ch; white-space: normal; overflow-wrap: break-word; vertical-align: top; }
 .scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }

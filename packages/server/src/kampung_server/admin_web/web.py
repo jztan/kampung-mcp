@@ -10,6 +10,7 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 from .. import __version__
 from ..deps import ServerDeps
 from .auth import AdminAuth, AdminSession
+from .queries import minor_mismatch
 
 COOKIE = "kampung_admin"
 DEVICE_COOKIE = "kampung_admin_device"
@@ -58,6 +59,7 @@ class Web:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self.env.globals["minor_mismatch"] = minor_mismatch
         self.nav_counts: Callable[[], dict[str, Any]] = dict
 
     def session(self, request: Request) -> AdminSession | None:

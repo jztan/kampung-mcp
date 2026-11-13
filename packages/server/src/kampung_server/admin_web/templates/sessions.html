@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pill, more, csrf_field %}
+{% from "_macros.html" import pill, more, csrf_field, client %}
 {% block content %}
 <div class="panel">
-  <div class="panel-head"><h2>Sessions</h2><span class="sub">Wakes used counts waking sends from the mailbox since someone typed there; Refill resets it and the mailbox's pair budgets.</span></div>
+  <div class="panel-head"><h2>Sessions</h2><span class="sub">Wakes used counts waking sends from the mailbox since someone typed there; Refill resets it and the mailbox's pair budgets. Branch and Client are self-reported by each session's client.</span></div>
   <form class="filters" method="get" action="/admin/sessions">
     <label class="f" for="s-state">State<select id="s-state" name="state">
       {% for v, label in [("open", "Live and idle"), ("all", "All"), ("ended", "Ended")] %}<option value="{{ v }}"{% if state == v %} selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -14,7 +14,7 @@
   </form>
   {% if page.rows %}
   <div class="scroll"><table>
-    <thead><tr><th>Address</th><th>Agent</th><th>State</th><th>Wakes used</th><th>Working directory</th><th>Started (UTC)</th><th>Last seen</th><th></th></tr></thead>
+    <thead><tr><th>Address</th><th>Agent</th><th>State</th><th>Wakes used</th><th>Working directory</th><th>Branch</th><th>Client</th><th>Started (UTC)</th><th>Last seen</th><th></th></tr></thead>
     <tbody>
     {% for s in page.rows %}
       <tr>
@@ -23,6 +23,8 @@
         <td>{{ pill(s.state) }}</td>
         <td class="num">{{ s.wakes_used }}</td>
         <td class="mono muted">{{ s.cwd }}</td>
+        <td class="mono muted">{% if s.branch %}<span class="branch" title="{{ s.branch }}">{{ s.branch }}</span>{% endif %}</td>
+        <td>{{ client(s.client_version, version) }}</td>
         <td class="num">{{ s.started_at | utc }}</td>
         <td class="num">{{ s.last_seen | ago }}</td>
         <td class="right">{% if s.state != "ended" %}<div class="row end">
