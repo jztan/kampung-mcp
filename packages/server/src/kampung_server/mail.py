@@ -8,7 +8,7 @@ from typing import Literal
 from . import attachments, audit, db, guard, oauth_store
 from .addressing import parse_address
 from .attachments import Attachment
-from .clock import age, ago, ts
+from .clock import age, ago, parse_ts, ts
 from .errors import KampungError
 from .identity import is_paired
 from .ids import new_message_id
@@ -120,10 +120,23 @@ def send(
             and oauth_store.is_owner(conn, sender.machine_id)
         ):
             audit.record(conn, now, actor, "denied", {"to": to, "reason": "owner_only"})
+            lost = (
+                _owner_lost_text(conn, sender)
+                if connector and sender.agent == CONNECTOR_AGENT
+                else None
+            )
             raise KampungError(
                 "owner_only",
-                "Only the owner's Claude app may send owner instructions. "
-                "Send with mode ask or tell.",
+                (
+                    (
+                        f'{lost} Ask the operator to run "kampung owner add '
+                        f'{sender.machine}" on the server, then resend. Until then '
+                        "send with mode ask or tell."
+                    )
+                    if lost
+                    else "Only the owner's Claude app may send owner instructions. "
+                    "Send with mode ask or tell."
+                ),
             )
         if attachment is not None:
             raise KampungError(
@@ -890,6 +903,29 @@ def peek(conn: sqlite3.Connection, session: Session, now: datetime) -> PeekResul
             params,
         ).fetchone()
     return PeekResult(row[0], row[1], newest[0] if newest else None)
+
+
+def _owner_lost_text(conn: sqlite3.Connection, session: Session) -> str | None:
+    lost = oauth_store.owner_lost(conn, session.machine_id)
+    if lost is None:
+        return None
+    at = parse_ts(lost[0]).strftime("%Y-%m-%d %H:%M")
+    words = oauth_store.owner_lost_words(lost[1])
+    return f"Your owner mark was cleared at {at} UTC ({words})."
+
+
+def owner_lost_notice(conn: sqlite3.Connection, session: Session) -> str | None:
+    """For the Claude app only: its owner mark is gone and how to get it back,
+    so it hears before an owner instruction is refused."""
+    if session.agent != CONNECTOR_AGENT:
+        return None
+    lost = _owner_lost_text(conn, session)
+    if lost is None:
+        return None
+    return (
+        f"{lost} Owner instructions (mode instruct) will be refused until the "
+        f'operator runs "kampung owner add {session.machine}" on the server.'
+    )
 
 
 def list_peers(

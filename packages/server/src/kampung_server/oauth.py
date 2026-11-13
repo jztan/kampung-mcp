@@ -355,7 +355,7 @@ class KampungOAuth(OAuthProvider):
                         return issued
                     rotated_at = _epoch(parse_ts(used_at))
                     if epoch - rotated_at > reuse:
-                        oauth_store.delete_grant(conn, grant_id, now)
+                        oauth_store.delete_grant(conn, grant_id, now, "token_reuse")
                         audit.record(
                             conn, now, "oauth", "token_reuse", {"grant": grant_id}
                         )
@@ -435,7 +435,7 @@ class KampungOAuth(OAuthProvider):
                     for kind in ("access", "refresh"):
                         loaded = oauth_store.load_token(conn, kind, token.token, now)
                         if loaded is not None:
-                            oauth_store.delete_grant(conn, loaded[0], now)
+                            oauth_store.delete_grant(conn, loaded[0], now, "app_revoke")
                             audit.record(
                                 conn, now, "oauth", "disconnect", {"grant": loaded[0]}
                             )

@@ -145,8 +145,13 @@ def register_actions(mcp: FastMCP, web: Web) -> None:
     @post("/admin/machines/{name}/owner/delete", back="/admin/machines")
     async def owner_remove(request: Request, s: AdminSession, form: FormData) -> str:
         name = request.path_params["name"]
-        admin.owner_remove(name, ACTOR)
-        s.flash = ("ok", f"{name}'s Claude app may no longer send owner instructions.")
+        if admin.owner_remove(name, ACTOR):
+            s.flash = ("ok", f"{name}'s lost owner mark dismissed.")
+        else:
+            s.flash = (
+                "ok",
+                f"{name}'s Claude app may no longer send owner instructions.",
+            )
         return "/admin/machines"
 
     @post("/admin/sessions/{id}/end", back="/admin/sessions")

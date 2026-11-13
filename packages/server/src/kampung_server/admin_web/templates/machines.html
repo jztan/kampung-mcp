@@ -16,7 +16,9 @@
           <td class="mono">{{ m.paired_with | join(", ") if m.paired_with else "none" }}</td>
           <td>{% if m.grant_created_at %}{% if m.owner %}{{ pill("owner") }}{% else %}<span class="muted">connected</span>{% endif %}
             <form class="inline-form" method="post" action="/admin/machines/{{ m.name | urlencode }}/owner{% if m.owner %}/delete{% endif %}">{{ csrf_field(csrf) }}<button class="btn sm" type="submit">{% if m.owner %}Remove owner{% else %}Make owner{% endif %}</button></form>
-          {% else %}<span class="muted">none</span>{% endif %}</td>
+          {% elif not m.owner_lost %}<span class="muted">none</span>{% endif %}
+          {% if m.owner_lost %}<span class="pill warn" title="{{ m.owner_lost }}">Owner lost</span>
+            <form class="inline-form" method="post" action="/admin/machines/{{ m.name | urlencode }}/owner/delete">{{ csrf_field(csrf) }}<button class="btn sm" type="submit">Dismiss</button></form>{% endif %}</td>
           <td>{{ client(m.client_version, version) }}</td>
           <td class="num">{{ m.last_seen | ago }}</td>
           <td class="num muted">{{ (m.created_at | utc)[:10] }}</td>

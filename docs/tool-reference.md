@@ -176,6 +176,8 @@ To answer one session, send to its `from` address. If that session has ended, `s
 
 Each message also has `"attachment"`: `null`, or `{"name", "type", "bytes"}` when it carries one. The content is never in `inbox`.
 
+For the Claude app only, `inbox` and `list_peers` add `"notice"` while its owner mark is lost: when and why it was cleared, and that `kampung owner add <machine>` restores it.
+
 ## `read_attachment`
 
 Reads the attachment of a message this machine sent or received. The receiving machine can read it once the message has been delivered, the sending machine at any time, both until the message expires, and as often as they like.
@@ -225,7 +227,7 @@ From the server:
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
-| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection |
+| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
 | `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
 | `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
 | `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses, each with its branch when known: `laptop/api#ef (feature/x), laptop/api#f7 (develop)` |

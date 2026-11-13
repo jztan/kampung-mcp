@@ -86,6 +86,16 @@ MODE_DESCRIPTION = (
 )
 
 Result = dict[str, Any]
+
+
+def _with_notice(
+    conn: sqlite3.Connection, session: Session | None, result: Result
+) -> Result:
+    """Add the Claude app's lost-owner-mark notice, when there is one."""
+    notice = mail.owner_lost_notice(conn, session) if session else None
+    return {**result, "notice": notice} if notice else result
+
+
 BUSY = KampungError("busy", "The server is busy. Try again in a moment.")
 
 
@@ -195,12 +205,13 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         git, to tell sessions in one mailbox apart."""
 
         def work(
-            conn: sqlite3.Connection, me: Machine, _: Session | None, now: datetime
+            conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime
         ) -> Result:
-            return {
+            result: Result = {
                 "kind": mail.PEERS_KIND,
                 "peers": mail.list_peers(conn, me, now, machine, include_empty),
             }
+            return _with_notice(conn, s, result)
 
         return call(work)
 
@@ -285,6 +296,7 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
             conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime
         ) -> Result:
             assert s is not None
-            return mail.inbox(conn, s, limit, now).to_dict()
+            result = mail.inbox(conn, s, limit, now).to_dict()
+            return _with_notice(conn, s, result)
 
         return call(work)

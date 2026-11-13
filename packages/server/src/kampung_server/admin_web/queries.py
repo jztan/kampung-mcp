@@ -3,12 +3,13 @@
 import json
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 
 from ..clock import ts
 from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL, POLL_WINDOW
+from ..oauth_store import lost_marks, owner_lost_at_text, owner_lost_words
 from ..sessions import STALE_POLLER_SQL
 
 LIMIT = 100
@@ -53,6 +54,9 @@ class Overview:
     sent_24h: int
     oldest_queued_at: str | None
     recent_audit: list[AuditRow]
+    # (machine, "<at> UTC (<why>)", has a Claude app connection now) for each
+    # lost owner mark; without a connection, owner add needs a reconnect first.
+    owner_lost: list[tuple[str, str, bool]] = field(default_factory=list)
 
 
 @dataclass
@@ -68,6 +72,8 @@ class MachineRow:
     owner: bool = False
     # The newest client version its sessions reported (self-reported).
     client_version: str | None = None
+    # When and why its Claude app's owner mark was lost, as one line.
+    owner_lost: str | None = None
 
 
 @dataclass
@@ -227,6 +233,19 @@ def overview(conn: sqlite3.Connection, now: datetime) -> Overview:
         ),
         oldest_queued_at=oldest,
         recent_audit=audit(conn, None, None, limit=20).rows,
+        owner_lost=[
+            (
+                name,
+                f"{owner_lost_at_text(at)} UTC ({owner_lost_words(reason)})",
+                conn.execute(
+                    "SELECT 1 FROM oauth_grants g JOIN machines m "
+                    "ON m.id = g.machine_id WHERE m.name = ?",
+                    (name,),
+                ).fetchone()
+                is not None,
+            )
+            for name, at, reason in lost_marks(conn)
+        ],
     )
 
 
@@ -276,6 +295,10 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
         "JOIN machines a ON a.id = p.machine_a JOIN machines b ON b.id = p.machine_b"
     ).fetchall()
     versions = _newest_client_versions(conn)
+    lost = {
+        name: f"{owner_lost_at_text(at)} UTC: {owner_lost_words(reason)}"
+        for name, at, reason in lost_marks(conn)
+    }
     peers: dict[str, list[str]] = {}
     for r in pairs:
         peers.setdefault(r["a"], []).append(r["b"])
@@ -290,6 +313,7 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
             grant_created_at=r["grant_created_at"],
             owner=bool(r["owner"]),
             client_version=versions.get(r["id"]),
+            owner_lost=lost.get(r["name"]),
         )
         for r in rows
     ]

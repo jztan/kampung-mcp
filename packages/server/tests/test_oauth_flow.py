@@ -509,3 +509,17 @@ async def test_mode_parameter_describes_instruct(
     mode = tools["send"].inputSchema["properties"]["mode"]
     assert "instruct" in mode.get("description", "")
     assert "owner asked" in mode["description"]
+
+
+async def test_app_sees_a_notice_while_its_owner_mark_is_lost(server: Server) -> None:
+    connect(server)
+    server.admin.owner_add("phone", "admin:cli")
+    tokens = connect(server)  # a reconnect replaces the owner grant
+    async with client_for(server, tokens["access_token"]) as phone:
+        inbox = (await phone.call_tool("inbox", {})).data
+        peers = (await phone.call_tool("list_peers", {})).data
+        assert "owner mark was cleared" in inbox["notice"]
+        assert "kampung owner add phone" in peers["notice"]
+        server.admin.owner_add("phone", "admin:cli")
+        assert "notice" not in (await phone.call_tool("inbox", {})).data
+        assert "notice" not in (await phone.call_tool("list_peers", {})).data
