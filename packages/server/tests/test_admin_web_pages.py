@@ -402,3 +402,17 @@ def test_sessions_and_machines_pages_show_branch_and_client(
     assert sessions.count('title="server is ') == 1
     machines = web.get("/admin/machines").text
     assert "0.1.0" in machines and f'title="server is {major_minor}"' in machines
+
+
+def test_sessions_page_shows_the_summary(
+    web: TestClient, conn: sqlite3.Connection, make_session: MakeSession
+) -> None:
+    s = make_session("laptop", "api", agent_session_id="a")
+    mail.set_summary(conn, s, "reviewing the owner-mark branch")
+    login(web)
+    page = web.get("/admin/sessions").text
+    assert "<th>Summary</th>" in page
+    assert (
+        '<span class="branch" title="reviewing the owner-mark branch">'
+        "reviewing the owner-mark branch</span>" in page
+    )

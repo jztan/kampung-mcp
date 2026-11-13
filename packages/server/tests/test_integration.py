@@ -303,3 +303,24 @@ async def test_attachment_round_trip_through_mcp(server: Server) -> None:
         assert image.data["type"] in ("image/png", "image/jpeg")
         denied = await cb.call_tool("read_attachment", {"message_id": "msg_nope"})
         assert denied.data["error"] == "unknown_message"
+
+
+async def test_set_summary_tool_and_its_rate_limit(server: Server) -> None:
+    a = register(server, "laptop", "api")
+    async with client_for(server, server.keys["laptop"], a) as c:
+        r = await c.call_tool("set_summary", {"text": "fixing the login form"})
+        assert r.data == {"summary": "fixing the login form"}
+        for _ in range(29):
+            await c.call_tool("set_summary", {"text": "busy"})
+        r = await c.call_tool("set_summary", {"text": "one too many"})
+        assert r.data["error"] == "rate_limited"
+        peers = (await c.call_tool("list_peers", {"machine": "laptop"})).data
+        assert peers["peers"][0]["sessions"][0]["summary"] == "busy"
+
+
+async def test_set_summary_description_is_for_the_claude_app(server: Server) -> None:
+    async with client_for(server, server.keys["laptop"], None) as c:
+        tools = {t.name: t for t in await c.list_tools()}
+    assert (tools["set_summary"].description or "").startswith(
+        "Not for the Claude app: its one session is shared by every chat"
+    )

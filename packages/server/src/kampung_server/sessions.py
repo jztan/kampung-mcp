@@ -15,6 +15,7 @@ from .limits import (
     MAX_AGENT_SESSION_ID_CHARS,
     MAX_BRANCH_CHARS,
     MAX_CLIENT_VERSION_CHARS,
+    MAX_SUMMARY_CHARS,
     MAX_CWD_CHARS,
     MAX_LIVE_SESSIONS_PER_MACHINE,
     MAX_LIVE_SESSIONS_PER_MAILBOX,
@@ -57,6 +58,20 @@ def check_client_version(value: str) -> str:
             "digits, dots, plus or minus signs.",
         )
     return value
+
+
+def check_summary(text: str) -> str | None:
+    """A summary its agent set: stripped; empty means none."""
+    text = text.strip()
+    if not text:
+        return None
+    if len(text) > MAX_SUMMARY_CHARS or not text.isprintable():
+        raise KampungError(
+            "invalid_summary",
+            f"A summary is one line of up to {MAX_SUMMARY_CHARS} printable "
+            "characters.",
+        )
+    return text
 
 
 def set_branch(conn: sqlite3.Connection, session_id: int, branch: str | None) -> None:
@@ -176,6 +191,12 @@ def _register(
             )
             if not isinstance(branch, Keep):
                 set_branch(conn, existing.id, branch)
+            if existing.ended_at is not None:
+                # Picked up again after an end: likely new work, so the old
+                # summary would mislead.
+                conn.execute(
+                    "UPDATE sessions SET summary = NULL WHERE id = ?", (existing.id,)
+                )
             audit.record(
                 conn,
                 now,

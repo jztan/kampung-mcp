@@ -80,6 +80,13 @@ attachment is optional: {{"name": "notes.md", "text": "..."}}, up to
 refuses the send."""
 
 
+# The server's tool descriptions reach only the Claude app (Claude Code and
+# Codex see their adapter's own text), so this one tells the app to leave it.
+SUMMARY_DESCRIPTION = (
+    "Not for the Claude app: its one session is shared by every chat, so it has "
+    "no summary. Claude Code and Codex sessions set theirs through their adapter."
+)
+
 MODE_DESCRIPTION = (
     "instruct: the owner asked for this to be done (merge, push, release, "
     "deploy); ask, tell or fyi: your own messages."
@@ -287,6 +294,19 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
                 ImageContent(type="image", data=image, mimeType=str(result["type"]))
             )
         return ToolResult(content=blocks, structured_content=result)
+
+    @mcp.tool(description=SUMMARY_DESCRIPTION)
+    def set_summary(text: str) -> Result:
+        def work(
+            conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime
+        ) -> Result:
+            assert s is not None
+            if s.agent == sessions.CONNECTOR_AGENT:
+                mail.set_summary(conn, s, text)  # raises not_for_app
+            deps.summary_limiter.check(me.id, now)
+            return {"summary": mail.set_summary(conn, s, text)}
+
+        return call(work)
 
     @mcp.tool
     def inbox(limit: int = 20) -> Result:

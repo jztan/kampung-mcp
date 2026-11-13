@@ -245,6 +245,7 @@ def test_list_peers_sessions_and_live_flag(
             "suffix": s.suffix,
             "cwd": "/home/u/blog",
             "branch": None,
+            "summary": None,
             "agent": "claude-code",
             "live": False,
             "background": False,
