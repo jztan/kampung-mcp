@@ -251,3 +251,25 @@ def test_owner_add_prints_grant_time(
     assert capsys.readouterr().out == f"phone  grant created {created}\n"
     assert cli.main(["owner", "remove", "phone"]) == 0
     assert "phone" in capsys.readouterr().out
+
+
+def test_owner_list_shows_and_remove_dismisses_a_lost_mark(
+    capsys: pytest.CaptureFixture[str], env: Path
+) -> None:
+    import re
+
+    assert cli.main(["key", "add", "phone"]) == 0
+    _phone_grant(env)
+    assert cli.main(["owner", "add", "phone"]) == 0
+    assert cli.main(["disconnect", "phone"]) == 0
+    capsys.readouterr()
+    assert cli.main(["owner", "list"]) == 0
+    assert re.fullmatch(
+        r"phone  owner mark lost \d{4}-\d\d-\d\d \d\d:\d\d UTC "
+        r"\(the connection was removed on the server\)\n",
+        capsys.readouterr().out,
+    )
+    assert cli.main(["owner", "remove", "phone"]) == 0
+    assert capsys.readouterr().out == "phone's lost owner mark dismissed.\n"
+    assert cli.main(["owner", "list"]) == 0
+    assert capsys.readouterr().out == "No owners.\n"

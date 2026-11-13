@@ -11,6 +11,8 @@ from .errors import KampungError
 from .keys import hash_key, new_key
 from .models import Machine, Session, load_machine, load_session, machine_from_row
 
+_DISMISSED = ""  # what _owner returns when it dismissed a lost mark
+
 
 class AdminService:
     def __init__(
@@ -92,8 +94,9 @@ class AdminService:
         the grant's created_at, so the operator can check it is the right one."""
         return self._owner(name, actor, add=True)
 
-    def owner_remove(self, name: str, actor: str) -> None:
-        self._owner(name, actor, add=False)
+    def owner_remove(self, name: str, actor: str) -> bool:
+        """Clear the mark, or dismiss a lost one. True when it dismissed."""
+        return self._owner(name, actor, add=False) == _DISMISSED
 
     def _owner(self, name: str, actor: str, *, add: bool) -> str:
         now = self._clock()
@@ -105,7 +108,7 @@ class AdminService:
                     # Dismissing a lost mark; a lost mark and an owner grant
                     # never exist together (owner add clears the mark).
                     audit.record(conn, now, actor, "owner_remove", {"machine": name})
-                    return ""
+                    return _DISMISSED
                 if oauth_store.grant_for_machine(conn, machine.id) is None:
                     raise KampungError(
                         "no_grant",
@@ -124,6 +127,13 @@ class AdminService:
         finally:
             conn.close()
         return created
+
+    def list_lost_owners(self) -> list[tuple[str, str, str]]:
+        conn = self._connect()
+        try:
+            return oauth_store.lost_marks(conn)
+        finally:
+            conn.close()
 
     def list_owners(self) -> list[tuple[str, str]]:
         conn = self._connect()

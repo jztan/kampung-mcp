@@ -4,7 +4,7 @@ import argparse
 import sqlite3
 import sys
 
-from . import app, db
+from . import app, db, oauth_store
 from .admin import AdminService
 from .clock import utcnow
 from .config import Settings
@@ -139,14 +139,24 @@ def main(argv: list[str] | None = None) -> int:
                 f"(grant created {created})."
             )
         elif args.command == "owner" and args.owner_command == "remove":
-            admin.owner_remove(args.name, ACTOR)
-            print(f"{args.name}'s Claude app may no longer send owner instructions.")
+            if admin.owner_remove(args.name, ACTOR):
+                print(f"{args.name}'s lost owner mark dismissed.")
+            else:
+                print(
+                    f"{args.name}'s Claude app may no longer send owner instructions."
+                )
         elif args.command == "owner":
             owners = admin.list_owners()
-            if not owners:
+            lost = admin.list_lost_owners()
+            if not owners and not lost:
                 print("No owners.")
             for name, created in owners:
                 print(f"{name}  grant created {created}")
+            for name, at, reason in lost:
+                print(
+                    f"{name}  owner mark lost {oauth_store.owner_lost_at_text(at)} "
+                    f"UTC ({oauth_store.owner_lost_words(reason)})"
+                )
         elif args.command == "serve":
             if not admin.list_machines():
                 print(NO_KEYS, file=sys.stderr)

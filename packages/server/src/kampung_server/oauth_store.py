@@ -10,7 +10,7 @@ import sqlite3
 from datetime import datetime
 
 from . import audit
-from .clock import ts
+from .clock import parse_ts, ts
 from .keys import hash_key
 from .limits import (
     OAUTH_CONNECT_ATTEMPTS,
@@ -153,6 +153,19 @@ def owner_lost(conn: sqlite3.Connection, machine_id: int) -> tuple[str, str] | N
         (machine_id,),
     ).fetchone()
     return (str(row[0]), str(row[1])) if row and row[0] else None
+
+
+def owner_lost_at_text(at: str) -> str:
+    return parse_ts(at).strftime("%Y-%m-%d %H:%M")
+
+
+def lost_marks(conn: sqlite3.Connection) -> list[tuple[str, str, str]]:
+    """(machine, lost at, reason) for every machine with a lost owner mark."""
+    rows = conn.execute(
+        "SELECT name, owner_lost_at, owner_lost_reason FROM machines "
+        "WHERE owner_lost_at IS NOT NULL ORDER BY name"
+    ).fetchall()
+    return [(str(r[0]), str(r[1]), str(r[2])) for r in rows]
 
 
 def clear_owner_lost(conn: sqlite3.Connection, machine_id: int) -> bool:

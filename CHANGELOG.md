@@ -10,7 +10,8 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - `list_peers` shows each session's git `branch`, so two windows in one mailbox can be told apart (`laptop/api#ef` on `feature/login`, `#f7` on `develop`). Claude Code and Codex report it when a session starts, when you type, and at the end of each turn, read from the session's own folder. It is null outside git. The `ambiguous_session` hint for an owner instruction names each session's branch too.
 - The dashboard's Sessions page shows each session's branch and client version, and the Machines page the newest client version each machine reported. A client whose major.minor differs from the server's is marked.
-- The database moves to schema 10 on first start (two added columns); take a snapshot first. Sessions show no branch or client version until their client is on this release and registers again (start a new session, or type in an open one for the branch).
+- A lost owner mark is no longer silent. When the Claude app's connection is replaced or removed (a reconnect, an old sign-in token reused after an outage, the app disconnecting, `kampung disconnect`, `key rotate` or `revoke`), the mark still goes, but now: a refused owner instruction says when and why and to run `kampung owner add <machine>`; the app's `inbox` and `list_peers` carry a `notice` until then; the dashboard shows Owner lost on Machines and a line on the overview; and `kampung owner list` lists it. `kampung owner remove` (or Dismiss on the dashboard) dismisses it. The mark is never carried over to a new connection, since nothing proves it is the same Claude account.
+- The database moves to schema 11 on first start (two added session columns, two added machine columns); take a snapshot first. Sessions show no branch or client version until their client is on this release and registers again (start a new session, or type in an open one for the branch).
 
 ### Changed
 

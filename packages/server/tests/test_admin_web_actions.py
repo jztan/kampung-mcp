@@ -231,3 +231,32 @@ def test_owner_add_and_remove_buttons(
     assert not oauth_store.is_owner(conn, laptop)
     assert audit_rows(conn) == ["owner_add", "owner_remove"]
     assert web.post("/admin/machines/laptop/owner", data={}).status_code == 403
+
+
+def test_lost_owner_mark_is_shown_and_dismissed(
+    web: TestClient, conn: sqlite3.Connection, machines: Machines, clock: FakeClock
+) -> None:
+    from kampung_server import db, oauth_store
+
+    laptop = machines["laptop"][0].id
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, laptop, clock.now())
+        oauth_store.set_owner(conn, laptop, True)
+        oauth_store.replace_grant(conn, laptop, clock.now())  # a reconnect
+    at = clock.now().strftime("%Y-%m-%d %H:%M")
+    csrf = login(web)
+    page = web.get("/admin/machines").text
+    assert f'title="{at} UTC: the Claude app was reconnected"' in page
+    assert "Owner lost" in page
+    assert 'action="/admin/machines/laptop/owner/delete"' in page and "Dismiss" in page
+    overview = web.get("/admin").text
+    # One child, so the flex banner does not split the sentence into columns.
+    assert '<div class="flash warn" role="status"><span class="flash-text">' in overview
+    assert (
+        f"laptop's owner mark was cleared at {at} UTC (the Claude app was "
+        "reconnected)" in overview
+    )
+    page = web.post("/admin/machines/laptop/owner/delete", data={"csrf": csrf}).text
+    assert "lost owner mark dismissed" in page
+    assert oauth_store.owner_lost(conn, laptop) is None
+    assert "owner mark was cleared" not in web.get("/admin").text

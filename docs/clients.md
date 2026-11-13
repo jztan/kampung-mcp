@@ -114,7 +114,7 @@ A wake runs in the thread its session is bound to, which is not always the one o
 
 ## Owner instructions
 
-When the server has `kampung owner add <machine>` for your Claude app (see the [README](../README.md#owner-instructions-off-by-default)), the app can send messages your agents may treat as you typing. Reconnecting the app clears that mark; run `kampung owner add` again after a new `kampung connect`. Kampung stamps them; what they may approve is up to you. Paste this into `~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex) on each machine, and edit it:
+When the server has `kampung owner add <machine>` for your Claude app (see the [README](../README.md#owner-instructions-off-by-default)), the app can send messages your agents may treat as you typing. The mark goes whenever the app's connection is replaced or removed: a new `kampung connect`, an old sign-in token reused after an outage, a disconnect or a key rotation. The app is told (a `notice` on its inbox and peer list, and the reason in any refused instruction), the dashboard flags it, and `kampung owner add` restores it. Kampung stamps them; what they may approve is up to you. Paste this into `~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex) on each machine, and edit it:
 
 ```markdown
 ## Kampung owner instructions
