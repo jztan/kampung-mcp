@@ -16,6 +16,10 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ### Changed
 
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- Live push: the adapter now hears of new mail from a per-session event stream (`GET /v1/sessions/{id}/events`) instead of asking the server every 2 seconds, so an idle session starts waking within about a second of a send, and the server does one small write per open session every 30 seconds instead of every 2. Against an older server, or while a stream is down, the adapter polls as before. A server restart now closes open streams after 3 seconds; adapters reconnect on their own. If you run your own reverse proxy, it must not buffer the stream (the shipped Caddyfile already sets `flush_interval -1`).
+
 #### Server (`kampung-server`)
 
 - The Claude app now picks `mode: "instruct"` more reliably when you ask it to get a session to do something. Its `send` description leads with that rule and is half as long (the app could cut the old one off before reaching it), and the `mode` field has its own description. The owner-instructions section to paste into `CLAUDE.md` or `AGENTS.md` gains a line: a session that declines because a message is not an owner instruction asks for it to be resent with mode instruct.

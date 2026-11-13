@@ -72,6 +72,10 @@ docker compose start kampung
 
 With Docker, prefix each with `docker compose exec kampung`. The Claude app steps are in the [README](../README.md#use-it-from-the-claude-app) and the [runbook](deploy-lightsail.md#14-connect-the-claude-app-optional).
 
+## Live push
+
+Each adapter keeps one event stream open per session (`GET /v1/sessions/{id}/events`, server-sent events). The server pushes the session's mail counts the moment they change, so a new message starts a wake within about half a second, and the adapter no longer polls every 2 seconds; it checks in every 30 seconds instead, which keeps the session's "last seen" fresh. A reverse proxy must not buffer the stream: the shipped Caddyfile already sets `flush_interval -1`. With an older server, or when a stream drops, the adapter falls back to polling.
+
 ## Admin dashboard
 
 Set `KAMPUNG_ADMIN_TOKEN` in `.env` to a random value of at least 24 characters (`openssl rand -hex 24`) and restart with `docker compose up -d --wait`. Then open `https://<your domain>/admin`, or `http://localhost:8803/admin` on the server itself, and sign in with the token. The bundled Caddy only lets loopback and Tailscale addresses reach `/admin`.

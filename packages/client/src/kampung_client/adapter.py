@@ -13,6 +13,8 @@ import threading
 import time
 from typing import Any, Literal
 
+import httpx
+
 from fastmcp import Client, Context, FastMCP
 from fastmcp.client.client import CallToolResult
 from fastmcp.client.transports import StreamableHttpTransport
@@ -119,6 +121,10 @@ _LOG_HINT = "~/.cache/kampung/hooks.log"
 _STALE = ("session_ended", "unknown_session")
 CHANNEL_POLL = 2.0  # seconds between peeks for new mail to wake a session for
 CHANNEL_MAX_BACKOFF = 30.0  # seconds between peeks while the server is failing
+EVENTS_PATH = "/v1/sessions/{sid}/events"  # the server's event stream
+HEARTBEAT = 30.0  # seconds between peeks while streaming: keeps last_seen fresh
+STREAM_RETRY = 2.0  # first wait before reconnecting a dropped stream
+STREAM_RETRY_MAX = 30.0
 CHANNEL_METHOD = "notifications/claude/channel"
 ACK_WAIT = 5.0  # seconds the wake hook has to ack a token, per write
 ACK_POLL = 0.1  # seconds between looks at the ack file
@@ -667,6 +673,7 @@ class _WakePoller(Middleware):
         self.session: Any = None
         self.task: asyncio.Task[None] | None = None
         self._missed: set[str] = set()  # sessions whose unconfirmed wake is logged
+        self.source = PeekSource()
 
     async def on_message(self, context: MiddlewareContext[Any], call_next: Any) -> Any:
         ctx = context.fastmcp_context
@@ -730,11 +737,20 @@ class _WakePoller(Middleware):
             )
 
     async def poll(self) -> None:
+        try:
+            await self._loop()
+        finally:
+            # A stream left open outlives the loop and holds the event loop
+            # at shutdown (it hung Windows CI).
+            await self.source.close()
+
+    async def _loop(self) -> None:
         notified: hook.Seen = None
         watching: object = None
         failing = False
         delay = CHANNEL_POLL
         while True:
+            waited = False
             try:
                 found = await asyncio.to_thread(self.resolver.target)
                 by_file = found is not None and hook.idle_wake_on(
@@ -745,13 +761,10 @@ class _WakePoller(Middleware):
                 if found is not None and (by_file or self.channels):
                     if found.get("session") != watching:
                         watching, notified = found.get("session"), None
-                    status, body = await asyncio.to_thread(
-                        hook.api, "GET", f"/v1/sessions/{watching}/peek"
-                    )
-                    # Never refresh, register or revive from here: an ended
-                    # session waits for the hooks (or a tool call) to move on.
-                    if status != 200:
-                        body = {}
+                    # The event stream when the server has one, else a
+                    # peek. Never refresh, register or revive from here: an
+                    # ended session waits for the hooks (or a tool call).
+                    body, waited = await self.source.get(watching)
                     wakeable = int(str(body.get("wakeable", 0)))
                     rose, seen = hook.new_mail(body, notified)
                     # Set before the wake, which can take seconds or fail:
@@ -765,7 +778,147 @@ class _WakePoller(Middleware):
                     hook._log("channel", e)
                     failing = True
                 delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
-            await asyncio.sleep(delay)
+            if not waited:  # a stream wait already spent the time
+                await asyncio.sleep(delay)
+
+
+def older_server_404(body: bytes) -> bool:
+    """A 404 at the stream route with no Kampung error is a server without the
+    route; one with {"error": ...} is this server saying the session is gone."""
+    try:
+        data = json.loads(body or b"{}")
+    except ValueError:
+        return True
+    return not (isinstance(data, dict) and "error" in data)
+
+
+class PeekSource:
+    """The mail counts for the session being watched: from the server's event
+    stream when it has one, else by polling peek as before.
+
+    get() waits up to CHANNEL_POLL for a stream event and otherwise returns
+    the counts it holds, so the wake loops re-run their decision every 2 s
+    (the Codex waker needs that for mail held during a turn). While
+    streaming it still peeks every HEARTBEAT: the stream never writes
+    last_seen, so a sleeping machine stops looking reachable. It never
+    registers, refreshes or revives a session."""
+
+    def __init__(self) -> None:
+        self.sid: object = None
+        self.state = "down"  # down | connecting | streaming | ended
+        self.old_server = False
+        self.task: asyncio.Task[None] | None = None
+        self.latest: dict[str, object] = {}
+        self.fresh = asyncio.Event()
+        self.retry_at = 0.0
+        self.retry = STREAM_RETRY
+        self.last_peek = 0.0
+        self._last_status = 0
+        self._logged = False
+
+    async def get(self, sid: object) -> tuple[dict[str, object], bool]:
+        """(counts, waited): waited is True when this call already waited."""
+        if sid != self.sid:
+            await self._switch(sid)
+        now = time.monotonic()
+        if self.state != "streaming":
+            if not self.old_server and self.state == "down" and now >= self.retry_at:
+                self._start()
+            body = await self._poll()
+            if self.state == "ended" and self._last_status == 200:
+                # Revived under the same id (the hooks, after a long sleep or
+                # an admin end): stream again rather than poll for good.
+                self.state, self.retry_at, self.retry = "down", 0.0, STREAM_RETRY
+            return body, False
+        if now - self.last_peek >= HEARTBEAT:
+            return await self._poll(), False
+        try:
+            await asyncio.wait_for(self.fresh.wait(), CHANNEL_POLL)
+        except TimeoutError:
+            pass
+        self.fresh.clear()
+        return dict(self.latest), True
+
+    async def close(self) -> None:
+        if self.task is not None:
+            self.task.cancel()
+            try:
+                await self.task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self.task = None
+
+    async def _switch(self, sid: object) -> None:
+        await self.close()
+        self.sid, self.state, self.latest = sid, "down", {}
+        self.retry_at, self.retry = 0.0, STREAM_RETRY
+
+    async def _poll(self) -> dict[str, object]:
+        self.last_peek = time.monotonic()
+        status, body = await asyncio.to_thread(
+            hook.api, "GET", f"/v1/sessions/{self.sid}/peek"
+        )
+        self._last_status = status
+        return body if status == 200 else {}
+
+    def _start(self) -> None:
+        self.state = "connecting"
+        sid = str(self.sid)
+        self.task = asyncio.get_running_loop().create_task(self._run(sid))
+
+    async def _run(self, sid: str) -> None:
+        try:
+            await self._read(sid)
+            if self.state not in ("ended",) and not self.old_server:
+                raise ConnectionError("event stream closed")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - polling covers it; retry later
+            if not self._logged:
+                hook._log("events", e)
+                self._logged = True
+            if self.state != "ended" and not self.old_server:
+                self.state = "down"
+                self.retry_at = time.monotonic() + self.retry
+                self.retry = min(self.retry * 2, STREAM_RETRY_MAX)
+
+    async def _read(self, sid: str) -> None:
+        config = hook.load_config()
+        url = config["server"] + EVENTS_PATH.format(sid=sid)
+        headers = {"Authorization": f"Bearer {config['key']}"}
+        timeout = httpx.Timeout(10, read=45)  # three missed pings
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as c:
+            async with c.stream("GET", url, headers=headers) as r:
+                if r.status_code == 404:
+                    if older_server_404(await r.aread()):
+                        self.old_server = True
+                    else:
+                        self.state = "ended"
+                    return
+                if r.status_code == 409:
+                    self.state = "ended"
+                    return
+                if r.status_code != 200:
+                    raise ConnectionError(f"event stream: HTTP {r.status_code}")
+                # Streaming only from the first event (the server sends one at
+                # once): a proxy that buffers the body would otherwise leave
+                # us waiting on a stream that never speaks.
+                name = ""
+                async for line in r.aiter_lines():
+                    if line.startswith("event: "):
+                        name = line[len("event: ") :]
+                    elif line.startswith("data: "):
+                        data = json.loads(line[len("data: ") :])
+                        if name == "ended":
+                            self.state = "ended"
+                            return
+                        if name == "peek" and isinstance(data, dict):
+                            self.latest = data
+                            if self.state != "streaming":
+                                self.state, self.retry = "streaming", STREAM_RETRY
+                                self._logged = False
+                                self.last_peek = time.monotonic()
+                            self.fresh.set()
 
 
 class _QueueError(Exception):
@@ -781,6 +934,7 @@ class CodexWaker:
         self.resolver = resolver
         self.codex_bin = codex_bin
         self.task: asyncio.Task[None] | None = None
+        self.source = PeekSource()
 
     def start(self) -> None:
         if self.task is None:
@@ -813,24 +967,29 @@ class CodexWaker:
             raise _QueueError(f"codex queue exited {proc.returncode}: {detail}")
 
     async def poll(self) -> None:
+        try:
+            await self._loop()
+        finally:
+            # A stream left open outlives the loop and holds the event loop
+            # at shutdown (it hung Windows CI).
+            await self.source.close()
+
+    async def _loop(self) -> None:
         notified: hook.Seen = None
         watching: object = None
         failing = False
         delay = CHANNEL_POLL
         while True:
+            waited = False
             try:
                 found = await asyncio.to_thread(self.resolver.target)
                 thread = self.resolver.bound
                 if found is not None and thread is not None:
                     if found.get("session") != watching:
                         watching, notified = found.get("session"), None
-                    status, body = await asyncio.to_thread(
-                        hook.api, "GET", f"/v1/sessions/{watching}/peek"
-                    )
-                    # An ended session (SessionEnd, admin end) stops answering
-                    # 200, so a closed thread goes quiet once Codex ends it.
-                    if status != 200:
-                        body = {}
+                    # An ended session (SessionEnd, admin end) gives empty
+                    # counts, so a closed thread goes quiet once Codex ends it.
+                    body, waited = await self.source.get(watching)
                     wakeable = int(str(body.get("wakeable", 0)))
                     rose, seen = hook.new_mail(body, notified)
                     # Mid-turn mail is the nudge's and the Stop hook's job: a
@@ -857,7 +1016,8 @@ class CodexWaker:
                     failing = True
                 if not isinstance(e, _QueueError):
                     delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
-            await asyncio.sleep(delay)
+            if not waited:  # a stream wait already spent the time
+                await asyncio.sleep(delay)
 
 
 def _add_launch_binding(

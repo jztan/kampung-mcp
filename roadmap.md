@@ -56,7 +56,7 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 ### v0.6: more clients
 
 - Reachable sessions (done on develop): `list_peers`, `send` and the dashboard say when a peer's machine has gone quiet (probably asleep) instead of calling it live.
-- SSE `/v1/events` to replace the adapter's `peek` polling, after idle wake. It also ends the database write that every polling session makes every 2 seconds.
+- Live push (done on develop): the adapter hears of new mail from a per-session event stream (`GET /v1/sessions/{id}/events`) instead of polling `peek` every 2 seconds, and the server writes once per open session every 30 seconds instead of every 2.
 - Session labels in `list_peers` and the dashboard (new), automatic only: the session's git branch, plus a one-line summary the agent sets and keeps up to date itself (never prompt text). Two live windows in one mailbox can then be told apart.
 - A lost owner mark is no longer silent (new): when the Claude app's connection is replaced (a reconnect, a reused refresh token, a revoke) and the owner mark goes with it, the server records why, the `owner_only` refusal says when and how to restore it (`kampung owner add`), the dashboard flags it, and the app's mailbox gets a note. The mark is never carried over to a new connection automatically, since nothing proves it is the owner's account.
 

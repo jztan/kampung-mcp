@@ -13,6 +13,7 @@ from .clock import age, ago, parse_ts, ts
 from .errors import KampungError
 from .identity import is_paired
 from .ids import new_message_id
+from .mailsignal import bumps
 from .limits import (
     CONNECTOR_WAKE_WINDOW,
     INBOX_MAX,
@@ -95,6 +96,7 @@ class _Decision:
     seen: str | None = None
 
 
+@bumps
 def send(
     conn: sqlite3.Connection,
     sender: Session,
@@ -844,6 +846,7 @@ def _params(session: Session, now: datetime) -> dict[str, object]:
     }
 
 
+@bumps
 def inbox(
     conn: sqlite3.Connection, session: Session, limit: int, now: datetime
 ) -> InboxResult:
@@ -890,17 +893,24 @@ def inbox(
 def peek(conn: sqlite3.Connection, session: Session, now: datetime) -> PeekResult:
     with db.transaction(conn):
         sweep(conn, now)
-        params = _params(session, now)
-        row = conn.execute(
-            "SELECT count(*), coalesce(sum(msg.wake), 0) FROM messages msg "
-            f"WHERE {_READABLE}",
-            params,
-        ).fetchone()
-        newest = conn.execute(
-            f"SELECT msg.id FROM messages msg WHERE {_READABLE} AND msg.wake = 1 "
-            "ORDER BY msg.sent_at DESC, msg.id DESC LIMIT 1",
-            params,
-        ).fetchone()
+        return peek_counts(conn, session, now)
+
+
+def peek_counts(
+    conn: sqlite3.Connection, session: Session, now: datetime
+) -> PeekResult:
+    """What peek returns, read only: no sweep, no write (the event stream)."""
+    params = _params(session, now)
+    row = conn.execute(
+        "SELECT count(*), coalesce(sum(msg.wake), 0) FROM messages msg "
+        f"WHERE {_READABLE}",
+        params,
+    ).fetchone()
+    newest = conn.execute(
+        f"SELECT msg.id FROM messages msg WHERE {_READABLE} AND msg.wake = 1 "
+        "ORDER BY msg.sent_at DESC, msg.id DESC LIMIT 1",
+        params,
+    ).fetchone()
     return PeekResult(row[0], row[1], newest[0] if newest else None)
 
 

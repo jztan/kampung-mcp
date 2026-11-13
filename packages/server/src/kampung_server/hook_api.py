@@ -9,9 +9,9 @@ from typing import Any
 from fastmcp import FastMCP
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from . import audit, db, mail, sessions
+from . import audit, db, events, mail, sessions
 from .auth import machine_from_request
 from .deps import ServerDeps
 from .errors import KampungError
@@ -25,6 +25,7 @@ _STATUS = {
     "session_ended": 409,
     "request_too_large": 413,
     "rate_limited": 429,
+    "too_many_streams": 429,
 }
 
 Handler = Callable[[sqlite3.Connection, Machine, dict[str, Any]], dict[str, Any]]
@@ -226,6 +227,45 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             return result
 
         return await _run(deps, request, handler)
+
+    @mcp.custom_route("/v1/sessions/{id}/events", methods=["GET"])
+    async def session_events(request: Request) -> Response:
+        machine = await machine_from_request(request, deps)
+        if machine is None:
+            return _error("unauthorized", "Send Authorization: Bearer <key>.")
+
+        def check() -> int:
+            now = deps.clock()
+            deps.stream_limiter.check(machine.id, now)
+            conn = deps.connect()
+            try:
+                s = load_session(conn, _session_id(request))
+                if s is None or not sessions.usable_by(s, machine):
+                    raise KampungError(
+                        "unknown_session", "No such session; register again."
+                    )
+                if s.ended_at is not None:
+                    raise KampungError(
+                        "session_ended", "Re-read your session file or re-register."
+                    )
+                return s.id
+            finally:
+                conn.close()
+
+        try:
+            session_id = await run_in_threadpool(check)
+        except KampungError as e:
+            return _error(e.code, e.hint)
+        if not events.claim(machine.id):
+            return _error(
+                "too_many_streams",
+                f"At most {events.MAX_STREAMS_PER_MACHINE} open streams per machine.",
+            )
+        return StreamingResponse(
+            events.stream(deps, request, machine.id, session_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @mcp.custom_route("/v1/sessions/{id}/end", methods=["POST"])
     async def end(request: Request) -> JSONResponse:

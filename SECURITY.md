@@ -68,7 +68,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Unread mail per mailbox | 1,000 (`mailbox_full`) |
 | Unread mail per mailbox from one sending machine | 200 (`mailbox_full`) |
 | Unread mail kept | 7 days |
-| Owner instruction read deadline | 60 minutes; it goes only to a session seen within 2 minutes if it checks for mail every 2 seconds (30 minutes otherwise), and only to a Codex session typed in within 60 minutes. The same 2 minutes marks an idle-wake session `reachable: false` in `list_peers` and `send` |
+| Owner instruction read deadline | 60 minutes; it goes only to a session seen within 2 minutes if it keeps checking for mail (30 minutes otherwise), and only to a Codex session typed in within 60 minutes. The same 2 minutes marks an idle-wake session `reachable: false` in `list_peers` and `send` |
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
 | Session calls per machine | `peek` 7,680 per minute (256 windows polling every 2 seconds), `end` 600 per minute |
@@ -87,6 +87,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Wakes per mailbox | 30 until someone types there (`KAMPUNG_MAILBOX_WAKE_BUDGET`); for a session that never reports typing, they come back after 30 minutes without waking sends |
 | Claude app refills | one per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES`) |
 | Typed-prompt calls per machine | 60 per minute |
+| Event streams per machine | 120 connects per minute, 256 open at once |
 | Claude app wakes | 60 per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_WAKE_BUDGET`); later sends arrive with `wake: false` |
 | Connect code and pending sign-in | 10 minutes, single use; 5 wrong codes burn the sign-in; 20 wrong codes per client address in 15 minutes, then 429 |
 | Pending sign-ins | 3 per client address (IPv6: per /64) and 100 in all; a new one drops the oldest instead of being refused |
