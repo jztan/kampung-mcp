@@ -63,24 +63,34 @@ def test_deleting_an_owner_grant_is_recorded(
     assert [c["reason"] for c in _cleared(conn)] == [reason]
 
 
-@pytest.mark.parametrize(
-    "action,reason",
-    [("disconnect", "disconnect"), ("rotate_key", "key_rotate"), ("revoke", "revoke")],
-)
-def test_admin_paths_record_the_loss(
+def test_key_rotate_records_the_loss(
+    conn: sqlite3.Connection,
+    admin: AdminService,
+    machines: Machines,
+    clock: FakeClock,
+) -> None:
+    m = _laptop(machines)
+    _owner_grant(conn, m, clock)
+    admin.rotate_key("laptop", "admin:cli")
+    lost = oauth_store.owner_lost(conn, m)
+    assert lost is not None and lost[1] == "key_rotate"
+    assert [c["reason"] for c in _cleared(conn)] == ["key_rotate"]
+
+
+@pytest.mark.parametrize("action", ["disconnect", "revoke"])
+def test_deliberate_removal_is_not_a_loss(
     conn: sqlite3.Connection,
     admin: AdminService,
     machines: Machines,
     clock: FakeClock,
     action: str,
-    reason: str,
 ) -> None:
+    # The operator removed the connection or the machine on purpose: the mark
+    # goes, but nobody needs telling, and "owner add" could not restore it.
     m = _laptop(machines)
     _owner_grant(conn, m, clock)
     getattr(admin, action)("laptop", "admin:cli")
-    lost = oauth_store.owner_lost(conn, m)
-    assert lost is not None and lost[1] == reason
-    assert [c["reason"] for c in _cleared(conn)] == [reason]
+    assert oauth_store.owner_lost(conn, m) is None and _cleared(conn) == []
 
 
 def test_a_non_owner_grant_going_records_nothing(
@@ -123,7 +133,7 @@ def test_owner_remove_dismisses_a_lost_mark_without_a_grant(
 ) -> None:
     m = _laptop(machines)
     _owner_grant(conn, m, clock)
-    admin.disconnect("laptop", "admin:cli")
+    admin.rotate_key("laptop", "admin:cli")
     admin.owner_remove("laptop", "admin:cli")
     assert oauth_store.owner_lost(conn, m) is None
 

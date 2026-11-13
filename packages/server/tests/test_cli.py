@@ -261,12 +261,12 @@ def test_owner_list_shows_and_remove_dismisses_a_lost_mark(
     assert cli.main(["key", "add", "phone"]) == 0
     _phone_grant(env)
     assert cli.main(["owner", "add", "phone"]) == 0
-    assert cli.main(["disconnect", "phone"]) == 0
+    assert cli.main(["key", "rotate", "phone"]) == 0
     capsys.readouterr()
     assert cli.main(["owner", "list"]) == 0
     assert re.fullmatch(
         r"phone  owner mark lost \d{4}-\d\d-\d\d \d\d:\d\d UTC "
-        r"\(the connection was removed on the server\)\n",
+        r"\(the machine key was rotated\)\n",
         capsys.readouterr().out,
     )
     assert cli.main(["owner", "remove", "phone"]) == 0

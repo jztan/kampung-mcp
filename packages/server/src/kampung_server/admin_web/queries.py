@@ -54,8 +54,9 @@ class Overview:
     sent_24h: int
     oldest_queued_at: str | None
     recent_audit: list[AuditRow]
-    # (machine, "<at> UTC (<why>)") for each lost owner mark.
-    owner_lost: list[tuple[str, str]] = field(default_factory=list)
+    # (machine, "<at> UTC (<why>)", has a Claude app connection now) for each
+    # lost owner mark; without a connection, owner add needs a reconnect first.
+    owner_lost: list[tuple[str, str, bool]] = field(default_factory=list)
 
 
 @dataclass
@@ -233,7 +234,16 @@ def overview(conn: sqlite3.Connection, now: datetime) -> Overview:
         oldest_queued_at=oldest,
         recent_audit=audit(conn, None, None, limit=20).rows,
         owner_lost=[
-            (name, f"{owner_lost_at_text(at)} UTC ({owner_lost_words(reason)})")
+            (
+                name,
+                f"{owner_lost_at_text(at)} UTC ({owner_lost_words(reason)})",
+                conn.execute(
+                    "SELECT 1 FROM oauth_grants g JOIN machines m "
+                    "ON m.id = g.machine_id WHERE m.name = ?",
+                    (name,),
+                ).fetchone()
+                is not None,
+            )
             for name, at, reason in lost_marks(conn)
         ],
     )

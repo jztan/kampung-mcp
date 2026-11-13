@@ -4,6 +4,7 @@ from starlette.testclient import TestClient
 
 from admin_web_testlib import login
 from kampung_server import mail
+from kampung_server.admin import AdminService
 from kampung_server.models import Machine, load_machine, load_session
 from server_testlib import FakeClock, MakeSession
 
@@ -260,3 +261,26 @@ def test_lost_owner_mark_is_shown_and_dismissed(
     assert "lost owner mark dismissed" in page
     assert oauth_store.owner_lost(conn, laptop) is None
     assert "owner mark was cleared" not in web.get("/admin").text
+
+
+def test_lost_mark_without_a_connection_says_to_reconnect_first(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    admin: AdminService,
+    machines: Machines,
+    clock: FakeClock,
+) -> None:
+    from kampung_server import db, oauth_store
+
+    laptop = machines["laptop"][0].id
+    with db.transaction(conn):
+        oauth_store.replace_grant(conn, laptop, clock.now())
+        oauth_store.set_owner(conn, laptop, True)
+    admin.rotate_key("laptop", "admin:cli")  # drops the grant: nothing to mark
+    login(web)
+    overview = web.get("/admin").text
+    assert (
+        'Reconnect the Claude app (<span class="mono">kampung connect laptop</span>)'
+        in overview
+    )
+    assert 'then run <span class="mono">kampung owner add laptop</span>' in overview

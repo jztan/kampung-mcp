@@ -241,14 +241,16 @@ def delete_grant(
 
 
 def delete_grant_for_machine(
-    conn: sqlite3.Connection, machine_id: int, now: datetime, reason: str
+    conn: sqlite3.Connection, machine_id: int, now: datetime, reason: str | None
 ) -> bool:
+    """Drop the machine's grant. reason None: the operator removed it on
+    purpose (disconnect, revoke), so a dropped owner mark is not a loss."""
     row = conn.execute(
         "DELETE FROM oauth_grants WHERE machine_id = ? RETURNING owner", (machine_id,)
     ).fetchone()
     if row is None:
         return False
-    if row[0]:
+    if row[0] and reason is not None:
         note_owner_lost(conn, machine_id, reason, now)
     _end_connector_session(conn, machine_id, now)
     return True
