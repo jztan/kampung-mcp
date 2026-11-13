@@ -273,3 +273,18 @@ def test_owner_list_shows_and_remove_dismisses_a_lost_mark(
     assert capsys.readouterr().out == "phone's lost owner mark dismissed.\n"
     assert cli.main(["owner", "list"]) == 0
     assert capsys.readouterr().out == "No owners.\n"
+
+
+def test_serve_ends_open_event_streams_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An event stream never finishes by itself, so without a grace period a
+    # restart would wait for every stream until the container is killed.
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(app, "start_sweeper", lambda *a, **kw: None)
+    monkeypatch.setattr(app, "create_app", lambda deps: "asgi-app")
+    monkeypatch.setattr(app.uvicorn, "run", lambda asgi, **kw: seen.update(kw))
+    monkeypatch.setattr(app, "cap_pair_debt", lambda deps: None)
+    deps = SimpleNamespace(db_path=Path("unused.db"), clock=None)
+    app.serve(deps, "0.0.0.0", 8000)  # type: ignore[arg-type]
+    assert seen["timeout_graceful_shutdown"] == app.SHUTDOWN_GRACE == 3

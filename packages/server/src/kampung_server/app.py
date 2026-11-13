@@ -67,6 +67,11 @@ def cap_pair_debt(deps: ServerDeps) -> None:
         conn.close()
 
 
+# Seconds a restart waits for open requests: event streams never end by
+# themselves, so after this they are closed and adapters reconnect or poll.
+SHUTDOWN_GRACE = 3
+
+
 def serve(
     deps: ServerDeps, host: str, port: int, forwarded_allow_ips: str = "127.0.0.1"
 ) -> None:
@@ -81,4 +86,5 @@ def serve(
         # The client IP the throttle and the dashboard's login limit key on.
         proxy_headers=True,
         forwarded_allow_ips=forwarded_allow_ips,
+        timeout_graceful_shutdown=SHUTDOWN_GRACE,
     )
