@@ -35,7 +35,11 @@ def _error(code: str, hint: str) -> JSONResponse:
 
 
 async def _run(
-    deps: ServerDeps, request: Request, handler: Handler, read_body: bool = False
+    deps: ServerDeps,
+    request: Request,
+    handler: Handler,
+    read_body: bool = False,
+    body_optional: bool = False,
 ) -> JSONResponse:
     # The key is checked before the body is read, so a caller without one
     # cannot make the server buffer or parse anything.
@@ -45,7 +49,7 @@ async def _run(
     args: dict[str, Any] = {}
     if read_body:
         try:
-            args = await _json_object(request)
+            args = await _json_object(request, body_optional)
         except KampungError as e:
             return _error(e.code, e.hint)
 
@@ -61,8 +65,9 @@ async def _run(
     return await run_in_threadpool(work)
 
 
-async def _json_object(request: Request) -> dict[str, Any]:
-    """The body as a JSON object, read no further than MAX_REQUEST_BYTES."""
+async def _json_object(request: Request, optional: bool = False) -> dict[str, Any]:
+    """The body as a JSON object, read no further than MAX_REQUEST_BYTES. With
+    `optional`, an empty body reads as {} (clients before 0.6 send none)."""
     too_large = KampungError(
         "request_too_large", f"Request bodies are limited to {MAX_REQUEST_BYTES} bytes."
     )
@@ -74,6 +79,8 @@ async def _json_object(request: Request) -> dict[str, Any]:
         raw += chunk
         if len(raw) > MAX_REQUEST_BYTES:
             raise too_large
+    if optional and not raw.strip():
+        return {}
     try:
         body = json.loads(raw)
     except (ValueError, RecursionError):
@@ -97,6 +104,21 @@ def _field(body: dict[str, Any], name: str, kind: type, required: bool) -> Any:
     if not isinstance(value, kind):
         raise KampungError("bad_request", f"Field {name} must be {kind.__name__}.")
     return value
+
+
+_ABSENT = object()
+
+
+def _reported_branch(value: object) -> str | None | sessions.Keep:
+    """A branch sent with a typed prompt or a peek. A bad one is ignored, not
+    refused: refusing would also lose the refill or the Stop hook's wake check,
+    and the client already cuts and filters what it sends."""
+    if not isinstance(value, str):
+        return sessions.Keep.KEEP
+    try:
+        return sessions.check_branch(value)
+    except KampungError:
+        return sessions.Keep.KEEP
 
 
 def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
@@ -135,6 +157,18 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 suffix=_field(b, "suffix", str, False),
                 background=_field(b, "background", bool, False) or False,
                 idle_wake=_field(b, "idle_wake", bool, False) or False,
+                branch=(
+                    sessions.check_branch(_field(b, "branch", str, True))
+                    if "branch" in b
+                    else sessions.Keep.KEEP
+                ),
+                client_version=(
+                    sessions.check_client_version(
+                        _field(b, "client_version", str, True)
+                    )
+                    if "client_version" in b
+                    else None
+                ),
             )
             return {"session": str(s.id), "suffix": s.suffix, "mailbox": s.mailbox}
 
@@ -143,12 +177,15 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
     @mcp.custom_route("/v1/sessions/{id}/human-turn", methods=["POST"])
     async def human_turn(request: Request) -> JSONResponse:
         def handler(
-            conn: sqlite3.Connection, machine: Machine, _: dict[str, Any]
+            conn: sqlite3.Connection, machine: Machine, b: dict[str, Any]
         ) -> dict[str, Any]:
             now = deps.clock()
             deps.human_turn_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
+            branch = _reported_branch(b.get("branch", _ABSENT))
             with db.transaction(conn):
+                if not isinstance(branch, sessions.Keep):
+                    sessions.set_branch(conn, s.id, branch)
                 cleared = sessions.human_turn(conn, s, now)
                 audit.record(
                     conn,
@@ -159,7 +196,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 )
             return {}
 
-        return await _run(deps, request, handler)
+        return await _run(deps, request, handler, read_body=True, body_optional=True)
 
     @mcp.custom_route("/v1/sessions/{id}/peek", methods=["GET"])
     async def peek(request: Request) -> JSONResponse:
@@ -169,6 +206,9 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             now = deps.clock()
             deps.peek_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
+            branch = _reported_branch(request.query_params.get("branch", _ABSENT))
+            if not isinstance(branch, sessions.Keep):
+                sessions.set_branch(conn, s.id, branch)
             return dict(mail.peek(conn, s, now).to_dict())
 
         return await _run(deps, request, handler)
