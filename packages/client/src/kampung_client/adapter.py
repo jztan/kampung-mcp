@@ -737,6 +737,14 @@ class _WakePoller(Middleware):
             )
 
     async def poll(self) -> None:
+        try:
+            await self._loop()
+        finally:
+            # A stream left open outlives the loop and holds the event loop
+            # at shutdown (it hung Windows CI).
+            await self.source.close()
+
+    async def _loop(self) -> None:
         notified: hook.Seen = None
         watching: object = None
         failing = False
@@ -959,6 +967,14 @@ class CodexWaker:
             raise _QueueError(f"codex queue exited {proc.returncode}: {detail}")
 
     async def poll(self) -> None:
+        try:
+            await self._loop()
+        finally:
+            # A stream left open outlives the loop and holds the event loop
+            # at shutdown (it hung Windows CI).
+            await self.source.close()
+
+    async def _loop(self) -> None:
         notified: hook.Seen = None
         watching: object = None
         failing = False
