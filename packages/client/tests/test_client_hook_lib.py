@@ -702,3 +702,17 @@ def test_register_omits_version_when_unknown(
     data = hook.register("claude-code", str(plain), True, "cc-1")
     assert data["branch_sent"] == ""
     assert db_query(server, "SELECT client_version FROM sessions") == [(None,)]
+
+
+def test_register_with_an_old_server_records_no_branch_sent(
+    home: Path, tmp_path: Path
+) -> None:
+    # A server before 0.6 drops the branch and does not echo it, so the next
+    # Stop must send it again once the server is upgraded.
+    httpd, _ = scripted_server(200)
+    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    data = hook.register("claude-code", str(plain), True, "cc-1")
+    httpd.shutdown()
+    assert "branch_sent" not in data

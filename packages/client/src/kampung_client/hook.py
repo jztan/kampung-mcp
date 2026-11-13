@@ -792,7 +792,9 @@ def register(
         "agent_session_id": agent_session_id,
         "ancestors": [list(a) for a in ancestors()] if ancestry else [],
         "background": background,
-        **({"branch_sent": branch} if report_branch else {}),
+        # Only a server that keeps the branch echoes it; with an older one the
+        # branch counts as unsent, so it goes again once the server is new.
+        **({"branch_sent": branch} if report_branch and "branch" in data else {}),
     }
 
 
@@ -969,8 +971,11 @@ def on_user_prompt(event: Event, clock: _Clock) -> None:
     # Registers when the session file is missing (SessionStart failed earlier):
     # a deliberate departure from fail-open, so the window recovers.
     _, branch = _current_branch(event)
-    _call(event, clock, "POST", "human-turn", revive=True, body={"branch": branch})
-    _mark_branch_sent(str(event["session_id"]), branch)
+    answer = _call(
+        event, clock, "POST", "human-turn", revive=True, body={"branch": branch}
+    )
+    if "branch" in answer:  # a server before 0.6 does not keep it
+        _mark_branch_sent(str(event["session_id"]), branch)
 
 
 Seen = str | int | None  # what was last announced: a message id, or a count
@@ -1064,7 +1069,7 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
             changed = data is not None and data.get("branch_sent") != branch
             query = {"branch": branch} if changed else None
             body = _call(event, clock, "GET", "peek", revive=False, query=query)
-            if changed:
+            if changed and "branch" in body:  # an older server ignores it
                 _mark_branch_sent(str(event["session_id"]), branch)
             wakeable = int(str(body.get("wakeable", 0)))
             if wakeable > 0:

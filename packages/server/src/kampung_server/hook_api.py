@@ -121,6 +121,17 @@ def _reported_branch(value: object) -> str | None | sessions.Keep:
         return sessions.Keep.KEEP
 
 
+def _reported_version(value: object) -> str | None:
+    """A client version, or None when missing or malformed: a cosmetic field
+    must never cost a session its registration."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return sessions.check_client_version(value)
+    except KampungError:
+        return None
+
+
 def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
     @mcp.custom_route("/v1/sessions", methods=["POST"])
     async def register(request: Request) -> JSONResponse:
@@ -162,15 +173,16 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                     if "branch" in b
                     else sessions.Keep.KEEP
                 ),
-                client_version=(
-                    sessions.check_client_version(
-                        _field(b, "client_version", str, True)
-                    )
-                    if "client_version" in b
-                    else None
-                ),
+                client_version=_reported_version(b.get("client_version")),
             )
-            return {"session": str(s.id), "suffix": s.suffix, "mailbox": s.mailbox}
+            # The stored branch is echoed so a client knows this server keeps
+            # it (one before 0.6 drops it silently).
+            return {
+                "session": str(s.id),
+                "suffix": s.suffix,
+                "mailbox": s.mailbox,
+                "branch": s.branch,
+            }
 
         return await _run(deps, request, handler, read_body=True)
 
@@ -194,7 +206,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                     "refill",
                     {"mailbox": s.mailbox, "pairs": cleared, "by": "human_turn"},
                 )
-            return {}
+            return {} if isinstance(branch, sessions.Keep) else {"branch": branch}
 
         return await _run(deps, request, handler, read_body=True, body_optional=True)
 
@@ -206,10 +218,15 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             now = deps.clock()
             deps.peek_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
-            branch = _reported_branch(request.query_params.get("branch", _ABSENT))
+            sent = request.query_params.get("branch", _ABSENT)
+            branch = _reported_branch(sent)
             if not isinstance(branch, sessions.Keep):
                 sessions.set_branch(conn, s.id, branch)
-            return dict(mail.peek(conn, s, now).to_dict())
+            result = dict(mail.peek(conn, s, now).to_dict())
+            if sent is not _ABSENT:
+                kept = isinstance(branch, sessions.Keep)
+                result["branch"] = s.branch if kept else branch
+            return result
 
         return await _run(deps, request, handler)
 

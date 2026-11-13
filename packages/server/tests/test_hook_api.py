@@ -520,16 +520,18 @@ def test_register_rejects_bad_branch(
     assert r.json()["error"] in ("invalid_branch", "bad_request")
 
 
-@pytest.mark.parametrize("version", ["", "x" * 33, "0.6 beta"])
-def test_register_rejects_bad_client_version(
-    client: TestClient, machines: Machines, version: str
+@pytest.mark.parametrize("version", ["", "x" * 33, "0.6 beta", 7])
+def test_register_ignores_bad_client_version(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection, version: object
 ) -> None:
+    # A cosmetic field must never cost a session its registration.
     r = client.post(
         "/v1/sessions",
         headers=bearer(machines["laptop"][1]),
         json={**BODY, "client_version": version},
     )
-    assert r.status_code == 400 and r.json()["error"] == "invalid_client_version"
+    assert r.status_code == 200
+    assert _labels(conn, str(r.json()["session"]))[1] is None
 
 
 def test_human_turn_body_sets_and_clears_branch(
@@ -587,3 +589,36 @@ def test_peek_ignores_invalid_branch(
         r = client.get(url, headers=bearer(key), params={"branch": bad})
         assert r.status_code == 200 and r.json() == plain
     assert _labels(conn, sid)[0] == "feature/x"
+
+
+def test_register_echoes_the_stored_branch(
+    client: TestClient, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    body = {**BODY, "agent_session_id": "a1"}
+    r = client.post("/v1/sessions", headers=bearer(key), json={**body, "branch": "x"})
+    assert r.json()["branch"] == "x"
+    r = client.post("/v1/sessions", headers=bearer(key), json=body)
+    assert r.json()["branch"] == "x"  # kept, and said so
+
+
+def test_human_turn_echoes_branch_only_when_sent(
+    client: TestClient, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/human-turn"
+    assert client.post(url, headers=bearer(key)).json() == {}
+    r = client.post(url, headers=bearer(key), json={"branch": "develop"})
+    assert r.json() == {"branch": "develop"}
+
+
+def test_peek_echoes_branch_only_when_sent(
+    client: TestClient, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/peek"
+    assert "branch" not in client.get(url, headers=bearer(key)).json()
+    r = client.get(url, headers=bearer(key), params={"branch": "fix/y"})
+    assert r.json()["branch"] == "fix/y"

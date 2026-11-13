@@ -1011,3 +1011,18 @@ def test_stop_still_blocks_when_wakeable_with_branch(
     r = run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
     assert json.loads(r.stdout) == {"decision": "block", "reason": BLOCK_REASON}
     assert _branch(server) == "feature/y"
+
+
+def test_stop_with_an_old_server_keeps_sending_the_branch(
+    home: Path, repo: Path
+) -> None:
+    httpd, hits = scripted_server(200)
+    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
+    _set_head(repo, "feature/z")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": [], "cwd": str(repo)})
+    for _ in range(2):
+        run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    httpd.shutdown()
+    assert hits == ["GET /v1/sessions/1/peek?branch=feature%2Fz"] * 2
+    data = hook.read_session_file("cc-1")
+    assert data is not None and "branch_sent" not in data
