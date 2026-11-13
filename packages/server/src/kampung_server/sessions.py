@@ -10,6 +10,7 @@ from .addressing import validate_name
 from .clock import parse_ts, ts
 from .errors import KampungError
 from .ids import new_suffix
+from .mailsignal import bumps
 from .limits import (
     LIVE_WINDOW,
     MAX_AGENT_SESSION_ID_CHARS,
@@ -78,6 +79,7 @@ def set_branch(conn: sqlite3.Connection, session_id: int, branch: str | None) ->
     conn.execute("UPDATE sessions SET branch = ? WHERE id = ?", (branch, session_id))
 
 
+@bumps
 def register(
     conn: sqlite3.Connection,
     machine: Machine,
@@ -394,6 +396,7 @@ def human_turn(conn: sqlite3.Connection, session: Session, now: datetime) -> int
     return guard.refill_mailbox(conn, session.mailbox_id)
 
 
+@bumps
 def end(conn: sqlite3.Connection, session_id: int, now: datetime) -> None:
     conn.execute(
         "UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",

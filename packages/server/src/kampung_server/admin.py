@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import datetime
 
+from .mailsignal import bumps
 from . import audit, db, guard, oauth_store, sessions
 from .addressing import validate_name
 from .clock import ts
@@ -179,6 +180,7 @@ class AdminService:
         finally:
             conn.close()
 
+    @bumps
     def revoke(self, name: str, actor: str) -> None:
         now = self._clock()
         conn = self._connect()
@@ -198,6 +200,7 @@ class AdminService:
         finally:
             conn.close()
 
+    @bumps
     def rotate_key(self, name: str, actor: str) -> str:
         """Give a machine a new key, keeping its name, mailboxes and pairings.
 
@@ -224,6 +227,7 @@ class AdminService:
             conn.close()
         return key
 
+    @bumps
     def end_session(self, session_id: int, actor: str) -> None:
         now = self._clock()
         conn = self._connect()
@@ -255,6 +259,7 @@ class AdminService:
         finally:
             conn.close()
 
+    @bumps
     def delete_message(self, message_id: str, actor: str) -> None:
         now = self._clock()
         conn = self._connect()

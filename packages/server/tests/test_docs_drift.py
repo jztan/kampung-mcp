@@ -113,6 +113,9 @@ SECURITY_PHRASES = {
     f"{_thousands(L.MAX_MAILBOXES_PER_MACHINE)} |",
     "MAX_CWD_CHARS": f"{_thousands(L.MAX_CWD_CHARS)} printable characters",
     "MAX_BRANCH_CHARS": f"| Session `branch` | {L.MAX_BRANCH_CHARS} printable",
+    "STREAM_CONNECT_RATE": f"| Event streams per machine | {L.STREAM_CONNECT_RATE} "
+    "connects per minute",
+    "MAX_STREAMS": f"{L.MAX_LIVE_SESSIONS_PER_MACHINE} open at once",
     "MAX_SUMMARY_CHARS": f"| Session `summary` | {L.MAX_SUMMARY_CHARS} printable",
     "SUMMARY_RATE": f"{L.SUMMARY_RATE} updates per machine per minute",
     "MAX_CLIENT_VERSION_CHARS": f"| Session `client_version` | "

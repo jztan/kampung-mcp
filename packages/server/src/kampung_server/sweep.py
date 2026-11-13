@@ -7,6 +7,7 @@ outlive its TTL.
 import sqlite3
 import sys
 import threading
+from .mailsignal import SIGNAL
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +91,7 @@ def start_sweeper(
                 try:
                     with db.transaction(conn):
                         sweep(conn, clock())
+                    SIGNAL.bump()  # expired mail, ended sessions
                 finally:
                     conn.close()
             except Exception as e:  # keep sweeping; the next pass may work

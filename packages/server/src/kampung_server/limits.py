@@ -27,6 +27,7 @@ SEND_RATE_WINDOW = timedelta(seconds=60)
 REGISTER_RATE = 60
 # Typed-prompt calls per machine per minute: each refills wake budgets.
 HUMAN_TURN_RATE = 60
+STREAM_CONNECT_RATE = 120  # event stream connects per machine per minute
 SUMMARY_RATE = 30  # set_summary calls per machine per minute
 # peek calls per machine per minute: the Channels poller peeks every 2
 # seconds, so this covers MAX_LIVE_SESSIONS_PER_MACHINE windows polling at once.
