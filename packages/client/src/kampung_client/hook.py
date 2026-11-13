@@ -831,7 +831,13 @@ def _session(event: Event) -> dict[str, object]:
 
 
 def _call(
-    event: Event, clock: _Clock, method: str, action: str, revive: bool
+    event: Event,
+    clock: _Clock,
+    method: str,
+    action: str,
+    revive: bool,
+    body: dict[str, object] | None = None,
+    query: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Call /v1/sessions/{id}/{action}; on 409 or 404 re-register and retry once.
 
@@ -848,13 +854,15 @@ def _call(
     )
     for attempt in range(2):
         path = f"/v1/sessions/{data['session']}/{action}"
-        status, body = api(method, path, None, clock.timeout())
+        if query:
+            path += "?" + urllib.parse.urlencode(query)
+        status, answer = api(method, path, body, clock.timeout())
         if status == 200:
-            return body
+            return answer
         if status in (404, 409) and attempt == 0:
             data = _register_and_save(event, clock)
             continue
-        raise HookError(f"{action}: HTTP {status} {body.get('error')}")
+        raise HookError(f"{action}: HTTP {status} {answer.get('error')}")
     raise HookError(f"{action}: gave up")
 
 
@@ -919,6 +927,28 @@ def turn_active(sid: str) -> bool:
         return False
 
 
+def _current_branch(event: Event) -> tuple[dict[str, object] | None, str]:
+    """The session file and the branch of the session's registered folder
+    (the event's cwd only when there is no file yet): the same folder as the
+    cwd and mailbox peers see, never where the session has cd'd since."""
+    data = read_session_file(str(event["session_id"]))
+    cwd = data.get("cwd") if data else None
+    if not isinstance(cwd, str) or not cwd:
+        cwd = event.get("cwd")
+    branch = git_branch(cwd) if isinstance(cwd, str) and cwd else None
+    return data, branch or ""
+
+
+def _mark_branch_sent(sid: str, branch: str) -> None:
+    data = read_session_file(sid)
+    if data is None or data.get("branch_sent") == branch:
+        return
+    try:
+        write_session_file(sid, {**data, "branch_sent": branch})
+    except OSError:
+        pass  # sent again next time; never fail a hook over this
+
+
 def on_user_prompt(event: Event, clock: _Clock) -> None:
     if _agent(event) == "codex":
         mark_turn(str(event["session_id"]))
@@ -932,7 +962,9 @@ def on_user_prompt(event: Event, clock: _Clock) -> None:
         return
     # Registers when the session file is missing (SessionStart failed earlier):
     # a deliberate departure from fail-open, so the window recovers.
-    _call(event, clock, "POST", "human-turn", revive=True)
+    _, branch = _current_branch(event)
+    _call(event, clock, "POST", "human-turn", revive=True, body={"branch": branch})
+    _mark_branch_sent(str(event["session_id"]), branch)
 
 
 Seen = str | int | None  # what was last announced: a message id, or a count
@@ -1020,7 +1052,14 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
     result: dict[str, object] | None = None
     try:
         if not event.get("stop_hook_active"):
-            body = _call(event, clock, "GET", "peek", revive=False)
+            # The branch rides on this peek only when it changed, so an agent's
+            # own `git switch` shows by the end of its turn.
+            data, branch = _current_branch(event)
+            changed = data is not None and data.get("branch_sent") != branch
+            query = {"branch": branch} if changed else None
+            body = _call(event, clock, "GET", "peek", revive=False, query=query)
+            if changed:
+                _mark_branch_sent(str(event["session_id"]), branch)
             wakeable = int(str(body.get("wakeable", 0)))
             if wakeable > 0:
                 reason = STOP_BLOCK_REASON.format(n=wakeable)
