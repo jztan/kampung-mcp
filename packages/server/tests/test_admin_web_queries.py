@@ -320,3 +320,32 @@ def test_mailboxes_count_unreachable(
         r for r in queries.mailboxes(conn, clock.now()) if r.address == "desktop/blog"
     )
     assert (row.live, row.unreachable) == (1, 1)
+
+
+def test_version_key_and_mismatch() -> None:
+    k10, k9 = queries.version_key("0.10.1"), queries.version_key("0.9.3")
+    assert k10 is not None and k9 is not None and k10 > k9
+    assert queries.version_key("dev") is None
+    assert queries.minor_mismatch("0.5.2", "0.6.0")
+    assert not queries.minor_mismatch("0.6.3", "0.6.0")
+    assert not queries.minor_mismatch(None, "0.6.0")
+    assert not queries.minor_mismatch("junk", "0.6.0")
+
+
+def test_machine_client_version_is_newest(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    for i, v in enumerate(["0.9.0", "0.10.0", "junk"]):
+        make_session("laptop", "api", agent_session_id=f"s{i}", client_version=v)
+    make_session("desktop", "api")
+    rows = {m.name: m for m in queries.machines(conn, clock.now())}
+    assert rows["laptop"].client_version == "0.10.0"
+    assert rows["desktop"].client_version is None
+
+
+def test_session_rows_carry_branch_and_client_version(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    make_session("laptop", "api", branch="feature/x", client_version="0.6.0")
+    row = queries.sessions(conn, clock.now()).rows[0]
+    assert (row.branch, row.client_version) == ("feature/x", "0.6.0")

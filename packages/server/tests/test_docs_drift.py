@@ -112,6 +112,9 @@ SECURITY_PHRASES = {
     "MAX_MAILBOXES_PER_MACHINE": f"| Mailboxes per machine | "
     f"{_thousands(L.MAX_MAILBOXES_PER_MACHINE)} |",
     "MAX_CWD_CHARS": f"{_thousands(L.MAX_CWD_CHARS)} printable characters",
+    "MAX_BRANCH_CHARS": f"| Session `branch` | {L.MAX_BRANCH_CHARS} printable",
+    "MAX_CLIENT_VERSION_CHARS": f"| Session `client_version` | "
+    f"{L.MAX_CLIENT_VERSION_CHARS} characters",
     "ENDED_SESSION_RETENTION": f"| Ended sessions kept | "
     f"{L.ENDED_SESSION_RETENTION.days} days",
     "AUTH_FAILURE_LIMIT": (

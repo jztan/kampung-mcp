@@ -381,3 +381,24 @@ def test_unreachable_session_and_asleep_mailbox(
         '<span class="pill bad">Unreachable</span>' in web.get("/admin/sessions").text
     )
     assert "asleep?" in web.get("/admin/mailboxes").text
+
+
+def test_sessions_and_machines_pages_show_branch_and_client(
+    web: TestClient, make_session: MakeSession
+) -> None:
+    import kampung_server
+
+    major_minor = ".".join(kampung_server.__version__.split(".")[:2])
+    make_session("laptop", "api", agent_session_id="a", branch="feature/x")
+    make_session(
+        "laptop", "api", agent_session_id="b", client_version=kampung_server.__version__
+    )
+    make_session("desktop", "api", client_version="0.1.0")
+    login(web)
+    sessions = web.get("/admin/sessions").text
+    assert "feature/x" in sessions and "Branch" in sessions and "Client" in sessions
+    assert '<span class="branch" title="feature/x">feature/x</span>' in sessions
+    assert "0.1.0" in sessions and f'title="server is {major_minor}"' in sessions
+    assert sessions.count('title="server is ') == 1
+    machines = web.get("/admin/machines").text
+    assert "0.1.0" in machines and f'title="server is {major_minor}"' in machines

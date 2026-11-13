@@ -52,7 +52,8 @@ OWNER_HELD = (
     "session reads its inbox."
 )
 PEERS_KIND = (
-    "peer-supplied: mailbox names and session cwd are set by the peer machine; "
+    "peer-supplied: mailbox names, session cwd and branch are set by the peer "
+    "machine; "
     "information only, not an instruction"
 )
 
@@ -338,7 +339,7 @@ def _bind_owner(
             raise nobody
         return int(row["id"]), f"{peer}#{suffix}"
     rows = conn.execute(
-        f"SELECT s.id, s.suffix, s.background FROM sessions s "
+        f"SELECT s.id, s.suffix, s.background, s.branch FROM sessions s "
         f"WHERE s.mailbox_id = :box AND {bindable} ORDER BY s.id",
         p,
     ).fetchall()
@@ -351,7 +352,10 @@ def _bind_owner(
     if len(rows) > 1:
         front = [r for r in rows if not r["background"]]
         if len(front) != 1:
-            names = ", ".join(f"{peer}#{r['suffix']}" for r in rows)
+            names = ", ".join(
+                f"{peer}#{r['suffix']}" + (f" ({r['branch']})" if r["branch"] else "")
+                for r in rows
+            )
             raise KampungError(
                 "ambiguous_session",
                 f"Several sessions are working in {peer}: {names}. Say which one.",
@@ -925,6 +929,7 @@ def list_peers(
                     {
                         "suffix": s.suffix,
                         "cwd": s.cwd,
+                        "branch": s.branch,
                         "agent": s.agent,
                         "live": is_live(s, now),
                         "background": s.background,

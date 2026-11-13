@@ -156,3 +156,15 @@ def test_the_late_hint_says_the_client_cannot_wake_them(
     r = send(conn, a, "desktop/blog", "x", None, clock.now())
     assert r.hint and "their client cannot wake them" in r.hint
     assert "Channels" not in r.hint
+
+
+def test_list_peers_shows_branch(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    make_session("desktop", "blog", agent_session_id="a", branch="develop")
+    make_session("desktop", "blog", agent_session_id="b")
+    machine = load_machine(conn, "laptop")
+    assert machine is not None
+    peers = list_peers(conn, machine, clock.now(), "desktop")
+    branches = [s["branch"] for s in peers[0]["sessions"]]  # type: ignore[index]
+    assert branches == ["develop", None]

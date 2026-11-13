@@ -44,6 +44,9 @@ class Session:
     typed_at: str | None = None
     background: bool = False
     idle_wake: bool = False
+    # Self-reported by the client: shown as information only.
+    branch: str | None = None
+    client_version: str | None = None
 
     @property
     def mailbox(self) -> str:
@@ -58,7 +61,7 @@ SESSION_SELECT = (
     "SELECT s.id, s.mailbox_id, mb.machine_id, m.name AS machine, mb.repo, "
     "s.suffix, s.agent, s.agent_session_id, s.hooks, s.cwd, s.started_at, "
     "s.last_seen, s.ended_at, s.max_depth_seen, s.last_delivered_at, s.typed_at, "
-    "s.background, s.idle_wake "
+    "s.background, s.idle_wake, s.branch, s.client_version "
     "FROM sessions s JOIN mailboxes mb ON mb.id = s.mailbox_id "
     "JOIN machines m ON m.id = mb.machine_id"
 )
@@ -84,6 +87,8 @@ def session_from_row(row: sqlite3.Row) -> Session:
         typed_at=row["typed_at"],
         background=bool(row["background"]),
         idle_wake=bool(row["idle_wake"]),
+        branch=row["branch"],
+        client_version=row["client_version"],
     )
 
 

@@ -504,3 +504,18 @@ def test_cleared_window_does_not(
     end(conn, bound.id, clock.now())
     cleared = make_session("desktop", "api", agent_session_id="after-clear")
     assert _inbox(conn, cleared, clock) == []
+
+
+def test_ambiguous_session_hint_names_branches(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    a = make_session("desktop", "api", agent_session_id="a", branch="feature/x")
+    b = make_session("desktop", "api", agent_session_id="b")
+    e = _error(_instruct, conn, phone, clock)
+    assert e.hint == (
+        "Several sessions are working in desktop/api: "
+        f"desktop/api#{a.suffix} (feature/x), desktop/api#{b.suffix}. Say which one."
+    )

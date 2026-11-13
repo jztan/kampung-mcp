@@ -20,7 +20,7 @@ from fastmcp.tools import ToolResult
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from mcp.types import InitializedNotification, Notification, TextContent
 
-from . import codex_launch, hook, images, outbox
+from . import __version__, codex_launch, hook, images, outbox
 from .hook import Ancestor
 
 # Attachments: a raw file may be large before an image is shrunk; the whole
@@ -239,7 +239,7 @@ class SessionResolver:
         )
 
     def _self_register(self) -> dict[str, object]:
-        data = hook.register(self.agent, self.cwd, False)
+        data = hook.register(self.agent, self.cwd, False, report_branch=False)
         hook.write_session_file(f"adapter-{os.getpid()}", data)
         return data
 
@@ -277,6 +277,8 @@ class SessionResolver:
                     if hook.idle_wake_on(self.agent, agent_session_id)
                     else {}
                 ),
+                # No branch: the hooks report it; a missing one is kept.
+                "client_version": __version__,
             },
         )
         if status != 200:
@@ -301,7 +303,12 @@ class SessionResolver:
             found = hook.read_session_file(agent_session_id)
             if found is None or found.get("hooks") is not True:
                 found = hook.register(
-                    self.agent, self.cwd, True, agent_session_id, ancestry=False
+                    self.agent,
+                    self.cwd,
+                    True,
+                    agent_session_id,
+                    ancestry=False,
+                    report_branch=False,
                 )
                 hook.write_session_file(agent_session_id, found)
             self._data = found
@@ -483,7 +490,8 @@ def build_adapter(
         take mail. A session with reachable false has not polled for over 2
         minutes, so its machine is probably asleep or offline: mail waits for
         it, but it will not answer soon. reachable null means Kampung cannot
-        tell."""
+        tell. branch is the git branch of the session's folder, when it is in
+        git, to tell sessions in one mailbox apart."""
         args: dict[str, Any] = {"machine": machine}
         if include_empty:
             # Sent only when set, so this adapter still works with a server

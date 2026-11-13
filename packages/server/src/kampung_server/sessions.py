@@ -1,5 +1,7 @@
 """Agent sessions: registration, revival, resolution and liveness."""
 
+import enum
+import re
 import sqlite3
 from datetime import datetime
 
@@ -11,6 +13,8 @@ from .ids import new_suffix
 from .limits import (
     LIVE_WINDOW,
     MAX_AGENT_SESSION_ID_CHARS,
+    MAX_BRANCH_CHARS,
+    MAX_CLIENT_VERSION_CHARS,
     MAX_CWD_CHARS,
     MAX_LIVE_SESSIONS_PER_MACHINE,
     MAX_LIVE_SESSIONS_PER_MAILBOX,
@@ -24,6 +28,39 @@ CONNECTOR_ID_PREFIX = "connector:"
 AGENTS = ("claude-code", "codex", "other", CONNECTOR_AGENT)
 CONNECTOR_REPO = "claude"
 CONNECTOR_CWD = "Claude app"
+_CLIENT_VERSION = re.compile(r"[0-9A-Za-z.+-]+")
+
+
+class Keep(enum.Enum):
+    """A register call that did not mention the branch: keep what is stored."""
+
+    KEEP = 0
+
+
+def check_branch(value: str) -> str | None:
+    """A reported git branch: "" means none now (stored as NULL)."""
+    if value == "":
+        return None
+    if not _printable(value, MAX_BRANCH_CHARS):
+        raise KampungError(
+            "invalid_branch",
+            f"branch must be up to {MAX_BRANCH_CHARS} printable characters.",
+        )
+    return value
+
+
+def check_client_version(value: str) -> str:
+    if len(value) > MAX_CLIENT_VERSION_CHARS or not _CLIENT_VERSION.fullmatch(value):
+        raise KampungError(
+            "invalid_client_version",
+            f"client_version must be 1 to {MAX_CLIENT_VERSION_CHARS} letters, "
+            "digits, dots, plus or minus signs.",
+        )
+    return value
+
+
+def set_branch(conn: sqlite3.Connection, session_id: int, branch: str | None) -> None:
+    conn.execute("UPDATE sessions SET branch = ? WHERE id = ?", (branch, session_id))
 
 
 def register(
@@ -39,6 +76,8 @@ def register(
     suffix: str | None = None,
     background: bool = False,
     idle_wake: bool = False,
+    branch: str | None | Keep = Keep.KEEP,
+    client_version: str | None = None,
 ) -> Session:
     if agent not in AGENTS:
         raise KampungError(
@@ -73,6 +112,8 @@ def register(
         suffix,
         background,
         idle_wake,
+        branch,
+        client_version,
     )
     session = load_session(conn, session_id)
     assert session is not None
@@ -92,6 +133,8 @@ def _register(
     suffix: str | None,
     background: bool,
     idle_wake: bool,
+    branch: str | None | Keep = Keep.KEEP,
+    client_version: str | None = None,
 ) -> int:
     with db.transaction(conn):
         existing = None
@@ -124,11 +167,15 @@ def _register(
             # A conversation can move between a window and the background,
             # and its client can gain or lose idle wake, so each registration
             # says what holds now.
+            # The client version describes whoever registered last; the
+            # branch is kept unless this call reports one.
             conn.execute(
                 "UPDATE sessions SET ended_at = NULL, last_seen = ?, background = ?, "
-                "idle_wake = ? WHERE id = ?",
-                (ts(now), int(background), int(idle_wake), existing.id),
+                "idle_wake = ?, client_version = ? WHERE id = ?",
+                (ts(now), int(background), int(idle_wake), client_version, existing.id),
             )
+            if not isinstance(branch, Keep):
+                set_branch(conn, existing.id, branch)
             audit.record(
                 conn,
                 now,
@@ -150,6 +197,8 @@ def _register(
                 agent_session_id,
                 background,
                 idle_wake,
+                None if isinstance(branch, Keep) else branch,
+                client_version,
             )
             audit.record(
                 conn,
@@ -184,6 +233,8 @@ def _create(
     agent_session_id: str | None,
     background: bool = False,
     idle_wake: bool = False,
+    branch: str | None = None,
+    client_version: str | None = None,
 ) -> int:
     row = conn.execute(
         "SELECT id FROM mailboxes WHERE machine_id = ? AND repo = ?",
@@ -232,7 +283,8 @@ def _create(
     cur = conn.execute(
         "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
         "agent_session_id, hooks, cwd, started_at, last_seen, background, "
-        "idle_wake) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "idle_wake, branch, client_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             mailbox_id,
             machine.id,
@@ -245,6 +297,8 @@ def _create(
             ts(now),
             int(background),
             int(idle_wake),
+            branch,
+            client_version,
         ),
     )
     assert cur.lastrowid is not None

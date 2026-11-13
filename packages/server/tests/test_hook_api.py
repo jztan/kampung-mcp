@@ -470,3 +470,155 @@ def test_session_routes_are_rate_limited_per_machine(
         laptop = bearer(machines["laptop"][1])
         r = c.request(method, f"/v1/sessions/9999/{path}", headers=laptop)
         assert r.status_code == 404
+
+
+def _labels(conn: sqlite3.Connection, sid: str) -> tuple[str | None, str | None]:
+    s = load_session(conn, int(sid))
+    assert s is not None
+    return s.branch, s.client_version
+
+
+def test_register_stores_branch_and_client_version(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key, branch="feature/x", client_version="0.6.0")
+    assert _labels(conn, sid) == ("feature/x", "0.6.0")
+
+
+def test_revive_keeps_branch_when_missing_and_clears_version(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    first = _register(
+        client, key, agent_session_id="a1", branch="feature/x", client_version="0.6.0"
+    )
+    again = _register(client, key, agent_session_id="a1")
+    assert again == first
+    assert _labels(conn, first) == ("feature/x", None)
+
+
+def test_revive_with_empty_branch_clears_it(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key, agent_session_id="a1", branch="feature/x")
+    _register(client, key, agent_session_id="a1", branch="")
+    assert _labels(conn, sid) == (None, None)
+
+
+@pytest.mark.parametrize("branch", ["x" * 101, "a\x00b", 7])
+def test_register_rejects_bad_branch(
+    client: TestClient, machines: Machines, branch: object
+) -> None:
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(machines["laptop"][1]),
+        json={**BODY, "branch": branch},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] in ("invalid_branch", "bad_request")
+
+
+@pytest.mark.parametrize("version", ["", "x" * 33, "0.6 beta", 7])
+def test_register_ignores_bad_client_version(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection, version: object
+) -> None:
+    # A cosmetic field must never cost a session its registration.
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(machines["laptop"][1]),
+        json={**BODY, "client_version": version},
+    )
+    assert r.status_code == 200
+    assert _labels(conn, str(r.json()["session"]))[1] is None
+
+
+def test_human_turn_body_sets_and_clears_branch(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key, branch="feature/x")
+    url = f"/v1/sessions/{sid}/human-turn"
+    assert client.post(url, headers=bearer(key)).status_code == 200
+    assert _labels(conn, sid)[0] == "feature/x"
+    r = client.post(url, headers=bearer(key), json={"branch": "develop"})
+    assert r.status_code == 200 and _labels(conn, sid)[0] == "develop"
+    r = client.post(url, headers=bearer(key), json={"branch": ""})
+    assert r.status_code == 200 and _labels(conn, sid)[0] is None
+
+
+def test_human_turn_ignores_bad_branch_and_still_refills(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key, branch="feature/x")
+    for bad in ("x" * 101, 7):
+        r = client.post(
+            f"/v1/sessions/{sid}/human-turn", headers=bearer(key), json={"branch": bad}
+        )
+        assert r.status_code == 200
+    assert _labels(conn, sid)[0] == "feature/x"
+    s = load_session(conn, int(sid))
+    assert s is not None and s.typed_at is not None
+
+
+def test_peek_branch_query(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key, branch="feature/x")
+    url = f"/v1/sessions/{sid}/peek"
+    assert client.get(url, headers=bearer(key)).status_code == 200
+    assert _labels(conn, sid)[0] == "feature/x"
+    for name in ("fix/a&b#c", "feature/café"):
+        r = client.get(url, headers=bearer(key), params={"branch": name})
+        assert r.status_code == 200 and _labels(conn, sid)[0] == name
+    client.get(url, headers=bearer(key), params={"branch": ""})
+    assert _labels(conn, sid)[0] is None
+
+
+def test_peek_ignores_invalid_branch(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key, branch="feature/x")
+    url = f"/v1/sessions/{sid}/peek"
+    plain = client.get(url, headers=bearer(key)).json()
+    for bad in ("x" * 101, "a\x07b"):
+        r = client.get(url, headers=bearer(key), params={"branch": bad})
+        assert r.status_code == 200 and r.json() == plain
+    assert _labels(conn, sid)[0] == "feature/x"
+
+
+def test_register_echoes_the_stored_branch(
+    client: TestClient, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    body = {**BODY, "agent_session_id": "a1"}
+    r = client.post("/v1/sessions", headers=bearer(key), json={**body, "branch": "x"})
+    assert r.json()["branch"] == "x"
+    r = client.post("/v1/sessions", headers=bearer(key), json=body)
+    assert r.json()["branch"] == "x"  # kept, and said so
+
+
+def test_human_turn_echoes_branch_only_when_sent(
+    client: TestClient, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/human-turn"
+    assert client.post(url, headers=bearer(key)).json() == {}
+    r = client.post(url, headers=bearer(key), json={"branch": "develop"})
+    assert r.json() == {"branch": "develop"}
+
+
+def test_peek_echoes_branch_only_when_sent(
+    client: TestClient, machines: Machines
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/peek"
+    assert "branch" not in client.get(url, headers=bearer(key)).json()
+    r = client.get(url, headers=bearer(key), params={"branch": "fix/y"})
+    assert r.json()["branch"] == "fix/y"

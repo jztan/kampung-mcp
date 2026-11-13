@@ -334,3 +334,42 @@ def test_parallel_current_registers_once(
         t.join()
     assert registered == [1]
     assert all(r is results[0] for r in results) and len(results) == 8
+
+
+# Session labels: the adapter reports its version, never a branch -----------
+
+
+def _branched(tmp_path: Path, name: str, branch: str) -> Path:
+    repo = tmp_path / name
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".git" / "HEAD").write_text(f"ref: refs/heads/{branch}\n")
+    return repo
+
+
+def test_adapter_self_register_sends_version_not_branch(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    import kampung_client
+
+    repo = _branched(tmp_path, "api", "daemon-folder")
+    SessionResolver("codex", str(repo), wait=0).bind(None)
+    SessionResolver("codex", str(repo), wait=0).bind("cx-9")
+    rows = db_query(server, "SELECT branch, client_version FROM sessions ORDER BY id")
+    assert rows == [(None, kampung_client.__version__)] * 2
+
+
+def test_adapter_revive_keeps_the_branch(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    import kampung_client
+
+    repo = _branched(tmp_path, "api", "feature/x")
+    data = codex_file("cx-1", cwd=str(repo))
+    r = SessionResolver("codex", str(repo), wait=0)
+    r.bind("cx-1")
+    db_query(server, "UPDATE sessions SET client_version = NULL")
+    server.admin.end_session(int(str(data["session"])), "admin:cli")
+    assert r.refresh()["session"] == data["session"]
+    assert db_query(server, "SELECT branch, client_version FROM sessions") == [
+        ("feature/x", kampung_client.__version__)
+    ]

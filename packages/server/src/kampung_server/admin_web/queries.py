@@ -1,6 +1,7 @@
 """Read-only views of the store for the dashboard. Writes go through AdminService."""
 
 import json
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -65,6 +66,8 @@ class MachineRow:
     # send owner instructions.
     grant_created_at: str | None = None
     owner: bool = False
+    # The newest client version its sessions reported (self-reported).
+    client_version: str | None = None
 
 
 @dataclass
@@ -90,6 +93,8 @@ class SessionRow:
     started_at: str
     last_seen: str
     background: bool = False
+    branch: str | None = None
+    client_version: str | None = None
 
 
 @dataclass
@@ -225,6 +230,38 @@ def overview(conn: sqlite3.Connection, now: datetime) -> Overview:
     )
 
 
+_VERSION = re.compile(r"\d+(?:\.\d+)*")
+
+
+def version_key(version: str) -> tuple[int, ...] | None:
+    """The leading dotted numbers of a version, for comparing; None when it
+    does not start with one."""
+    m = _VERSION.match(version)
+    return tuple(int(n) for n in m.group().split(".")) if m else None
+
+
+def minor_mismatch(client: str | None, server: str) -> bool:
+    """Whether a client's major.minor differs from the server's. Unknown or
+    unreadable versions never count as a mismatch."""
+    a = version_key(client) if client else None
+    b = version_key(server)
+    return a is not None and b is not None and a[:2] != b[:2]
+
+
+def _newest_client_versions(conn: sqlite3.Connection) -> dict[int, str]:
+    newest: dict[int, tuple[tuple[int, ...], str]] = {}
+    for r in conn.execute(
+        "SELECT DISTINCT machine_id, client_version FROM sessions "
+        "WHERE client_version IS NOT NULL"
+    ):
+        key = version_key(r["client_version"])
+        if key is not None and (
+            r["machine_id"] not in newest or key > newest[r["machine_id"]][0]
+        ):
+            newest[r["machine_id"]] = (key, r["client_version"])
+    return {machine: v for machine, (_, v) in newest.items()}
+
+
 def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
     rows = conn.execute(
         "SELECT m.id, m.name, m.revoked_at, m.created_at, "
@@ -238,6 +275,7 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
         "SELECT a.name AS a, b.name AS b FROM pairings p "
         "JOIN machines a ON a.id = p.machine_a JOIN machines b ON b.id = p.machine_b"
     ).fetchall()
+    versions = _newest_client_versions(conn)
     peers: dict[str, list[str]] = {}
     for r in pairs:
         peers.setdefault(r["a"], []).append(r["b"])
@@ -251,6 +289,7 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
             created_at=r["created_at"],
             grant_created_at=r["grant_created_at"],
             owner=bool(r["owner"]),
+            client_version=versions.get(r["id"]),
         )
         for r in rows
     ]
@@ -308,6 +347,7 @@ def sessions(
     rows = conn.execute(
         f"SELECT s.id, {_SESSION_ADDRESS} AS address, s.agent, s.cwd, "
         "s.started_at, s.last_seen, mb.wakes_since_refill, s.background, "
+        "s.branch, s.client_version, "
         "CASE WHEN s.ended_at IS NOT NULL THEN 'ended' "
         f"WHEN s.last_seen >= :live AND {STALE_POLLER_SQL} THEN 'unreachable' "
         "WHEN s.last_seen >= :live THEN 'live' ELSE 'idle' END AS state "
@@ -326,6 +366,8 @@ def sessions(
                 r["started_at"],
                 r["last_seen"],
                 bool(r["background"]),
+                r["branch"],
+                r["client_version"],
             )
             for r in rows
         ],
