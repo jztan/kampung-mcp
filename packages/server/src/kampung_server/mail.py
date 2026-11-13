@@ -415,7 +415,11 @@ def _background_only(
 
 
 def _unreachable(
-    live: list[sqlite3.Row], sender: Session, peer: str, now: datetime
+    live: list[sqlite3.Row],
+    sender: Session,
+    peer: str,
+    targeted: bool,
+    now: datetime,
 ) -> _Decision | None:
     """When every live target other than the sender is an idle-wake session
     that has stopped polling, its machine is probably asleep: the message
@@ -425,10 +429,11 @@ def _unreachable(
     if not others or not all(r["idle_wake"] and r["last_seen"] < stale for r in others):
         return None
     newest: str = max(r["last_seen"] for r in others)
+    name = f"{peer}#{others[0]['suffix']}" if targeted else peer
     return _Decision(
         True,
         note="unreachable",
-        hint=f"{peer} has not been heard from for {age(newest, now)}; its "
+        hint=f"{name} has not been heard from for {age(newest, now)}; its "
         "machine may be asleep or offline. Your message waits and wakes it "
         "when it is back. If this is urgent, tell your user.",
         reachable=False,
@@ -456,14 +461,14 @@ def _decide_wake(
         )
     if target_session is not None:
         live = conn.execute(
-            "SELECT id, agent, idle_wake, last_seen FROM sessions "
+            "SELECT id, agent, idle_wake, last_seen, suffix FROM sessions "
             "WHERE id = ? AND ended_at IS NULL "
             "AND last_seen >= ?",
             (target_session, ts(now - LIVE_WINDOW)),
         ).fetchall()
     else:
         live = conn.execute(
-            "SELECT id, agent, idle_wake, last_seen FROM sessions "
+            "SELECT id, agent, idle_wake, last_seen, suffix FROM sessions "
             "WHERE mailbox_id = ? AND ended_at IS NULL "
             "AND last_seen >= ?",
             (target_box, ts(now - LIVE_WINDOW)),
@@ -497,8 +502,15 @@ def _decide_wake(
             hint=f"{peer} is the Claude app, which reads mail only when its user "
             "asks. It is in its inbox; there is nothing to wake.",
         )
-    unreachable = _unreachable(live, sender, peer, now)
+    unreachable = _unreachable(live, sender, peer, target_session is not None, now)
     if unreachable is not None:
+        if sender.agent == CONNECTOR_AGENT:
+            # The owner's send still refills the mailbox, so a loop it means
+            # to restart can answer once the machine is back. Mail stored as
+            # unreachable is left out of the app's wake count.
+            app = _connector_send(conn, sender, target_box, now, g, instruct)
+            if not app.wake:
+                return app
         return unreachable
     if sender.agent == CONNECTOR_AGENT:
         return _connector_send(conn, sender, target_box, now, g, instruct)

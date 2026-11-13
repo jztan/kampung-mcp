@@ -128,3 +128,30 @@ def test_a_claude_app_send_to_a_quiet_poller_spends_nothing(
 
 def test_owner_instruction_bind_window_is_unchanged() -> None:
     assert OWNER_BIND_WINDOW == POLL_WINDOW == timedelta(minutes=2)
+
+
+def test_a_targeted_send_names_the_session_in_the_hint(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    target = make_session("desktop", "blog", idle_wake=True)
+    clock.advance(minutes=6)
+    make_session("desktop", "blog", idle_wake=True)
+    a = make_session("laptop", "api")
+    to = f"desktop/blog#{target.suffix}"
+    r = send(conn, a, to, "urgent", None, clock.now())
+    assert r.note == "unreachable"
+    assert str(r.hint).startswith(f"{to} has not been heard from")
+
+
+def test_a_claude_app_send_to_a_quiet_poller_still_refills_its_mailbox(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    target = make_session("desktop", "blog", idle_wake=True)
+    for _ in range(G.mailbox_budget):
+        guard.spend_mailbox(conn, target.mailbox_id)
+    assert guard.mailbox_left(conn, target.mailbox_id, G) == 0
+    clock.advance(minutes=6)
+    phone = _phone(make_session)
+    r = send(conn, phone, "desktop/blog", "carry on", None, clock.now())
+    assert r.note == "unreachable"
+    assert guard.mailbox_left(conn, target.mailbox_id, G) == G.mailbox_budget
