@@ -208,7 +208,8 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         take mail. A session with reachable false has not polled for over 2
         minutes, so its machine is probably asleep or offline: mail waits for
         it, but it will not answer soon. reachable null means Kampung cannot
-        tell."""
+        tell. branch is the git branch of the session's folder, when it is in
+        git, to tell sessions in one mailbox apart."""
 
         def work(
             conn: sqlite3.Connection, me: Machine, _: Session | None, now: datetime
