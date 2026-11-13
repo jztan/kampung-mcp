@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 
 from ..clock import ts
-from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL
+from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL, POLL_WINDOW
+from ..sessions import STALE_POLLER_SQL
 
 LIMIT = 100
 THREAD_PREVIEW = 1000  # characters of each body a thread shows; Open has the rest
@@ -73,6 +74,8 @@ class MailboxRow:
     total_sessions: int
     queued: int
     oldest_queued_at: str | None
+    # Live sessions that poll but have stopped: their machine is likely asleep.
+    unreachable: int = 0
 
 
 @dataclass
@@ -177,6 +180,10 @@ def _live_since(now: datetime) -> str:
     return ts(now - LIVE_WINDOW)
 
 
+def _poll_since(now: datetime) -> str:
+    return ts(now - POLL_WINDOW)
+
+
 def _at(now: datetime) -> dict[str, object]:
     """The time parameters every message query takes."""
     return {"now": ts(now), "owner_cutoff": ts(now - OWNER_INSTRUCTION_TTL)}
@@ -254,6 +261,9 @@ def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
         "SELECT m.name || '/' || mb.repo AS address, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
         " AND s.ended_at IS NULL AND s.last_seen >= :live) AS live, "
+        "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
+        f" AND s.ended_at IS NULL AND s.last_seen >= :live AND {STALE_POLLER_SQL}) "
+        "AS unreachable, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id) AS total, "
         f"(SELECT COUNT(*) FROM messages msg WHERE msg.to_mailbox_id = mb.id "
         f" AND {_QUEUED}) AS queued, "
@@ -261,10 +271,17 @@ def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
         f" AND {_QUEUED}) AS oldest "
         "FROM mailboxes mb JOIN machines m ON m.id = mb.machine_id "
         "ORDER BY address",
-        {**_at(now), "live": _live_since(now)},
+        {**_at(now), "live": _live_since(now), "poll": _poll_since(now)},
     ).fetchall()
     return [
-        MailboxRow(r["address"], r["live"], r["total"], r["queued"], r["oldest"])
+        MailboxRow(
+            r["address"],
+            r["live"],
+            r["total"],
+            r["queued"],
+            r["oldest"],
+            r["unreachable"],
+        )
         for r in rows
     ]
 
@@ -278,7 +295,11 @@ def sessions(
     where = {"open": "s.ended_at IS NULL", "ended": "s.ended_at IS NOT NULL"}.get(
         state, "1"
     )
-    p: dict[str, object] = {"live": _live_since(now), "agent": agent}
+    p: dict[str, object] = {
+        "live": _live_since(now),
+        "poll": _poll_since(now),
+        "agent": agent,
+    }
     cond = f"{where} AND (:agent IS NULL OR s.agent = :agent)"
     base = (
         "FROM sessions s JOIN mailboxes mb ON mb.id = s.mailbox_id "
@@ -288,6 +309,7 @@ def sessions(
         f"SELECT s.id, {_SESSION_ADDRESS} AS address, s.agent, s.cwd, "
         "s.started_at, s.last_seen, mb.wakes_since_refill, s.background, "
         "CASE WHEN s.ended_at IS NOT NULL THEN 'ended' "
+        f"WHEN s.last_seen >= :live AND {STALE_POLLER_SQL} THEN 'unreachable' "
         "WHEN s.last_seen >= :live THEN 'live' ELSE 'idle' END AS state "
         f"{base} ORDER BY s.last_seen DESC, s.id DESC LIMIT {LIMIT}",
         p,

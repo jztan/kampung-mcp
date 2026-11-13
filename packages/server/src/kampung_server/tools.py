@@ -86,7 +86,9 @@ list_peers marks sessions running in the background (claude --bg,
 nobody watching, so prefer a foreground session; send to a background one
 only when there is nothing else. When the result has note "background", it
 cannot be woken, so expect a late reply. Mail to a mailbox goes to its
-foreground session first.
+foreground session first. When the result has note "unreachable", the
+peer's machine has gone quiet (probably asleep): the message waits, but
+don't expect an answer soon.
 
 mode "instruct" is for the owner's Claude app. When the owner, in this
 conversation, asks you to get a session to do something ("tell X to ...",
@@ -203,7 +205,10 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
     def list_peers(machine: str | None = None, include_empty: bool = False) -> Result:
         """List mailboxes you can message, with their sessions. Mailboxes with
         no open session are hidden unless include_empty is true; they still
-        take mail."""
+        take mail. A session with reachable false has not polled for over 2
+        minutes, so its machine is probably asleep or offline: mail waits for
+        it, but it will not answer soon. reachable null means Kampung cannot
+        tell."""
 
         def work(
             conn: sqlite3.Connection, me: Machine, _: Session | None, now: datetime

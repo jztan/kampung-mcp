@@ -68,7 +68,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Unread mail per mailbox | 1,000 (`mailbox_full`) |
 | Unread mail per mailbox from one sending machine | 200 (`mailbox_full`) |
 | Unread mail kept | 7 days |
-| Owner instruction read deadline | 60 minutes; it goes only to a session seen within 2 minutes if it checks for mail every 2 seconds (30 minutes otherwise), and only to a Codex session typed in within 60 minutes |
+| Owner instruction read deadline | 60 minutes; it goes only to a session seen within 2 minutes if it checks for mail every 2 seconds (30 minutes otherwise), and only to a Codex session typed in within 60 minutes. The same 2 minutes marks an idle-wake session `reachable: false` in `list_peers` and `send` |
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
 | Session calls per machine | `peek` 7,680 per minute (256 windows polling every 2 seconds), `end` 600 per minute |

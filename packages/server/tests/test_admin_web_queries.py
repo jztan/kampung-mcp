@@ -296,3 +296,27 @@ def test_owner_row_mode_and_expiry(
     [expired] = queries.messages(conn, now, None, state="expired").rows
     assert expired.state == "expired"
     assert all(c.queued == 0 for c in queries.conversations(conn, now))
+
+
+def test_sessions_state_unreachable(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    make_session("desktop", "blog", idle_wake=True)
+    make_session("desktop", "web")
+    clock.advance(minutes=6)
+    states = {
+        r.address.split("#")[0]: r.state
+        for r in queries.sessions(conn, clock.now()).rows
+    }
+    assert states == {"desktop/blog": "unreachable", "desktop/web": "live"}
+
+
+def test_mailboxes_count_unreachable(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    make_session("desktop", "blog", idle_wake=True)
+    clock.advance(minutes=6)
+    row = next(
+        r for r in queries.mailboxes(conn, clock.now()) if r.address == "desktop/blog"
+    )
+    assert (row.live, row.unreachable) == (1, 1)

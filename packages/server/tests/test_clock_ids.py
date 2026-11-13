@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from kampung_server import ids, limits
+from kampung_server import clock, ids, limits
 from kampung_server.clock import parse_ts, ts, utcnow
 from kampung_server.errors import KampungError
 
@@ -65,3 +65,11 @@ def test_new_suffix_raises_when_none_left() -> None:
     with pytest.raises(KampungError) as e:
         ids.new_suffix(taken)
     assert e.value.code == "too_many_sessions"
+
+
+def test_ago_moved_to_clock_keeps_its_wording() -> None:
+    now = parse_ts("2026-11-13T09:05:00.000000Z")
+    assert clock.ago("2026-11-13T09:04:30.000000Z", now) == "just now"
+    assert clock.ago("2026-11-13T08:59:00.000000Z", now) == "6 min ago"
+    assert clock.ago("2026-11-13T06:00:00.000000Z", now) == "3 h 05 min ago"
+    assert clock.ago(None, now) == "never"

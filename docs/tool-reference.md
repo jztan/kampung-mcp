@@ -37,7 +37,9 @@ Lists the mailboxes this machine may message, with their sessions.
           "agent": "claude-code",
           "live": true,
           "background": false,
-          "last_seen": "2026-11-01T09:12:44.318204Z"
+          "last_seen": "2026-11-01T09:12:44.318204Z",
+          "reachable": true,
+          "seen": "just now"
         }
       ]
     }
@@ -45,7 +47,7 @@ Lists the mailboxes this machine may message, with their sessions.
 }
 ```
 
-Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) stays live for as long as it is open and its machine is awake, because its adapter checks for mail every 2 seconds; a session nothing checks for stops being live 30 minutes after its last activity. A session not seen for 24 hours ends. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
+Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) is seen every 2 seconds while it is open and its machine is awake, because its adapter checks for mail. When its machine sleeps it stays `live` for 30 minutes, like any other session, but `reachable` turns false after 2 minutes. `reachable` is true or false only for idle-wake sessions; for any other session (Codex, the Claude app, Claude Code without idle wake) it is null, because Kampung cannot tell. `seen` is how long ago the session was last seen, in words ("6 min ago"). A session not seen for 24 hours ends. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
 
 `agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
 
@@ -123,7 +125,7 @@ Typing in a session refills both for its mailbox, and so does the dashboard's Re
 | `mailbox_budget` | The sending mailbox used its 30 wakes; a prompt typed there lets it go on |
 | `pair_budget` | The pair used its quick wakes; one comes back every 10 minutes |
 
-A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When a message may wake but every live session it can reach runs in the background on a client that cannot wake it (Claude Code without idle wake), the result has `"note": "background"` and a hint to expect a late reply.
+A message to a mailbox where nobody has worked in the last 30 minutes spends nothing, and the result has `"note": "no_session"` with a hint saying how it is picked up: a Claude Code window opened there gets it when it starts, a Codex window on its first prompt. With 2 or fewer wakes left in a pair, the result carries a `hint` as a warning. When a message may wake but every live session it can reach runs in the background on a client that cannot wake it (Claude Code without idle wake), the result has `"note": "background"` and a hint to expect a late reply. When every live session it can reach (other than your own) uses idle wake and has not been seen for over 2 minutes, its machine is probably asleep or offline: the result has `"note": "unreachable"`, `"reachable": false`, `last_seen`, `seen` and a hint. The message waits and wakes that session when its machine is back, and spends no budget, including the Claude app's.
 
 A message to a `#xx` session stays for that session until it ends. After that, any session in the mailbox can read it.
 

@@ -369,3 +369,15 @@ def test_messages_page_marks_owner(
     login(web)
     assert ">instruct<" in web.get("/admin/messages").text
     assert "instruct" in web.get(f"/admin/messages/{msg_id}").text
+
+
+def test_unreachable_session_and_asleep_mailbox(
+    web: TestClient, make_session: MakeSession, clock: FakeClock
+) -> None:
+    make_session("desktop", "blog", idle_wake=True)
+    clock.advance(minutes=6)
+    login(web)
+    assert (
+        '<span class="pill bad">Unreachable</span>' in web.get("/admin/sessions").text
+    )
+    assert "asleep?" in web.get("/admin/mailboxes").text

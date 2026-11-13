@@ -13,9 +13,12 @@ TARGET_FALLBACK = timedelta(hours=24)
 # Owner instructions: unread after this long, one can no longer be read or
 # wake anyone (the row keeps MESSAGE_TTL).
 OWNER_INSTRUCTION_TTL = timedelta(minutes=60)
-# A session that polls (idle wake, Codex) refreshes last_seen every 2 seconds,
-# so one not seen for this long is gone and cannot be bound.
-OWNER_BIND_WINDOW = timedelta(minutes=2)
+# A session that polls (idle wake, Codex) refreshes last_seen every 2 seconds
+# (backing off to 30 seconds on failure), so one not seen for this long is gone:
+# an owner instruction cannot bind to it, and an idle-wake session reports
+# reachable false (its machine is probably asleep or offline).
+POLL_WINDOW = timedelta(minutes=2)
+OWNER_BIND_WINDOW = POLL_WINDOW
 # A Codex thread is bound only if someone typed in it this recently: a closed
 # thread stays loaded and wakeable.
 OWNER_CODEX_TYPED_WINDOW = timedelta(minutes=60)
