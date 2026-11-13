@@ -169,7 +169,7 @@ SECURITY_PHRASES = {
     "OWNER_INSTRUCTION_TTL": f"| Owner instruction read deadline | "
     f"{_minutes(L.OWNER_INSTRUCTION_TTL)} minutes",
     "OWNER_BIND_WINDOW": f"seen within {_minutes(L.OWNER_BIND_WINDOW)} minutes "
-    "if it checks for mail every 2 seconds",
+    "if it keeps checking for mail",
     "OWNER_CODEX_TYPED_WINDOW": f"a Codex session typed in within "
     f"{_minutes(L.OWNER_CODEX_TYPED_WINDOW)} minutes",
 }

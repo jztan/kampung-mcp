@@ -61,6 +61,8 @@ Each session gets one file, `~/.cache/kampung/wake/<session id>`, which Claude C
 
 A wake is not typing, so it does not refill the loop guard.
 
+The adapter hears of new mail from the server's event stream, within about a second of the send. Against a server older than this release, or while a stream is down, it polls every 2 seconds instead, as before.
+
 ## Channels (optional fallback)
 
 Channels is Claude Code's experimental push. With idle wake on, the adapter uses it only when a file wake goes unconfirmed, about 10 seconds after the mail arrives. On Claude Code older than 2.1.321 it is the only way to wake an idle session.
