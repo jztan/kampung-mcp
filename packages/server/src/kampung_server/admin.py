@@ -77,7 +77,9 @@ class AdminService:
         try:
             with db.transaction(conn):
                 machine = _require(conn, name)
-                if not oauth_store.delete_grant_for_machine(conn, machine.id, now):
+                if not oauth_store.delete_grant_for_machine(
+                    conn, machine.id, now, "disconnect"
+                ):
                     raise KampungError(
                         "not_connected", f"{name} has no Claude app connection."
                     )
@@ -99,6 +101,11 @@ class AdminService:
         try:
             with db.transaction(conn):
                 machine = _require(conn, name)
+                if not add and oauth_store.clear_owner_lost(conn, machine.id):
+                    # Dismissing a lost mark; a lost mark and an owner grant
+                    # never exist together (owner add clears the mark).
+                    audit.record(conn, now, actor, "owner_remove", {"machine": name})
+                    return ""
                 if oauth_store.grant_for_machine(conn, machine.id) is None:
                     raise KampungError(
                         "no_grant",
@@ -110,6 +117,8 @@ class AdminService:
                     )
                 created = oauth_store.set_owner(conn, machine.id, add)
                 assert created is not None
+                if add:
+                    oauth_store.clear_owner_lost(conn, machine.id)
                 action = "owner_add" if add else "owner_remove"
                 audit.record(conn, now, actor, action, {"machine": name})
         finally:
@@ -174,7 +183,7 @@ class AdminService:
                     (ts(now), machine.id),
                 )
                 _end_sessions(conn, machine, now)
-                oauth_store.delete_grant_for_machine(conn, machine.id, now)
+                oauth_store.delete_grant_for_machine(conn, machine.id, now, "revoke")
                 audit.record(conn, now, actor, "revoke", {"machine": name})
         finally:
             conn.close()
@@ -197,7 +206,9 @@ class AdminService:
                     (hash_key(key), machine.id),
                 )
                 _end_sessions(conn, machine, now)
-                oauth_store.delete_grant_for_machine(conn, machine.id, now)
+                oauth_store.delete_grant_for_machine(
+                    conn, machine.id, now, "key_rotate"
+                )
                 audit.record(conn, now, actor, "rotate_key", {"machine": name})
         finally:
             conn.close()

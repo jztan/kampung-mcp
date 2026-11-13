@@ -9,6 +9,7 @@ import secrets
 import sqlite3
 from datetime import datetime
 
+from . import audit
 from .clock import ts
 from .keys import hash_key
 from .limits import (
@@ -115,9 +116,61 @@ def take_request(
     return str(row[0]) if row else None
 
 
+OWNER_LOST_WORDS = {
+    "reconnect": "the Claude app was reconnected",
+    "token_reuse": "an old sign-in token was reused, so the server dropped the "
+    "connection",
+    "app_revoke": "the Claude app disconnected",
+    "disconnect": "the connection was removed on the server",
+    "key_rotate": "the machine key was rotated",
+    "revoke": "the machine was revoked",
+}
+
+
+def owner_lost_words(reason: str) -> str:
+    return OWNER_LOST_WORDS.get(reason, reason)
+
+
+def note_owner_lost(
+    conn: sqlite3.Connection, machine_id: int, reason: str, now: datetime
+) -> None:
+    """An owner grant went: keep when and why, so the owner is told."""
+    row = conn.execute(
+        "UPDATE machines SET owner_lost_at = ?, owner_lost_reason = ? "
+        "WHERE id = ? RETURNING name",
+        (ts(now), reason, machine_id),
+    ).fetchone()
+    if row is not None:
+        audit.record(
+            conn, now, "server", "owner_cleared", {"machine": row[0], "reason": reason}
+        )
+
+
+def owner_lost(conn: sqlite3.Connection, machine_id: int) -> tuple[str, str] | None:
+    """When and why the machine's owner mark was lost, if it still is."""
+    row = conn.execute(
+        "SELECT owner_lost_at, owner_lost_reason FROM machines WHERE id = ?",
+        (machine_id,),
+    ).fetchone()
+    return (str(row[0]), str(row[1])) if row and row[0] else None
+
+
+def clear_owner_lost(conn: sqlite3.Connection, machine_id: int) -> bool:
+    cur = conn.execute(
+        "UPDATE machines SET owner_lost_at = NULL, owner_lost_reason = NULL "
+        "WHERE id = ? AND owner_lost_at IS NOT NULL",
+        (machine_id,),
+    )
+    return cur.rowcount > 0
+
+
 def replace_grant(conn: sqlite3.Connection, machine_id: int, now: datetime) -> int:
     """One grant per machine: the old one and its tokens go."""
-    conn.execute("DELETE FROM oauth_grants WHERE machine_id = ?", (machine_id,))
+    old = conn.execute(
+        "DELETE FROM oauth_grants WHERE machine_id = ? RETURNING owner", (machine_id,)
+    ).fetchone()
+    if old is not None and old[0]:
+        note_owner_lost(conn, machine_id, "reconnect", now)
     cur = conn.execute(
         "INSERT INTO oauth_grants (machine_id, created_at) VALUES (?, ?)",
         (machine_id, ts(now)),
@@ -160,22 +213,32 @@ def owner_grants(conn: sqlite3.Connection) -> list[tuple[str, str]]:
     return [(str(r[0]), str(r[1])) for r in rows]
 
 
-def delete_grant(conn: sqlite3.Connection, grant_id: int, now: datetime) -> None:
+def delete_grant(
+    conn: sqlite3.Connection, grant_id: int, now: datetime, reason: str
+) -> None:
     """Drop the grant and end the connector session that used it."""
     row = conn.execute(
-        "DELETE FROM oauth_grants WHERE id = ? RETURNING machine_id", (grant_id,)
+        "DELETE FROM oauth_grants WHERE id = ? RETURNING machine_id, owner",
+        (grant_id,),
     ).fetchone()
     if row is not None:
+        if row[1]:
+            note_owner_lost(conn, int(row[0]), reason, now)
         _end_connector_session(conn, int(row[0]), now)
 
 
 def delete_grant_for_machine(
-    conn: sqlite3.Connection, machine_id: int, now: datetime
+    conn: sqlite3.Connection, machine_id: int, now: datetime, reason: str
 ) -> bool:
-    cur = conn.execute("DELETE FROM oauth_grants WHERE machine_id = ?", (machine_id,))
-    if cur.rowcount > 0:
-        _end_connector_session(conn, machine_id, now)
-    return cur.rowcount > 0
+    row = conn.execute(
+        "DELETE FROM oauth_grants WHERE machine_id = ? RETURNING owner", (machine_id,)
+    ).fetchone()
+    if row is None:
+        return False
+    if row[0]:
+        note_owner_lost(conn, machine_id, reason, now)
+    _end_connector_session(conn, machine_id, now)
+    return True
 
 
 def _end_connector_session(
