@@ -78,6 +78,8 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Live sessions | 32 per mailbox, 256 per machine |
 | Mailboxes per machine | 1,000 |
 | Session `cwd` | 1,024 printable characters |
+| Session `branch` | 100 printable characters |
+| Session `client_version` | 32 characters: letters, digits, `.`, `+` and `-` |
 | `/v1` request body | 64 KB (also capped by Caddy: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`) |
 | `/mcp` request body | 1 MB, in the app as well as in Caddy |
 | Wakes per pair of mailboxes | 9 in a row, one back every 10 minutes (`KAMPUNG_PAIR_WAKE_SIZE`, `KAMPUNG_PAIR_WAKE_REFILL_MINUTES`) |
