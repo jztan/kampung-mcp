@@ -8,6 +8,7 @@ the agent: every failure is logged and swallowed.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import ipaddress
 import json
 import math
@@ -379,6 +380,59 @@ def _folder(cwd: str) -> tuple[str, bool]:
     return cwd, False
 
 
+MAX_BRANCH_CHARS = 100  # the server's limit; cut here so a long name never fails
+_DETACHED = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def _head_file(cwd: str) -> Path | None:
+    """The HEAD file of the git checkout holding cwd: .git/HEAD, or for a
+    worktree or submodule (.git is a file) the HEAD its gitdir line names."""
+    folder = Path(cwd)
+    for d in (folder, *folder.parents):
+        dot_git = d / ".git"
+        if dot_git.is_dir():
+            return dot_git / "HEAD"
+        if dot_git.is_file():
+            line = dot_git.read_text(encoding="utf-8").strip()
+            if not line.startswith("gitdir:"):
+                return None
+            return (d / line[len("gitdir:") :].strip()) / "HEAD"
+    return None
+
+
+def git_branch(cwd: str) -> str | None:
+    """The git branch of cwd's checkout, read from HEAD without running git
+    (hooks have 2 seconds, and git starts slowly on Windows). None outside
+    git or on anything unexpected; never raises."""
+    try:
+        head_file = _head_file(cwd)
+        if head_file is None:
+            return None
+        head = head_file.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return None
+    if head.startswith("ref:"):
+        ref = head[len("ref:") :].strip()
+        name = ref[len("refs/heads/") :] if ref.startswith("refs/heads/") else ref
+        if name.startswith("refs/"):
+            name = name[len("refs/") :]
+    elif _DETACHED.fullmatch(head):
+        name = f"detached {head[:7]}"
+    else:
+        return None
+    name = name.strip()[:MAX_BRANCH_CHARS]
+    return name if name and name.isprintable() else None
+
+
+def client_version() -> str | None:
+    """This client's version. hook.py runs as a file, not as part of the
+    package, so it asks the installed distribution."""
+    try:
+        return importlib.metadata.version("kampung-mcp")
+    except Exception:
+        return None
+
+
 def _pins_path() -> Path:
     return cache_dir() / "mailboxes.json"
 
@@ -708,6 +762,12 @@ def register(
         body["background"] = True
     if idle_wake_on(agent, agent_session_id):
         body["idle_wake"] = True  # likewise: a server before 0.5 ignores it
+    # A server before 0.6 ignores both.
+    branch = git_branch(cwd) or ""
+    body["branch"] = branch
+    version = client_version()
+    if version is not None:
+        body["client_version"] = version
     status, data = api("POST", "/v1/sessions", body, timeout)
     if status != 200:
         raise HookError(f"register failed: HTTP {status} {data.get('error')}")
@@ -726,6 +786,7 @@ def register(
         "agent_session_id": agent_session_id,
         "ancestors": [list(a) for a in ancestors()] if ancestry else [],
         "background": background,
+        "branch_sent": branch,
     }
 
 

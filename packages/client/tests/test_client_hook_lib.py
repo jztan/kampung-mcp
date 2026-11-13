@@ -584,3 +584,121 @@ def test_sweep_keeps_the_wake_file_of_a_live_session(home: Path) -> None:
     os.utime(wake, (past, past))
     hook.sweep_stale_files()
     assert wake.exists()
+
+
+# Session labels ------------------------------------------------------------
+
+
+def _git_dir(repo: Path, head: str) -> Path:
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".git" / "HEAD").write_text(head)
+    return repo
+
+
+def test_git_branch_plain_and_nested(tmp_path: Path) -> None:
+    repo = _git_dir(tmp_path / "api", "ref: refs/heads/develop\n")
+    nested = repo / "a" / "b"
+    nested.mkdir(parents=True)
+    assert hook.git_branch(str(repo)) == "develop"
+    assert hook.git_branch(str(nested)) == "develop"
+
+
+def test_git_branch_worktree_relative_gitdir(tmp_path: Path) -> None:
+    main = _git_dir(tmp_path / "main", "ref: refs/heads/develop\n")
+    wt_meta = main / ".git" / "worktrees" / "wt"
+    wt_meta.mkdir(parents=True)
+    (wt_meta / "HEAD").write_text("ref: refs/heads/feature/x\n")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / ".git").write_text("gitdir: ../main/.git/worktrees/wt\n")
+    assert hook.git_branch(str(wt)) == "feature/x"
+
+
+def test_git_branch_worktree_absolute_gitdir(tmp_path: Path) -> None:
+    meta = tmp_path / "elsewhere"
+    meta.mkdir()
+    (meta / "HEAD").write_text("ref: refs/heads/fix/y\n")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {meta}\n")
+    assert hook.git_branch(str(wt)) == "fix/y"
+
+
+def test_git_branch_detached(tmp_path: Path) -> None:
+    repo = _git_dir(tmp_path / "api", "0123456789abcdef0123456789abcdef01234567\n")
+    assert hook.git_branch(str(repo)) == "detached 0123456"
+
+
+def test_git_branch_crlf(tmp_path: Path) -> None:
+    repo = _git_dir(tmp_path / "api", "ref: refs/heads/main\r\n")
+    assert hook.git_branch(str(repo)) == "main"
+
+
+def test_git_branch_other_ref(tmp_path: Path) -> None:
+    repo = _git_dir(tmp_path / "api", "ref: refs/remotes/o/x\n")
+    assert hook.git_branch(str(repo)) == "remotes/o/x"
+
+
+@pytest.mark.parametrize("head", ["garbage\n", "ref: refs/heads/a\x07b\n", ""])
+def test_git_branch_none_for_bad_heads(tmp_path: Path, head: str) -> None:
+    assert hook.git_branch(str(_git_dir(tmp_path / "api", head))) is None
+
+
+def test_git_branch_none_outside_git(tmp_path: Path) -> None:
+    d = tmp_path / "plain"
+    d.mkdir()
+    assert hook.git_branch(str(d)) is None
+
+
+def test_git_branch_none_when_head_unreadable(tmp_path: Path) -> None:
+    repo = tmp_path / "api"
+    (repo / ".git" / "HEAD").mkdir(parents=True)  # a folder, so reading fails
+    assert hook.git_branch(str(repo)) is None
+
+
+def test_git_branch_cuts_long_names(tmp_path: Path) -> None:
+    repo = _git_dir(tmp_path / "api", "ref: refs/heads/" + "x" * 150 + "\n")
+    assert hook.git_branch(str(repo)) == "x" * 100
+
+
+def test_client_version_matches_package() -> None:
+    import kampung_client
+
+    assert hook.client_version() == kampung_client.__version__
+
+
+def test_client_version_none_when_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(name: str) -> str:
+        raise LookupError(name)
+
+    monkeypatch.setattr(hook.importlib.metadata, "version", boom)
+    assert hook.client_version() is None
+
+
+def test_register_sends_branch_and_version(server: LiveServer, tmp_path: Path) -> None:
+    import kampung_client
+    from client_testlib import db_query
+
+    repo = git_repo(tmp_path, "api")
+    subprocess.run(
+        ["git", "-C", str(repo), "checkout", "-q", "-b", "feature/x"], check=True
+    )
+    data = hook.register("claude-code", str(repo), True, "cc-1")
+    assert data["branch_sent"] == "feature/x"
+    rows = db_query(server, "SELECT branch, client_version FROM sessions")
+    assert rows == [("feature/x", kampung_client.__version__)]
+
+
+def test_register_omits_version_when_unknown(
+    server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from client_testlib import db_query
+
+    monkeypatch.setattr(hook, "client_version", lambda: None)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    data = hook.register("claude-code", str(plain), True, "cc-1")
+    assert data["branch_sent"] == ""
+    assert db_query(server, "SELECT client_version FROM sessions") == [(None,)]
