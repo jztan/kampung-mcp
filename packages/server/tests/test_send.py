@@ -214,6 +214,9 @@ def test_one_sender_cannot_fill_a_mailbox_for_everyone(
     for _ in range(MAX_WAITING_PER_SENDER):
         send(conn, flooder, "desktop/blog", "spam", None, clock.now())
     assert _code(conn, flooder, "desktop/blog", "more", clock.now()) == "mailbox_full"
+    # Later than the flood, so the reader below takes a flood message: with one
+    # frozen time, the tie fell to the ids' random tail (failed ~1 run in 200).
+    clock.advance(seconds=1)
     assert send(conn, tablet, "desktop/blog", "still gets through", None, clock.now())
     inbox(conn, reader, 1, clock.now())
     assert send(conn, flooder, "desktop/blog", "room again", None, clock.now())
