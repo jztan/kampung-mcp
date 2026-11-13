@@ -3,14 +3,13 @@
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
 from typing import Any
 
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import Response
 
-from ..clock import parse_ts
+from ..clock import ago, age, parse_ts
 from . import queries
 from .auth import AdminSession
 from .web import Web
@@ -18,23 +17,6 @@ from .web import Web
 SESSION_STATES = ("open", "all", "ended")
 MESSAGE_STATES = ("queued", "delivered", "expired", "all")
 AGENTS = ("claude-code", "codex", "other")
-
-
-def ago(value: str | None, now: datetime) -> str:
-    """'just now', '4 min ago', '3 h ago', '2 d ago'; 'never' for None."""
-    if value is None:
-        return "never"
-    return f"{age(value, now)} ago" if age(value, now) != "0 min" else "just now"
-
-
-def age(value: str, now: datetime) -> str:
-    minutes = max(0, int((now - parse_ts(value)).total_seconds() // 60))
-    if minutes < 60:
-        return f"{minutes} min"
-    hours, minutes = divmod(minutes, 60)
-    if hours < 24:
-        return f"{hours} h {minutes:02d} min"
-    return f"{hours // 24} d {hours % 24} h"
 
 
 def utc(value: str | None) -> str:

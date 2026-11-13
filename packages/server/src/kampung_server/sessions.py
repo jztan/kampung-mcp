@@ -15,6 +15,7 @@ from .limits import (
     MAX_LIVE_SESSIONS_PER_MACHINE,
     MAX_LIVE_SESSIONS_PER_MAILBOX,
     MAX_MAILBOXES_PER_MACHINE,
+    POLL_WINDOW,
 )
 from .models import SESSION_SELECT, Machine, Session, load_session, session_from_row
 
@@ -327,3 +328,17 @@ def end(conn: sqlite3.Connection, session_id: int, now: datetime) -> None:
 
 def is_live(session: Session, now: datetime) -> bool:
     return parse_ts(session.last_seen) >= now - LIVE_WINDOW
+
+
+# For a query whose sessions table is aliased `s`, with :poll bound to
+# ts(now - POLL_WINDOW): an idle-wake session that has stopped polling.
+STALE_POLLER_SQL = "(s.idle_wake = 1 AND s.last_seen < :poll)"
+
+
+def reachable(session: Session, now: datetime) -> bool | None:
+    """Whether a session can be woken now. Only an idle-wake session polls on
+    a timer, so only it can say no; for any other session (Codex, the Claude
+    app, older clients) and for an ended one the answer is unknown."""
+    if session.ended_at is not None or not session.idle_wake:
+        return None
+    return parse_ts(session.last_seen) >= now - POLL_WINDOW

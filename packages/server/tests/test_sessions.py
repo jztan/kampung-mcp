@@ -2,6 +2,7 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -332,3 +333,37 @@ def test_connector_session_takes_back_an_id_claimed_before_the_fix(
     with pytest.raises(KampungError) as e:
         sessions.resolve(conn, laptop, connector.id, clock.now())
     assert e.value.code == "unknown_session"
+
+
+def test_reachable_for_a_polling_session(
+    make_session: MakeSession, clock: FakeClock
+) -> None:
+    s = make_session("laptop", idle_wake=True)
+    now = clock.now()
+    assert sessions.reachable(s, now) is True
+    assert sessions.reachable(s, now + timedelta(seconds=90)) is True
+    assert sessions.reachable(s, now + timedelta(minutes=2)) is True
+    assert sessions.reachable(s, now + timedelta(minutes=2, seconds=1)) is False
+
+
+def test_reachable_is_unknown_without_idle_wake(
+    make_session: MakeSession, clock: FakeClock
+) -> None:
+    later = clock.now() + timedelta(minutes=10)
+    assert sessions.reachable(make_session("laptop"), later) is None
+    codex = make_session("laptop", "web", agent="codex")
+    assert sessions.reachable(codex, later) is None
+    app = make_session(
+        "laptop", "claude", agent="claude-app", hooks=False, cwd="Claude app"
+    )
+    assert sessions.reachable(app, later) is None
+
+
+def test_reachable_is_unknown_for_an_ended_session(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    s = make_session("laptop", idle_wake=True)
+    end(conn, s.id, clock.now())
+    ended = load_session(conn, s.id)
+    assert ended is not None
+    assert sessions.reachable(ended, clock.now() + timedelta(minutes=10)) is None
