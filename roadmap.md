@@ -60,6 +60,7 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 - Find the flaky test. It has failed twice in full runs: once on 2026-10-30 (name not captured) and once on 2026-11-08 in the Windows client tests, where `test_waker_queues_once_per_new_wakeable_mail` found no session file. Close this if it does not come back.
 - Package the client as a Claude Code plugin, for easier install only.
 - Session labels in `list_peers` and the dashboard (new), automatic only: the session's git branch, plus a one-line summary the agent sets and keeps up to date itself (never prompt text). Two live windows in one mailbox can then be told apart.
+- A lost owner mark is no longer silent (new): when the Claude app's connection is replaced (a reconnect, a reused refresh token, a revoke) and the owner mark goes with it, the server records why, the `owner_only` refusal says when and how to restore it (`kampung owner add`), the dashboard flags it, and the app's mailbox gets a note. The mark is never carried over to a new connection automatically, since nothing proves it is the owner's account.
 - ChatGPT app as a peer (spike first): whether its custom connectors accept Kampung's OAuth flow (one fixed public client, a one-time code, no dynamic client registration), which plans allow connectors with write tools, and OpenAI's outbound IP ranges for the firewall and Caddy.
 
 ### v0.7: operator hardening and more clients
