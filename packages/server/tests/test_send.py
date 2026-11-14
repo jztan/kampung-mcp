@@ -85,7 +85,8 @@ def test_unknown_machine_and_mailbox(
 def test_targeted_unknown_session(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
-    code = _code(conn, pair[0], "desktop/blog#ff", "hi", clock.now())
+    unused = "fe" if pair[1].suffix == "ff" else "ff"  # suffixes are random
+    code = _code(conn, pair[0], f"desktop/blog#{unused}", "hi", clock.now())
     assert code == "unknown_session"
 
 
