@@ -19,6 +19,22 @@ from .ids import parse_session_id
 from .limits import MAX_REQUEST_BYTES
 from .models import Machine, load_session
 
+
+class _EventStream(StreamingResponse):
+    """Releases the stream's slot however the response ends, including a
+    client gone before the body starts, whose own cleanup then never runs."""
+
+    def __init__(self, slot: events.Slot, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._slot = slot
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._slot.release()
+
+
 _STATUS = {
     "unauthorized": 401,
     "unknown_session": 404,
@@ -261,8 +277,11 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 "too_many_streams",
                 f"At most {events.MAX_STREAMS_PER_MACHINE} open streams per machine.",
             )
-        return StreamingResponse(
-            events.stream(deps, request, machine.id, session_id),
+        slot = events.Slot(machine.id)
+        key = request.headers.get("authorization", "").partition(" ")[2].strip()
+        return _EventStream(
+            slot,
+            events.stream(deps, request, key, slot, session_id),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

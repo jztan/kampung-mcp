@@ -14,6 +14,7 @@ import anyio.to_thread
 from starlette.requests import Request
 
 from .deps import ServerDeps
+from .identity import authenticate
 from .limits import MAX_LIVE_SESSIONS_PER_MACHINE
 from .mail import peek_counts
 from .mailsignal import SIGNAL
@@ -55,15 +56,35 @@ def _event(name: str, data: dict[str, Any]) -> str:
     return f"event: {name}\ndata: {json.dumps(data)}\n\n"
 
 
+class Slot:
+    """One claimed stream slot, released once however the response ends."""
+
+    def __init__(self, machine_id: int) -> None:
+        self.machine_id = machine_id
+        self._lock = threading.Lock()
+        self._held = True
+
+    def release(self) -> None:
+        with self._lock:
+            held, self._held = self._held, False
+        if held:
+            release(self.machine_id)
+
+
 async def stream(
-    deps: ServerDeps, request: Request, machine_id: int, session_id: int
+    deps: ServerDeps, request: Request, key: str, slot: Slot, session_id: int
 ) -> AsyncIterator[str]:
-    """Yield SSE text until the client goes or the session ends. The caller
-    has claimed a slot; this releases it."""
+    """Yield SSE text until the client goes, the session ends or the key that
+    opened the stream stops working (rotated or revoked, possibly by the CLI
+    in another process, before the session was revived). Releases the slot;
+    the response releases it too, in case this body never starts."""
 
     def counts() -> dict[str, object] | None:
         conn = deps.connect()
         try:
+            machine = authenticate(conn, key)
+            if machine is None or machine.id != slot.machine_id:
+                return None
             s = load_session(conn, session_id)
             if s is None or s.ended_at is not None:
                 return None
@@ -84,6 +105,8 @@ async def stream(
                     counts, limiter=_recompute_limiter()
                 )
                 if state is None:
+                    if not await anyio.to_thread.run_sync(_key_works, deps, key):
+                        return  # just close: the adapter falls back and sees 401
                     yield _event("ended", {})
                     return
                 if state != last:
@@ -96,4 +119,12 @@ async def stream(
                 return
             await anyio.sleep(SIGNAL_CHECK)
     finally:
-        release(machine_id)
+        slot.release()
+
+
+def _key_works(deps: ServerDeps, key: str) -> bool:
+    conn = deps.connect()
+    try:
+        return authenticate(conn, key) is not None
+    finally:
+        conn.close()
