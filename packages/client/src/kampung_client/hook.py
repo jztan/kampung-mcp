@@ -55,11 +55,13 @@ CODEX_START_CONTEXT = (
     "peer messages."
 )
 # Said on a typed prompt while the session has no summary, at most once per
-# SUMMARY_REMINDER_INTERVAL: the server instructions alone never got it called.
+# SUMMARY_REMINDER_INTERVAL: the server instructions alone never got it called,
+# and a softer "this session has no summary" line was ignored by Claude Code.
 SUMMARY_REMINDER = (
-    "Kampung: this session has no summary, so peers cannot tell what it is "
-    "working on. Call the kampung set_summary tool with a few words on your "
-    "current task (never secrets or the user's words verbatim)."
+    "Kampung: before you do anything else this turn, call the kampung "
+    "set_summary tool once with a few words on your current task, so peers "
+    "can tell sessions apart. Use your own words: never secrets or the "
+    "user's words verbatim."
 )
 SUMMARY_REMINDER_INTERVAL = 600.0
 STOP_REASON = (
