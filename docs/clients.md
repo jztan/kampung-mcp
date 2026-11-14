@@ -47,7 +47,7 @@ After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new ke
 
 ### Removing Kampung from a machine
 
-`kampung-mcp uninstall` removes Kampung's hooks and the connector deny entries setup added (your own entries in those files stay), the Claude Code and Codex MCP registrations, the saved server and key, and the session cache. It checks every settings file first and changes nothing if one is broken. Restart open sessions afterwards; `uv tool uninstall kampung-mcp` removes the client itself.
+`kampung-mcp uninstall` removes Kampung's hooks and the connector deny entries setup added (your own entries in those files stay), Codex's approvals of those hooks in its `config.toml`, the Claude Code and Codex MCP registrations, the saved server and key, and the session cache. It checks every settings file first and changes nothing if one is broken. Restart open sessions afterwards; `uv tool uninstall kampung-mcp` removes the client itself.
 
 ### HTTPS only
 

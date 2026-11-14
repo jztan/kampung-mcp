@@ -1208,6 +1208,15 @@ def _log(name: str, error: BaseException) -> None:
         pass
 
 
+def log_from_adapter(name: str, error: BaseException) -> None:
+    """The adapter's failures, kept out of hooks.log on a machine with no
+    config.json: Codex's daemon can keep an adapter running after `kampung-mcp
+    uninstall`, and its errors must not bring the log back. A hook, which only
+    runs while it is installed, still logs a missing config (see _log)."""
+    if (config_dir() / "config.json").exists():
+        _log(name, error)
+
+
 def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:
     """Run one hook event. Prints at most one JSON object and exits 0, except
     that the wake hook exits 2 with its reason on stderr (see Wake).

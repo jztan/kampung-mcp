@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -359,13 +360,17 @@ def _strip_ours(entry: object) -> object | None:
 
 
 def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    _write_text_atomic(path, json.dumps(data, indent=2) + "\n")
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
     """Write through a temp file and a rename, so a crash never leaves half a
     file. The rename goes to the resolved path, so a symlinked dotfile stays a
     symlink."""
     target = path.resolve()
     tmp = target.with_name(f"{target.name}.kampung-tmp{os.getpid()}")
     try:
-        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        tmp.write_text(text, encoding="utf-8")
         if target.exists():
             shutil.copymode(target, tmp)
         os.replace(tmp, target)
@@ -602,6 +607,70 @@ def _strip_file(path: Path, server: str | None) -> bool:
     return True
 
 
+_CAMEL_BREAK = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _codex_config_path() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
+def _our_codex_approval_keys(data: dict[str, Any]) -> set[str]:
+    """The keys under which Codex stores its approval (`/hooks`) of each of our
+    hooks: `<hooks.json path>:<snake_event>:<entry index>:<hook index>`."""
+    keys = set()
+    hooks = data.get("hooks")
+    for event, entries in (hooks if isinstance(hooks, dict) else {}).items():
+        snake = _CAMEL_BREAK.sub("_", str(event)).lower()
+        for i, entry in enumerate(entries if isinstance(entries, list) else []):
+            inner = entry.get("hooks") if isinstance(entry, dict) else None
+            for j, hook_entry in enumerate(inner if isinstance(inner, list) else []):
+                if _is_ours(hook_entry):
+                    keys.add(f"{_codex_hooks_path()}:{snake}:{i}:{j}")
+    return keys
+
+
+def _approval_key(header: str) -> str | None:
+    """The key of a `[hooks.state.<key>]` table header line, else None."""
+    if not header.startswith("[hooks.state.") or header.startswith("[["):
+        return None
+    try:
+        state = tomllib.loads(header)["hooks"]["state"]
+    except (tomllib.TOMLDecodeError, KeyError, TypeError):
+        return None
+    return next(iter(state), None) if isinstance(state, dict) else None
+
+
+def _forget_codex_approvals(keys: set[str]) -> str | None:
+    """Drop Codex's approval tables for our hooks from config.toml (backed up
+    once first), leaving every other line as it was; return a report line."""
+    path = _codex_config_path()
+    if not keys or not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8")
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return (
+            f"{path} is not valid TOML, so Codex's approvals of Kampung's hooks "
+            "were left in it."
+        )
+    wanted = {os.path.normcase(k) for k in keys}
+    kept, skipping = [], False
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("["):
+            key = _approval_key(line.strip())
+            skipping = key is not None and os.path.normcase(key) in wanted
+        if not skipping:
+            kept.append(line)
+    if len(kept) == len(text.splitlines(keepends=True)):
+        return None
+    backup = path.with_name(path.name + ".kampung-backup")
+    if not backup.exists():
+        shutil.copyfile(path, backup)
+    _write_text_atomic(path, "".join(kept))
+    return f"Removed Codex's approvals of Kampung's hooks from {path}."
+
+
 def uninstall(runner: Runner) -> list[str]:
     """Undo setup on this machine: our hooks and connector deny entries (anyone
     else's stay), both MCP registrations, the saved server and key, and the
@@ -615,10 +684,18 @@ def uninstall(runner: Runner) -> list[str]:
     for path in files:
         if path.exists():
             _load_hooks_file(path)  # refuse a broken file before touching any
+    codex_keys = (
+        _our_codex_approval_keys(_load_hooks_file(_codex_hooks_path()))
+        if _codex_hooks_path().exists()
+        else set()
+    )
     lines = []
     for path in files:
         if _strip_file(path, server):
             lines.append(f"Removed Kampung's hooks from {path}.")
+    approvals = _forget_codex_approvals(codex_keys)
+    if approvals is not None:
+        lines.append(approvals)
     for name, cmd in (
         ("Claude Code", ["claude", "mcp", "remove", "--scope", "user", "kampung"]),
         ("Codex", ["codex", "mcp", "remove", "kampung"]),

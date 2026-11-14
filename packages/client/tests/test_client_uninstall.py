@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from client_testlib import LiveServer
-from kampung_client import cli, setup
+from kampung_client import cli, hook, setup
 
 
 class Recorder:
@@ -109,3 +109,69 @@ def test_cli_uninstall(
     assert cli.main(["uninstall"]) == 0
     assert "Removed" in capsys.readouterr().out
     assert not (home / ".config" / "kampung" / "config.json").exists()
+
+
+def test_a_leftover_adapter_logs_nothing_after_uninstall(
+    home: Path, server: LiveServer
+) -> None:
+    """Codex's daemon can keep an adapter running after its window closes; once
+    the machine is uninstalled, its failures must not bring hooks.log back."""
+    setup.uninstall(Recorder())
+    hook.log_from_adapter("events", OSError("peer closed connection"))
+    assert not (home / ".cache" / "kampung").exists()
+
+
+def test_adapter_failures_are_still_logged_while_set_up(
+    home: Path, server: LiveServer
+) -> None:
+    hook.log_from_adapter("events", OSError("peer closed connection"))
+    assert "peer closed" in (home / ".cache" / "kampung" / "hooks.log").read_text()
+
+
+def _codex_config(home: Path) -> Path:
+    return home / ".codex" / "config.toml"
+
+
+def _approvals(home: Path, quote: str) -> str:
+    """Codex's own hook approvals, as it writes them: keyed by the hooks file,
+    the event, and the entry and hook positions (literal strings on Windows)."""
+    hooks = str(_codex_hooks(home))
+    return "".join(
+        f"[hooks.state.{quote}{hooks}:{event}:{i}:0{quote}]\n"
+        f'trusted_hash = "sha256:{event}{i}"\n\n'
+        for event, i in (("stop", 0), ("stop", 1), ("session_start", 0))
+    )
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_uninstall_forgets_codex_approvals_of_our_hooks_only(
+    home: Path, server: LiveServer, quote: str
+) -> None:
+    import tomllib
+
+    mine = {"type": "command", "command": "echo mine"}
+    path = _codex_hooks(home)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [mine]}]}}))
+    setup.run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
+    # Now Stop holds [mine, ours] and SessionStart holds [ours].
+    head = 'model = "gpt"\n\n[projects."/home/dev/api"]\ntrust_level = "trusted"\n\n'
+    _codex_config(home).write_text(head + "[hooks.state]\n\n" + _approvals(home, quote))
+
+    setup.uninstall(Recorder())
+    left = tomllib.loads(_codex_config(home).read_text())
+    assert left["model"] == "gpt"
+    assert left["projects"] == {"/home/dev/api": {"trust_level": "trusted"}}
+    assert list(left["hooks"]["state"]) == [f"{_codex_hooks(home)}:stop:0:0"]
+    assert json.loads(path.read_text()) == {"hooks": {"Stop": [{"hooks": [mine]}]}}
+
+
+def test_uninstall_leaves_an_unreadable_codex_config_alone(
+    home: Path, server: LiveServer
+) -> None:
+    setup.run_setup(server.url, server.keys["laptop"], ["codex"], Recorder())
+    _codex_config(home).write_text("not = [valid toml\n" + _approvals(home, '"'))
+    before = _codex_config(home).read_text()
+    lines = setup.uninstall(Recorder())
+    assert _codex_config(home).read_text() == before
+    assert any("config.toml" in line for line in lines)

@@ -480,7 +480,7 @@ def build_adapter(
             except hook.InsecureServerError as e:
                 return {"error": "insecure_server_url", "hint": str(e)}
             except Exception as e:  # noqa: BLE001 - any failure becomes an inline error
-                hook._log(f"adapter {tool}", e)
+                hook.log_from_adapter(f"adapter {tool}", e)
                 if args.get("fyi") and _unknown_argument(e, "fyi"):
                     return FYI_UNSUPPORTED
                 if args.get("mode") and _unknown_argument(e, "mode"):
@@ -597,7 +597,7 @@ def build_adapter(
                 outbox.outbox_dir, str(session.get("cwd") or resolver.cwd)
             )
         except Exception as e:  # noqa: BLE001 - inline, like every tool error
-            hook._log("adapter send", e)
+            hook.log_from_adapter("adapter send", e)
             return await asyncio.to_thread(_diagnose)
         try:
             if not os.path.lexists(box):
@@ -734,7 +734,7 @@ class _WakePoller(Middleware):
                     f"idle wake not confirmed for {address}: "
                     "Claude Code did not run the FileChanged hook"
                 )
-                hook._log("wake", hook.HookError(miss))
+                hook.log_from_adapter("wake", hook.HookError(miss))
         # Channels cannot reach a background session, so it never gets a push.
         if not self.channels or found.get("background") is True:
             return
@@ -787,7 +787,7 @@ class _WakePoller(Middleware):
                 failing, delay = False, CHANNEL_POLL
             except Exception as e:  # noqa: BLE001 - keep polling, quietly
                 if not failing:  # once per outage, however the error reads
-                    hook._log("channel", e)
+                    hook.log_from_adapter("channel", e)
                     failing = True
                 delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
             if not waited:  # a stream wait already spent the time
@@ -887,7 +887,7 @@ class PeekSource:
             raise
         except Exception as e:  # noqa: BLE001 - polling covers it; retry later
             if not self._logged:
-                hook._log("events", e)
+                hook.log_from_adapter("events", e)
                 self._logged = True
             if self.state != "ended" and not self.old_server:
                 self.state = "down"
@@ -1024,7 +1024,7 @@ class CodexWaker:
                 failing, delay = False, CHANNEL_POLL
             except Exception as e:  # noqa: BLE001 - keep polling, quietly
                 if not failing:  # once per outage, however the error reads
-                    hook._log("codex-wake", e)
+                    hook.log_from_adapter("codex-wake", e)
                     failing = True
                 if not isinstance(e, _QueueError):
                     delay = min(delay * 2, CHANNEL_MAX_BACKOFF)
@@ -1063,7 +1063,7 @@ def _add_launch_binding(
                     return
                 await asyncio.sleep(codex_launch.LAUNCH_DELAY)
         except Exception as e:  # noqa: BLE001 - never break the adapter
-            hook._log("codex-launch", e)
+            hook.log_from_adapter("codex-launch", e)
 
     async def on_initialized(note: InitializedNotification) -> None:
         if previous is not None:
