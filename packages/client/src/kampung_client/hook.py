@@ -54,6 +54,16 @@ CODEX_START_CONTEXT = (
     "Kampung is connected. Call the kampung inbox tool once now to check for "
     "peer messages."
 )
+# Said on a typed prompt while the session has no summary, at most once per
+# SUMMARY_REMINDER_INTERVAL: the server instructions alone never got it called,
+# and a softer "this session has no summary" line was ignored by Claude Code.
+SUMMARY_REMINDER = (
+    "Kampung: before you do anything else this turn, call the kampung "
+    "set_summary tool once with a few words on your current task, so peers "
+    "can tell sessions apart. Use your own words: never secrets or the "
+    "user's words verbatim."
+)
+SUMMARY_REMINDER_INTERVAL = 600.0
 STOP_REASON = (
     "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
 )
@@ -957,7 +967,32 @@ def _mark_branch_sent(sid: str, branch: str) -> None:
         pass  # sent again next time; never fail a hook over this
 
 
-def on_user_prompt(event: Event, clock: _Clock) -> None:
+def _summary_reminder(sid: str, answer: dict[str, object]) -> dict[str, object] | None:
+    """A reminder to call set_summary, when the server says this session has
+    none (an older server sends no summary key: never) and none was given
+    in the last SUMMARY_REMINDER_INTERVAL."""
+    if "summary" not in answer or answer["summary"] is not None:
+        return None
+    data = read_session_file(sid)
+    if data is None:
+        return None
+    last = data.get("summary_reminded")
+    now = time.time()
+    if isinstance(last, (int, float)) and 0 <= now - last < SUMMARY_REMINDER_INTERVAL:
+        return None
+    try:
+        write_session_file(sid, {**data, "summary_reminded": now})
+    except OSError:
+        return None  # unrecorded, it would repeat on every prompt
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": SUMMARY_REMINDER,
+        }
+    }
+
+
+def on_user_prompt(event: Event, clock: _Clock) -> dict[str, object] | None:
     if _agent(event) == "codex":
         mark_turn(str(event["session_id"]))
     # A turn started by a Channels push also fires UserPromptSubmit, with the
@@ -967,7 +1002,7 @@ def on_user_prompt(event: Event, clock: _Clock) -> None:
     # Claude Code starts by itself (a file wake, a background task notice).
     prompt = str(event.get("prompt", "")).lstrip()
     if prompt.startswith((CHANNEL_PREFIX, WAKE_PREFIX, TASK_PREFIX)):
-        return
+        return None
     # Registers when the session file is missing (SessionStart failed earlier):
     # a deliberate departure from fail-open, so the window recovers.
     _, branch = _current_branch(event)
@@ -976,6 +1011,7 @@ def on_user_prompt(event: Event, clock: _Clock) -> None:
     )
     if "branch" in answer:  # a server before 0.6 does not keep it
         _mark_branch_sent(str(event["session_id"]), branch)
+    return _summary_reminder(str(event["session_id"]), answer)
 
 
 Seen = str | int | None  # what was last announced: a message id, or a count

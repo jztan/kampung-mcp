@@ -173,7 +173,7 @@ def test_user_prompt_refills(home: Path, server: LiveServer, repo: Path) -> None
     sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
     _use(server, sid)
     r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
-    assert r.returncode == 0 and r.stdout == ""
+    assert r.returncode == 0, r.stderr
     assert _used(server, sid) == 0
 
 
@@ -181,7 +181,7 @@ def test_user_prompt_registers_when_file_missing(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
     r = run_hook(home, event("UserPromptSubmit", cwd=str(repo), prompt="hi"))
-    assert r.returncode == 0 and r.stdout == ""
+    assert r.returncode == 0, r.stderr
     assert hook.read_session_file("cc-1") is not None
 
 
@@ -1026,3 +1026,53 @@ def test_stop_with_an_old_server_keeps_sending_the_branch(
     assert hits == ["GET /v1/sessions/1/peek?branch=feature%2Fz"] * 2
     data = hook.read_session_file("cc-1")
     assert data is not None and "branch_sent" not in data
+
+
+def _summary_reminder(stdout: str) -> str | None:
+    if not stdout:
+        return None
+    out = json.loads(stdout)["hookSpecificOutput"]
+    assert out["hookEventName"] == "UserPromptSubmit"
+    return str(out["additionalContext"])
+
+
+def test_user_prompt_reminds_to_set_a_summary_while_none_is_set(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
+    assert r.returncode == 0, r.stderr
+    reminder = _summary_reminder(r.stdout)
+    assert reminder is not None and "set_summary" in reminder
+
+
+def test_user_prompt_summary_reminder_waits_between_reminders(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    assert _summary_reminder(
+        run_hook(home, event("UserPromptSubmit", prompt="a")).stdout
+    )
+    r = run_hook(home, event("UserPromptSubmit", prompt="b"))
+    assert r.returncode == 0 and r.stdout == ""
+
+
+def test_user_prompt_stays_quiet_once_a_summary_is_set(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
+    db_query(server, "UPDATE sessions SET summary = 'fixing login' WHERE id = ?", sid)
+    r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
+    assert r.returncode == 0 and r.stdout == ""
+
+
+def test_user_prompt_sends_no_reminder_to_a_server_without_summaries(
+    home: Path, repo: Path
+) -> None:
+    httpd, _ = scripted_server(200)  # answers human-turn without a summary key
+    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
+    r = run_hook(home, event("UserPromptSubmit", cwd=str(repo), prompt="hi"))
+    httpd.shutdown()
+    assert r.returncode == 0 and r.stdout == ""

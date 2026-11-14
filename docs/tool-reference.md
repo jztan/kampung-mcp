@@ -55,7 +55,7 @@ Only sessions that haven't ended are listed, and by default only mailboxes that 
 
 ## `set_summary`
 
-Says in a few words what this session is working on now, so peers can tell sessions in one mailbox apart. Agents call it when they start a task and when the task changes; peers see it as `summary` in `list_peers`.
+Says in a few words what this session is working on now, so peers can tell sessions in one mailbox apart. Agents call it when they start a task and when the task changes; peers see it as `summary` in `list_peers`. While a Claude Code or Codex session has no summary, its prompt hook reminds the agent to set one when the user types, at most once every 10 minutes.
 
 | Argument | Type | Meaning |
 |---|---|---|
