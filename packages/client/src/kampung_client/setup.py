@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -359,13 +360,17 @@ def _strip_ours(entry: object) -> object | None:
 
 
 def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    _write_text_atomic(path, json.dumps(data, indent=2) + "\n")
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
     """Write through a temp file and a rename, so a crash never leaves half a
     file. The rename goes to the resolved path, so a symlinked dotfile stays a
     symlink."""
     target = path.resolve()
     tmp = target.with_name(f"{target.name}.kampung-tmp{os.getpid()}")
     try:
-        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        tmp.write_text(text, encoding="utf-8")
         if target.exists():
             shutil.copymode(target, tmp)
         os.replace(tmp, target)
@@ -561,4 +566,155 @@ def run_setup(
     removed = hook.sweep_stale_files()
     if removed:
         lines.append(f"Removed {removed} stale session file(s).")
+    return lines
+
+
+def _strip_file(path: Path, server: str | None) -> bool:
+    """Take our hooks (and, for Claude Code, our connector deny entries) out of
+    a hooks file; True if it changed. A file left empty that held nothing but
+    ours is removed, unless it is Claude Code's settings.json."""
+    if not path.exists():
+        return False
+    data = _load_hooks_file(path)
+    before = json.loads(json.dumps(data))
+    hooks = data.get("hooks")
+    if isinstance(hooks, dict):
+        for event in EVENTS + IDLE_WAKE_EVENTS:
+            if event not in hooks:
+                continue
+            stripped = (_strip_ours(e) for e in hooks[event])
+            entries = [e for e in stripped if e is not None]
+            if entries:
+                hooks[event] = entries
+            else:
+                hooks.pop(event)
+        if not hooks:
+            data.pop("hooks")
+    denied = data.get("deniedMcpServers")
+    if isinstance(denied, list):
+        ours: list[dict[str, str]] = [{"serverName": f"claude.ai {CONNECTOR_NAME}"}]
+        if server is not None:
+            ours.append({"serverUrl": connector_url_pattern(server)})
+        data["deniedMcpServers"] = [e for e in denied if e not in ours]
+        if not data["deniedMcpServers"]:
+            data.pop("deniedMcpServers")
+    if data == before:
+        return False
+    if not data and path != _claude_settings_path():
+        path.unlink()
+    else:
+        _write_json_atomic(path, data)
+    return True
+
+
+_CAMEL_BREAK = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _codex_config_path() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
+def _our_codex_approval_keys(data: dict[str, Any]) -> set[str]:
+    """The keys under which Codex stores its approval (`/hooks`) of each of our
+    hooks: `<hooks.json path>:<snake_event>:<entry index>:<hook index>`."""
+    keys = set()
+    hooks = data.get("hooks")
+    for event, entries in (hooks if isinstance(hooks, dict) else {}).items():
+        snake = _CAMEL_BREAK.sub("_", str(event)).lower()
+        for i, entry in enumerate(entries if isinstance(entries, list) else []):
+            inner = entry.get("hooks") if isinstance(entry, dict) else None
+            for j, hook_entry in enumerate(inner if isinstance(inner, list) else []):
+                if _is_ours(hook_entry):
+                    keys.add(f"{_codex_hooks_path()}:{snake}:{i}:{j}")
+    return keys
+
+
+def _approval_key(header: str) -> str | None:
+    """The key of a `[hooks.state.<key>]` table header line, else None."""
+    if not header.startswith("[hooks.state.") or header.startswith("[["):
+        return None
+    try:
+        state = tomllib.loads(header)["hooks"]["state"]
+    except (tomllib.TOMLDecodeError, KeyError, TypeError):
+        return None
+    return next(iter(state), None) if isinstance(state, dict) else None
+
+
+def _forget_codex_approvals(keys: set[str]) -> str | None:
+    """Drop Codex's approval tables for our hooks from config.toml (backed up
+    once first), leaving every other line as it was; return a report line."""
+    path = _codex_config_path()
+    if not keys or not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8")
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return (
+            f"{path} is not valid TOML, so Codex's approvals of Kampung's hooks "
+            "were left in it."
+        )
+    wanted = {os.path.normcase(k) for k in keys}
+    kept, skipping = [], False
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("["):
+            key = _approval_key(line.strip())
+            skipping = key is not None and os.path.normcase(key) in wanted
+        if not skipping:
+            kept.append(line)
+    if len(kept) == len(text.splitlines(keepends=True)):
+        return None
+    backup = path.with_name(path.name + ".kampung-backup")
+    if not backup.exists():
+        shutil.copyfile(path, backup)
+    _write_text_atomic(path, "".join(kept))
+    return f"Removed Codex's approvals of Kampung's hooks from {path}."
+
+
+def uninstall(runner: Runner) -> list[str]:
+    """Undo setup on this machine: our hooks and connector deny entries (anyone
+    else's stay), both MCP registrations, the saved server and key, and the
+    session cache. Every file is checked before any is changed."""
+    config = hook.config_dir() / "config.json"
+    try:
+        server: str | None = str(json.loads(config.read_text())["server"])
+    except (OSError, ValueError, KeyError, TypeError):
+        server = None
+    files = [_claude_settings_path(), _codex_hooks_path()]
+    for path in files:
+        if path.exists():
+            _load_hooks_file(path)  # refuse a broken file before touching any
+    codex_keys = (
+        _our_codex_approval_keys(_load_hooks_file(_codex_hooks_path()))
+        if _codex_hooks_path().exists()
+        else set()
+    )
+    lines = []
+    for path in files:
+        if _strip_file(path, server):
+            lines.append(f"Removed Kampung's hooks from {path}.")
+    approvals = _forget_codex_approvals(codex_keys)
+    if approvals is not None:
+        lines.append(approvals)
+    for name, cmd in (
+        ("Claude Code", ["claude", "mcp", "remove", "--scope", "user", "kampung"]),
+        ("Codex", ["codex", "mcp", "remove", "kampung"]),
+    ):
+        try:
+            if runner(cmd) == 0:
+                lines.append(f"Removed {name}'s kampung MCP server, if it had one.")
+        except FileNotFoundError:
+            lines.append(
+                f"{cmd[0]} is not on PATH; if {name} has Kampung registered, run: "
+                f"{manual_command(cmd, _windows())}"
+            )
+    if config.exists():
+        config.unlink()
+        lines.append(f"Removed the saved server and key ({config}).")
+    shutil.rmtree(hook.cache_dir(), ignore_errors=True)
+    lines.append(
+        "Removed Kampung from this machine. Restart open Claude Code and Codex "
+        "sessions. The client itself stays installed: uv tool uninstall "
+        "kampung-mcp removes it."
+    )
     return lines

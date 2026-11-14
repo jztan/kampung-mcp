@@ -26,6 +26,9 @@ from . import __version__, codex_launch, hook, setup
 OK = "ok"
 WARN = "WARN"
 FAIL = "FAIL"
+BUG_REPORT_URL = (
+    "https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml"
+)
 
 Query = Callable[[list[str]], tuple[int, str]]
 HTTP_TIMEOUT = 5  # seconds
@@ -644,6 +647,8 @@ def main() -> int:
     warnings = sum(c.status == WARN for c in checks)
     if problems or warnings:
         print(f"{problems} problem(s), {warnings} warning(s).")
+        if problems:
+            print(f"Still failing after the fixes? Tell us: {BUG_REPORT_URL}")
     else:
         print("All checks passed.")
     return 1 if problems else 0
