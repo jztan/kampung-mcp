@@ -18,6 +18,7 @@ from .errors import KampungError
 from .ids import parse_session_id
 from .limits import MAX_REQUEST_BYTES
 from .models import Machine, load_session
+from .secret_scan import scan
 
 
 class _EventStream(StreamingResponse):
@@ -138,6 +139,22 @@ def _reported_branch(value: object) -> str | None | sessions.Keep:
         return sessions.Keep.KEEP
 
 
+def _reported_activity(value: object) -> str | None:
+    """The session's latest step, sent with a typed prompt or a peek, or None
+    for nothing to store. Peers see it, so one carrying a secret is dropped like
+    a malformed one: the client cuts what it sends, and refusing would also lose
+    the refill or the wake check."""
+    if not isinstance(value, str):
+        return None
+    try:
+        activity = sessions.check_activity(value)
+    except KampungError:
+        return None
+    if activity is None or scan(activity) is not None:
+        return None
+    return activity
+
+
 def _reported_version(value: object) -> str | None:
     """A client version, or None when missing or malformed: a cosmetic field
     must never cost a session its registration."""
@@ -212,9 +229,12 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             deps.human_turn_limiter.check(machine.id, now)
             s = sessions.resolve(conn, machine, _session_id(request), now)
             branch = _reported_branch(b.get("branch", _ABSENT))
+            activity = _reported_activity(b.get("now"))
             with db.transaction(conn):
                 if not isinstance(branch, sessions.Keep):
                     sessions.set_branch(conn, s.id, branch)
+                if activity is not None:
+                    sessions.set_activity(conn, s.id, activity, now)
                 cleared = sessions.human_turn(conn, s, now)
                 audit.record(
                     conn,
@@ -223,11 +243,11 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                     "refill",
                     {"mailbox": s.mailbox, "pairs": cleared, "by": "human_turn"},
                 )
-            # The summary is echoed, null included, so the hook can remind the
-            # agent to set one (an older server sends no key, so no reminder).
-            answer: dict[str, Any] = {"summary": s.summary}
+            answer: dict[str, Any] = {}
             if not isinstance(branch, sessions.Keep):
                 answer["branch"] = branch
+            if activity is not None:
+                answer["now"] = activity  # echoed only when stored
             return answer
 
         return await _run(deps, request, handler, read_body=True, body_optional=True)
@@ -245,6 +265,10 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             if not isinstance(branch, sessions.Keep):
                 sessions.set_branch(conn, s.id, branch)
                 result["branch"] = branch  # echoed only when stored
+            activity = _reported_activity(request.query_params.get("now"))
+            if activity is not None:
+                sessions.set_activity(conn, s.id, activity, now)
+                result["now"] = activity
             return result
 
         return await _run(deps, request, handler)

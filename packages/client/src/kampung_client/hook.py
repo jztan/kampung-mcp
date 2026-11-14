@@ -54,16 +54,11 @@ CODEX_START_CONTEXT = (
     "Kampung is connected. Call the kampung inbox tool once now to check for "
     "peer messages."
 )
-# Said on a typed prompt while the session has no summary, at most once per
-# SUMMARY_REMINDER_INTERVAL: the server instructions alone never got it called,
-# and a softer "this session has no summary" line was ignored by Claude Code.
-SUMMARY_REMINDER = (
-    "Kampung: before you do anything else this turn, call the kampung "
-    "set_summary tool once with a few words on your current task, so peers "
-    "can tell sessions apart. Use your own words: never secrets or the "
-    "user's words verbatim."
-)
-SUMMARY_REMINDER_INTERVAL = 600.0
+# The session's latest step ("now"), shown to peers: at most this long, and
+# taken only from what the agent wrote for people (a command's description) or
+# a file's name, never from a command line, which can carry a secret.
+MAX_NOW_CHARS = 80
+_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
 STOP_REASON = (
     "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
 )
@@ -967,29 +962,99 @@ def _mark_branch_sent(sid: str, branch: str) -> None:
         pass  # sent again next time; never fail a hook over this
 
 
-def _summary_reminder(sid: str, answer: dict[str, object]) -> dict[str, object] | None:
-    """A reminder to call set_summary, when the server says this session has
-    none (an older server sends no summary key: never) and none was given
-    in the last SUMMARY_REMINDER_INTERVAL."""
-    if "summary" not in answer or answer["summary"] is not None:
+def step_from_tool(event: Event) -> str | None:
+    """The session's latest step, from a PostToolUse event: the description the
+    agent gave a command or a subagent, or the file it read or edited. None for
+    anything else (Kampung's own tools, searches, a bare command)."""
+    tool = str(event.get("tool_name", ""))
+    raw = event.get("tool_input")
+    given = raw if isinstance(raw, dict) else {}
+    if tool.startswith("mcp__"):
         return None
+    step: str | None = None
+    description = given.get("description")
+    if isinstance(description, str) and description.strip():
+        step = description
+    elif isinstance(given.get("file_path"), str) and given["file_path"]:
+        name = os.path.basename(str(given["file_path"]))
+        step = f"reading {name}" if tool == "Read" else f"editing {name}"
+    elif tool == "apply_patch" or "patch" in tool.lower():
+        text = raw if isinstance(raw, str) else str(given.get("input", ""))
+        found = _PATCH_FILE.search(text)
+        if found:
+            step = f"editing {os.path.basename(found.group(1).strip())}"
+    elif isinstance(given.get("command"), str):
+        programs = programs_in(str(given["command"]))
+        if programs:
+            step = "running " + ", ".join(programs)
+    if step is None:
+        return None
+    step = " ".join(step.split())  # one line, no control characters
+    step = "".join(c for c in step if c.isprintable())
+    return step[:MAX_NOW_CHARS].strip() or None
+
+
+_WRAPPERS = frozenset({"sudo", "env", "time", "nohup", "exec", "command", "xargs"})
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SEGMENT = re.compile(r"&&|\|\||[;|\n]")
+
+
+def programs_in(command: str, most: int = 3) -> list[str]:
+    """The programs a shell command runs, by bare name, in order and without
+    repeats: never an argument, a value or a path, since those can carry a
+    secret or a private folder name."""
+    found: list[str] = []
+    for segment in _SEGMENT.split(command):
+        for word in segment.split():
+            word = word.strip("()`$'\"{}")
+            if not word or _ASSIGNMENT.match(word) or word in _WRAPPERS:
+                continue
+            if word.startswith("-"):
+                continue
+            name = re.split(r"[\\/]", word)[-1]
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,39}", name):
+                if name not in found:
+                    found.append(name)
+            break  # only the first word of each segment is a program
+        if len(found) >= most:
+            break
+    return found
+
+
+def _record_step(event: Event) -> None:
+    """Keep the latest step in the session file; the next peek sends it."""
+    step = step_from_tool(event)
+    if step is None:
+        return
+    sid = str(event["session_id"])
     data = read_session_file(sid)
-    if data is None:
-        return None
-    last = data.get("summary_reminded")
-    now = time.time()
-    if isinstance(last, (int, float)) and 0 <= now - last < SUMMARY_REMINDER_INTERVAL:
-        return None
+    if data is None or data.get("now") == step:
+        return
     try:
-        write_session_file(sid, {**data, "summary_reminded": now})
+        write_session_file(sid, {**data, "now": step})
     except OSError:
-        return None  # unrecorded, it would repeat on every prompt
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": SUMMARY_REMINDER,
-        }
-    }
+        pass  # a missed step; never fail a hook over this
+
+
+def _step_query(data: dict[str, object] | None) -> dict[str, str]:
+    """The step to send with a peek: only one not yet sent."""
+    if data is None:
+        return {}
+    step = data.get("now")
+    if isinstance(step, str) and step and data.get("now_sent") != step:
+        return {"now": step}
+    return {}
+
+
+def _mark_step_sent(sid: str, body: dict[str, object]) -> None:
+    sent = body.get("now")
+    data = read_session_file(sid)
+    if not isinstance(sent, str) or data is None or data.get("now_sent") == sent:
+        return
+    try:
+        write_session_file(sid, {**data, "now_sent": sent})
+    except OSError:
+        pass  # sent again next time
 
 
 def on_user_prompt(event: Event, clock: _Clock) -> dict[str, object] | None:
@@ -1011,7 +1076,7 @@ def on_user_prompt(event: Event, clock: _Clock) -> dict[str, object] | None:
     )
     if "branch" in answer:  # a server before 0.6 does not keep it
         _mark_branch_sent(str(event["session_id"]), branch)
-    return _summary_reminder(str(event["session_id"]), answer)
+    return None
 
 
 Seen = str | int | None  # what was last announced: a message id, or a count
@@ -1070,6 +1135,7 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     if _agent(event) == "codex":
         mark_turn(str(event["session_id"]))  # keeps a long turn from going stale
     path = _nudge_path(event)
+    _record_step(event)
     if str(event.get("tool_name", "")).startswith("mcp__kampung__"):
         # The agent is already talking to Kampung; whatever it read is handled.
         _save_nudge_state(path, {"checked": time.time(), "notified": None})
@@ -1081,7 +1147,10 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     # Record the attempt first, so a slow or unreachable server costs at most
     # one check per NUDGE_INTERVAL instead of a timeout on every tool call.
     _save_nudge_state(path, {"checked": now, "notified": state["notified"]})
-    body = _call(event, clock, "GET", "peek", revive=False)
+    sid = str(event["session_id"])
+    query = _step_query(read_session_file(sid))
+    body = _call(event, clock, "GET", "peek", revive=False, query=query or None)
+    _mark_step_sent(sid, body)
     wakeable = int(str(body.get("wakeable", 0)))
     notify, seen = new_mail(body, state["notified"])
     _save_nudge_state(path, {"checked": time.time(), "notified": seen})
@@ -1103,10 +1172,12 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
             # own `git switch` shows by the end of its turn.
             data, branch = _current_branch(event)
             changed = data is not None and data.get("branch_sent") != branch
-            query = {"branch": branch} if changed else None
-            body = _call(event, clock, "GET", "peek", revive=False, query=query)
+            query = {"branch": branch} if changed else {}
+            query.update(_step_query(data))  # the turn's last step, if new
+            body = _call(event, clock, "GET", "peek", revive=False, query=query or None)
             if changed and "branch" in body:  # an older server ignores it
                 _mark_branch_sent(str(event["session_id"]), branch)
+            _mark_step_sent(str(event["session_id"]), body)
             wakeable = int(str(body.get("wakeable", 0)))
             if wakeable > 0:
                 reason = STOP_BLOCK_REASON.format(n=wakeable)

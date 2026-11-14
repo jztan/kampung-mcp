@@ -116,8 +116,7 @@ SECURITY_PHRASES = {
     "STREAM_CONNECT_RATE": f"| Event streams per machine | {L.STREAM_CONNECT_RATE} "
     "connects per minute",
     "MAX_STREAMS": f"{L.MAX_LIVE_SESSIONS_PER_MACHINE} open at once",
-    "MAX_SUMMARY_CHARS": f"| Session `summary` | {L.MAX_SUMMARY_CHARS} printable",
-    "SUMMARY_RATE": f"{L.SUMMARY_RATE} updates per machine per minute",
+    "MAX_ACTIVITY_CHARS": f"| Session `now` | {L.MAX_ACTIVITY_CHARS} printable",
     "MAX_CLIENT_VERSION_CHARS": f"| Session `client_version` | "
     f"{L.MAX_CLIENT_VERSION_CHARS} characters",
     "ENDED_SESSION_RETENTION": f"| Ended sessions kept | "

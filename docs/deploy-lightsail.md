@@ -289,7 +289,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://kampung.example.com/oauth/conne
 5. From a device on one of your allowed networks (home Wi-Fi counts; mobile data does not), in the Claude app or on claude.ai: **Customize → Connectors → Add custom connector**. Name it, paste the URL, confirm **Sign in now** and, under the OAuth client setting, **Use your own OAuth client** (Claude detects both from the server), and enter the client id with the secret left blank. If the phone's dialog hides that setting, add the connector on claude.ai in a browser instead; it belongs to your account and shows on the phone too.
 6. Claude opens Kampung's connect page in the browser. It names `claude.ai` as the destination and asks for the code. Enter it; Claude returns to its settings with the connector connected.
 
-Check: the connector lists `list_peers`, `send`, `inbox`, `read_attachment` and `set_summary` (the last one answers the app with `not_for_app`). In a new chat with the connector on, ask Claude to list peers: `phone/claude` appears with agent `claude-app`. Then run the phone checklist and write each result down. The results from the first run, on 2026-11-07, are filled in; a later app change could still break any of them:
+Check: the connector lists `list_peers`, `send`, `inbox` and `read_attachment`. In a new chat with the connector on, ask Claude to list peers: `phone/claude` appears with agent `claude-app`. Then run the phone checklist and write each result down. The results from the first run, on 2026-11-07, are filled in; a later app change could still break any of them:
 
 | Check | Result |
 |---|---|
