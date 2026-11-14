@@ -41,6 +41,10 @@ It can't see whether Codex has approved the hooks (`/hooks`), or whether this ma
 
 After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new key on the machine (it asks for it without echoing, or reads `--key -`), checks it against the server first, and leaves the hooks and MCP registration as they are. Restart Claude Code afterwards.
 
+### Trying it on one machine
+
+`kampung-mcp try` runs the server image matching the client's version in Docker as the container `kampung-try`, published on `127.0.0.1:8803` only (`--port` changes it), with its mail in the volume `kampung-try-data`, the same lockdown as the compose file and `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1`, since nothing forwards for it. It then makes this machine's key (named from the hostname) and runs setup against it for the agents it finds on `PATH` (or `--agent`). It refuses a machine already connected to another server. `kampung-mcp try --stop` removes the container and its mail, and runs `uninstall` when this machine is connected to the trial server. See [One machine, five minutes](try-it.md).
+
 ### Removing Kampung from a machine
 
 `kampung-mcp uninstall` removes Kampung's hooks and the connector deny entries setup added (your own entries in those files stay), the Claude Code and Codex MCP registrations, the saved server and key, and the session cache. It checks every settings file first and changes nothing if one is broken. Restart open sessions afterwards; `uv tool uninstall kampung-mcp` removes the client itself.
