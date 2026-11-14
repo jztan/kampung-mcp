@@ -190,8 +190,8 @@ def codex_hooks(home: Path) -> dict:  # type: ignore[type-arg]
 
 @pytest.fixture
 def codex_at(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Pretend `codex` is installed here, on macOS or Linux (setup skips Codex
-    hooks and waking on Windows), whatever this machine is."""
+    """Pretend `codex` is installed here, on macOS or Linux (Windows gets other
+    hook commands and resolves npm's wrapper), whatever this machine is."""
     monkeypatch.setattr(setup.shutil, "which", lambda name: "/opt/x/codex")
     monkeypatch.setattr(setup, "_windows", lambda: False)
     return "/opt/x/codex"
@@ -293,22 +293,66 @@ def test_hook_command_codex_exits_0_when_the_hook_file_is_gone(
     assert subprocess.run(cmd, shell=True, capture_output=True).returncode == 0
 
 
-def test_setup_codex_on_windows_stays_polling(
+def test_setup_codex_on_windows_gets_powershell_hooks(
     home: Path, server: LiveServer, codex_at: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Codex on Windows runs hook commands through PowerShell 5.1, which cannot
+    # parse the POSIX form's `|| true` (probed with Codex 0.169, 2026-11-14).
     monkeypatch.setattr(setup, "_windows", lambda: True)
     rec = Recorder()
     lines = run_setup(server.url, server.keys["laptop"], ["codex"], rec)
-    assert not (home / ".codex" / "hooks.json").exists()
-    assert rec.calls[-1] == [
-        "codex",
-        "mcp",
-        "add",
-        "kampung",
-        "--",
-        *adapter_cmd("codex"),
-    ]
-    assert any("polling" in line and "Windows" in line for line in lines)
+    hooks = codex_hooks(home)["hooks"]
+    assert set(hooks) == set(setup.EVENTS)
+    for event in setup.EVENTS:
+        (handler,) = hooks[event][0]["hooks"]
+        assert handler["command"] == setup.powershell_hook_command(
+            hook.__file__, "--agent", "codex"
+        )
+        assert handler["timeout"] == (3 if event == "SessionEnd" else 5)
+    assert rec.calls[-1][-2:] == ["--codex-bin", codex_at]
+    assert any("/hooks" in line for line in lines)
+    assert not any("polling only" in line for line in lines)
+
+
+def _npm_codex(root: Path, with_exe: bool) -> tuple[Path, Path]:
+    """npm's codex.cmd wrapper, and the native codex.exe it ends up running."""
+    shim = root / "npm" / "codex.cmd"
+    shim.parent.mkdir(parents=True)
+    shim.write_text("@echo off\r\n")
+    exe = (
+        root
+        / "npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-arm64"
+        / "vendor/aarch64-pc-windows-msvc/bin/codex.exe"
+    )
+    if with_exe:
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"MZ")
+    return shim, exe
+
+
+def test_setup_codex_on_windows_wakes_through_the_exe_behind_npm(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arguments to a .cmd are parsed again by cmd.exe, so the waker's message
+    # (which carries a peer's mailbox name) must never go through npm's wrapper.
+    shim, exe = _npm_codex(tmp_path, with_exe=True)
+    monkeypatch.setattr(setup, "_windows", lambda: True)
+    monkeypatch.setattr(setup.shutil, "which", lambda name: str(shim))
+    rec = Recorder()
+    run_setup(server.url, server.keys["laptop"], ["codex"], rec)
+    assert rec.calls[-1][-2:] == ["--codex-bin", str(exe)]
+
+
+def test_setup_codex_on_windows_skips_waking_without_the_exe(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim, _ = _npm_codex(tmp_path, with_exe=False)
+    monkeypatch.setattr(setup, "_windows", lambda: True)
+    monkeypatch.setattr(setup.shutil, "which", lambda name: str(shim))
+    rec = Recorder()
+    lines = run_setup(server.url, server.keys["laptop"], ["codex"], rec)
+    assert "--codex-bin" not in rec.calls[-1]
+    assert any("codex.exe" in line and "not be woken" in line for line in lines)
 
 
 def test_setup_missing_cli_prints_manual_command(

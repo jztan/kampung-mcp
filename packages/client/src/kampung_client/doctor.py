@@ -43,7 +43,7 @@ INTERPRETER_PROBE = (
 )
 # The plain hook command in its PowerShell form: interpreter, script, flags.
 POWERSHELL_HOOK = re.compile(
-    r"& '((?:[^']|'')+)' '((?:[^']|'')+)'((?: --[a-z-]+)*); exit 0"
+    r"& '((?:[^']|'')+)' '((?:[^']|'')+)'((?: --[a-z-]+(?: [a-z-]+)?)*); exit 0"
 )
 # Seconds a wake may wait for its answer before doctor calls it missed. The
 # adapter gives up on one after two rounds of 5.
@@ -449,8 +449,8 @@ def _agent_checks(
         return []
     if mcp is None:
         mcp = Check(FAIL, f"{agent} mcp", f"not registered with {program}", fix)
-    if agent == "codex" and setup._windows():  # Codex on Windows has no hooks
-        return [mcp]
+    if agent == "codex" and setup._windows():  # no control socket to bind by
+        return [_hooks_check(agent, commands, fix), mcp]
     if agent == "codex":
         return [_hooks_check(agent, commands, fix), mcp, _codex_launch_check()]
     if not commands:  # no hooks of ours: the hooks check says so, once

@@ -200,6 +200,30 @@ def _windows() -> bool:
     return os.name == "nt"
 
 
+def _codex_for_waker() -> str | None:
+    """The codex the waker runs, or None. On Windows `codex` on PATH is npm's
+    codex.cmd, whose arguments cmd.exe parses again, so the waker gets the
+    native codex.exe that the wrapper ends up starting."""
+    found = shutil.which("codex")
+    if found is None or not _windows():
+        return found
+    if not found.lower().endswith((".cmd", ".bat")):
+        return found
+    scope = Path(found).parent / "node_modules" / "@openai"
+    native = "codex-win32-*/vendor/*/bin/codex.exe"
+    # The platform package sits inside the codex package, or beside it when
+    # npm hoists it; older releases bundled the binary in codex itself.
+    for base, pattern in (
+        (scope / "codex" / "node_modules" / "@openai", native),
+        (scope, native),
+        (scope / "codex", "vendor/*/bin/codex.exe"),
+    ):
+        exes = sorted(base.glob(pattern))
+        if exes:
+            return str(exes[0])
+    return None
+
+
 def _codex_hooks_path() -> Path:
     return Path.home() / ".codex" / "hooks.json"
 
@@ -265,7 +289,13 @@ def _merge_claude_hooks(data: dict[str, Any], idle_wake: bool) -> Path:
 
 
 def _merge_codex_hooks(data: dict[str, Any]) -> Path:
-    command = codex_hook_command(hook.__file__)
+    # Codex on Windows runs hook commands through PowerShell 5.1, which cannot
+    # parse `|| true`: it gets the same form as Claude Code's Windows hooks.
+    command = (
+        powershell_hook_command(hook.__file__, "--agent", "codex")
+        if _windows()
+        else codex_hook_command(hook.__file__)
+    )
     timeouts = {"SessionEnd": CODEX_END_TIMEOUT}
     items = {
         event: [
@@ -443,11 +473,7 @@ def run_setup(
     _check_key(server, key, allow_insecure_http)
 
     claude_settings = _load_claude_settings() if "claude-code" in agents else None
-    codex_hooks = (
-        _load_hooks_file(_codex_hooks_path())
-        if "codex" in agents and not _windows()
-        else None
-    )
+    codex_hooks = _load_hooks_file(_codex_hooks_path()) if "codex" in agents else None
 
     _write_config(server, key, allow_insecure_http)
     # Older setups copied the hook here; it now runs from the install.
@@ -498,19 +524,19 @@ def run_setup(
             )
     if "codex" in agents:
         adapter = _adapter_cmd("codex")
-        if codex_hooks is None:
-            lines.append(
-                "Codex on Windows stays polling only for now: it reads mail "
-                "when it calls inbox."
-            )
-        else:
+        if codex_hooks is not None:
             path = _merge_codex_hooks(codex_hooks)
             lines.append(
                 f"Codex hooks added to {path}. Approve them once in Codex with "
                 "/hooks; until then Codex only polls."
             )
-            codex_bin = shutil.which("codex")
-            if codex_bin is None:
+            codex_bin = _codex_for_waker()
+            if codex_bin is None and shutil.which("codex") is not None:
+                lines.append(
+                    "codex.exe was not found behind npm's codex wrapper, so idle "
+                    "Codex sessions will not be woken."
+                )
+            elif codex_bin is None:
                 lines.append(
                     "codex was not found on PATH, so idle Codex sessions will "
                     "not be woken; run setup again once it is installed."

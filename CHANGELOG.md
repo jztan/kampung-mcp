@@ -4,6 +4,24 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-14
+
+### Added
+
+#### Client (`kampung-mcp`)
+
+- Codex on Windows gets hooks, like on macOS and Linux: `kampung-mcp setup --agent codex` now writes them (in PowerShell form, which is how Codex runs hooks there). After you approve them once with `/hooks`, a Windows Codex session announces and reads mail at turn ends, reports typing and its branch, gets the summary reminder, wakes when idle (when setup finds the `codex.exe` behind npm's `codex` wrapper; it says so if not), and can receive owner instructions, and `kampung-mcp doctor` checks those hooks. Rerun setup on Windows with `--agent codex` or `--agent both` to get them. Idle wake runs the `codex.exe` that npm's `codex` wrapper starts, never the wrapper, since `cmd.exe` would parse the wake message (which names the sending mailbox) again. New windows are still registered at their first prompt there, not at launch.
+
+### Changed
+
+#### Client (`kampung-mcp`)
+
+- `set_summary`'s argument is now `summary`, the same name as its result and the `list_peers` field (it was `text`, and a Codex agent guessed `summary`). Only the adapter's tool changed: it still sends `text` to the server, so any server version works.
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- Sessions now set their summary. Until one is set, a Claude Code or Codex session gets a one-line reminder to call `set_summary` when you type, at most once every 10 minutes; once a summary is set, nothing is added. Before this, the adapter's instructions were the only prompt, and agents rarely called it, so `list_peers` showed `summary: null` almost everywhere. The reminder needs both the server and the client on this release; with either one older, nothing changes.
+
 ## [0.6.0] - 2026-11-14
 
 ### Added
@@ -265,6 +283,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.7.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.7.0
 [0.6.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.4.0

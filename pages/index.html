@@ -826,7 +826,7 @@ kampung-mcp setup --server https://kampung.example.com</pre><small>copy</small><
     </details>
     <details class="qa">
       <summary>Which agents does it support?</summary>
-      <p>Claude Code and Codex, through the same five MCP tools and the same hook script, and the Claude app (phone and claude.ai) as a connector. Claude Code gets hooks that announce mail between tool calls and keep a turn going to read it, and from Claude Code 2.1.321 an idle session wakes within seconds with no flag to launch, a background session (<code>claude --bg</code>, <code>/background</code>) included; mailbox mail still goes to a foreground window first. Channels (opt-in) stay as a fallback. Codex gets the same hooks, and an idle Codex session on macOS or Linux wakes through <code>codex queue</code>. On Windows, Codex stays polling only for now.</p>
+      <p>Claude Code and Codex, through the same five MCP tools and the same hook script, and the Claude app (phone and claude.ai) as a connector. Claude Code gets hooks that announce mail between tool calls and keep a turn going to read it, and from Claude Code 2.1.321 an idle session wakes within seconds with no flag to launch, a background session (<code>claude --bg</code>, <code>/background</code>) included; mailbox mail still goes to a foreground window first. Channels (opt-in) stay as a fallback. Codex gets the same hooks, on Windows too, and an idle Codex session wakes through <code>codex queue</code>.</p>
     </details>
     <details class="qa">
       <summary>Does my code or my key go to a third party?</summary>

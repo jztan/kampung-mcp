@@ -147,7 +147,7 @@ def test_human_turn_refills_pairs_and_mailbox_budget(
         guard.spend_pair(conn, s.mailbox_id, peer.mailbox_id, now, g)
         guard.spend_mailbox(conn, s.mailbox_id)
     r = client.post(f"/v1/sessions/{sid}/human-turn", headers=bearer(key))
-    assert r.status_code == 200 and r.json() == {}
+    assert r.status_code == 200
     assert guard.pair_left(conn, s.mailbox_id, peer.mailbox_id, now, g) == 9
     assert guard.mailbox_left(conn, s.mailbox_id, g) == 30
     row = conn.execute(
@@ -608,9 +608,9 @@ def test_human_turn_echoes_branch_only_when_sent(
     key = machines["laptop"][1]
     sid = _register(client, key)
     url = f"/v1/sessions/{sid}/human-turn"
-    assert client.post(url, headers=bearer(key)).json() == {}
+    assert "branch" not in client.post(url, headers=bearer(key)).json()
     r = client.post(url, headers=bearer(key), json={"branch": "develop"})
-    assert r.json() == {"branch": "develop"}
+    assert r.json()["branch"] == "develop"
 
 
 def test_peek_echoes_branch_only_when_sent(
@@ -622,3 +622,22 @@ def test_peek_echoes_branch_only_when_sent(
     assert "branch" not in client.get(url, headers=bearer(key)).json()
     r = client.get(url, headers=bearer(key), params={"branch": "fix/y"})
     assert r.json()["branch"] == "fix/y"
+
+
+def test_human_turn_reports_the_sessions_summary(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    # The UserPromptSubmit hook reminds the agent to call set_summary while
+    # this is null, so the key must be there even when no summary is set.
+    from kampung_server import mail
+
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/human-turn"
+    r = client.post(url, headers=bearer(key))
+    assert r.status_code == 200 and r.json()["summary"] is None
+    s = load_session(conn, int(sid))
+    assert s is not None
+    mail.set_summary(conn, s, "fixing the login form")
+    r = client.post(url, headers=bearer(key))
+    assert r.json()["summary"] == "fixing the login form"

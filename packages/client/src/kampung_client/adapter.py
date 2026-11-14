@@ -417,6 +417,13 @@ def _diagnose() -> dict[str, Any]:
     return {"error": "server_error", "hint": f"{cause}; see {_LOG_HINT}."}
 
 
+def usable_codex_bin(path: str) -> bool:
+    """Whether the waker may run this codex. Never a batch file: cmd.exe parses
+    its arguments again, and the wake message carries a peer's mailbox name.
+    On Windows setup passes the codex.exe behind npm's codex.cmd instead."""
+    return not path.lower().endswith((".cmd", ".bat"))
+
+
 def build_adapter(
     agent: str,
     cwd: str | None = None,
@@ -425,7 +432,11 @@ def build_adapter(
     codex_bin: str | None = None,
 ) -> FastMCP:
     resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)
-    waker = CodexWaker(resolver, codex_bin) if resolver.codex and codex_bin else None
+    waker = (
+        CodexWaker(resolver, codex_bin)
+        if resolver.codex and codex_bin and usable_codex_bin(codex_bin)
+        else None
+    )
 
     def codex_id_of(ctx: Context | None) -> str | None:
         if not resolver.codex or ctx is None:
@@ -638,12 +649,13 @@ def build_adapter(
         )
 
     @mcp.tool
-    async def set_summary(ctx: Context, text: str) -> dict[str, Any]:
+    async def set_summary(ctx: Context, summary: str) -> dict[str, Any]:
         """Say in a few words of your own what this session is working on now,
         so peers can tell sessions apart in list_peers. Call it when you start
         a task and when the task changes; an empty string clears it. Peers see
         it: never include secrets or the user's words verbatim."""
-        return await forward("set_summary", {"text": text}, ctx)
+        # Named like its result for the model; the server's argument is `text`.
+        return await forward("set_summary", {"text": summary}, ctx)
 
     @mcp.tool
     async def inbox(ctx: Context, limit: int = 20) -> dict[str, Any]:
@@ -1026,7 +1038,7 @@ def _add_launch_binding(
     """Codex: find this window's thread on the daemon's control socket once
     the client is initialized, so the window is listed and wakeable before its
     first prompt. Fails open: without a thread, the first tool call binds, as
-    before. Not on Windows, where Codex runs no hooks and only polls."""
+    before. Not on Windows, which has no control socket to look on."""
     handlers = mcp._mcp_server.notification_handlers
     previous = handlers.get(InitializedNotification)
     started: list[asyncio.Task[None]] = []

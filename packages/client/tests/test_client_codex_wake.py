@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from client_testlib import LiveServer, RawMCP, git_repo, peer_send, run_hook
-from kampung_client import hook
+from kampung_client import adapter, hook
 
 
 def wake(data: dict[str, object]) -> str:
@@ -379,3 +379,18 @@ async def test_waker_wakes_when_one_message_replaces_another(
     with pytest.raises(asyncio.CancelledError):
         await waker.poll()
     assert queued == ["cx-1", "cx-1"]
+
+
+@pytest.mark.parametrize(
+    "path, usable",
+    [
+        ("/opt/x/codex", True),
+        (r"C:\npm\node_modules\x\codex.exe", True),
+        (r"C:\npm\codex.cmd", False),
+        (r"C:\npm\CODEX.BAT", False),
+    ],
+)
+def test_waker_never_runs_a_batch_file(path: str, usable: bool) -> None:
+    # cmd.exe parses a batch file's arguments again; the wake message carries
+    # a peer's mailbox name, so a .cmd waker could run what a peer chose.
+    assert adapter.usable_codex_bin(path) is usable
