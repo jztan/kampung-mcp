@@ -136,6 +136,8 @@ def _approvals(home: Path, quote: str) -> str:
     """Codex's own hook approvals, as it writes them: keyed by the hooks file,
     the event, and the entry and hook positions (literal strings on Windows)."""
     hooks = str(_codex_hooks(home))
+    if quote == '"':  # a basic string needs a Windows path's backslashes escaped
+        hooks = hooks.replace("\\", "\\\\")
     return "".join(
         f"[hooks.state.{quote}{hooks}:{event}:{i}:0{quote}]\n"
         f'trusted_hash = "sha256:{event}{i}"\n\n'
