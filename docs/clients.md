@@ -41,6 +41,10 @@ It can't see whether Codex has approved the hooks (`/hooks`), or whether this ma
 
 After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new key on the machine (it asks for it without echoing, or reads `--key -`), checks it against the server first, and leaves the hooks and MCP registration as they are. Restart Claude Code afterwards.
 
+### Removing Kampung from a machine
+
+`kampung-mcp uninstall` removes Kampung's hooks and the connector deny entries setup added (your own entries in those files stay), the Claude Code and Codex MCP registrations, the saved server and key, and the session cache. It checks every settings file first and changes nothing if one is broken. Restart open sessions afterwards; `uv tool uninstall kampung-mcp` removes the client itself.
+
 ### HTTPS only
 
 Every request carries the machine key, so the server URL must be `https://`. Plain `http://` is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`); the hooks and the adapter refuse anything else, even in a hand-edited `config.json`.
