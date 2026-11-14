@@ -4,6 +4,12 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Changed
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- Sessions now set their summary. Until one is set, a Claude Code or Codex session gets a one-line reminder to call `set_summary` when you type, at most once every 10 minutes; once a summary is set, nothing is added. Before this, the adapter's instructions were the only prompt, and agents rarely called it, so `list_peers` showed `summary: null` almost everywhere. The reminder needs both the server and the client on this release; with either one older, nothing changes.
+
 ## [0.6.0] - 2026-11-14
 
 ### Added

@@ -223,7 +223,12 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                     "refill",
                     {"mailbox": s.mailbox, "pairs": cleared, "by": "human_turn"},
                 )
-            return {} if isinstance(branch, sessions.Keep) else {"branch": branch}
+            # The summary is echoed, null included, so the hook can remind the
+            # agent to set one (an older server sends no key, so no reminder).
+            answer: dict[str, Any] = {"summary": s.summary}
+            if not isinstance(branch, sessions.Keep):
+                answer["branch"] = branch
+            return answer
 
         return await _run(deps, request, handler, read_body=True, body_optional=True)
 
