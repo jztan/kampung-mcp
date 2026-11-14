@@ -8,7 +8,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Client (`kampung-mcp`)
 
-- Codex on Windows gets hooks, like on macOS and Linux: `kampung-mcp setup --agent codex` now writes them (in PowerShell form, which is how Codex runs hooks there). After you approve them once with `/hooks`, a Windows Codex session announces and reads mail at turn ends, reports typing and its branch, gets the summary reminder, wakes when idle, and can receive owner instructions. Rerun setup on Windows to get them. Idle wake runs the `codex.exe` that npm's `codex` wrapper starts, never the wrapper, since `cmd.exe` would parse the wake message (which names the sending mailbox) again. New windows are still registered at their first prompt there, not at launch.
+- Codex on Windows gets hooks, like on macOS and Linux: `kampung-mcp setup --agent codex` now writes them (in PowerShell form, which is how Codex runs hooks there). After you approve them once with `/hooks`, a Windows Codex session announces and reads mail at turn ends, reports typing and its branch, gets the summary reminder, wakes when idle (when setup finds the `codex.exe` behind npm's `codex` wrapper; it says so if not), and can receive owner instructions, and `kampung-mcp doctor` checks those hooks. Rerun setup on Windows with `--agent codex` or `--agent both` to get them. Idle wake runs the `codex.exe` that npm's `codex` wrapper starts, never the wrapper, since `cmd.exe` would parse the wake message (which names the sending mailbox) again. New windows are still registered at their first prompt there, not at launch.
 
 ### Changed
 
