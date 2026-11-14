@@ -219,3 +219,99 @@ def test_peek_counts_writes_nothing(server: Server) -> None:
         assert (result.waiting, result.wakeable) == (0, 0)
     finally:
         conn.close()
+
+
+def test_peek_counts_reads_one_snapshot(server: Server) -> None:
+    """A send landing between the count and the newest id must not give
+    wakeable 0 with a newest id: the adapter would remember that id as
+    announced and never wake for it."""
+    sid = register(server, "desktop", "blog")
+    sender = register(server, "laptop", "api")
+    conn = db.connect(server.deps.db_path)
+    calls = 0
+
+    class SendsBetweenQueries:
+        def execute(self, *args: object) -> object:
+            nonlocal calls
+            result = conn.execute(*args)  # type: ignore[arg-type]
+            calls += 1
+            if calls == 1:
+                _send(server, sender, "desktop/blog")
+            return result
+
+    try:
+        s = load_session(conn, int(sid))
+        assert s is not None
+        got = mail.peek_counts(
+            SendsBetweenQueries(), s, server.deps.clock()  # type: ignore[arg-type]
+        )
+        assert (got.wakeable == 0) == (got.newest is None)
+    finally:
+        conn.close()
+
+
+def test_a_stream_ends_when_its_key_stops_working(
+    server: Server, readers: list[Reader]
+) -> None:
+    """A key rotated by the CLI (another process, so no in-memory bump) must
+    not keep feeding a stream opened with the old key, even if the session
+    was revived before the stream looked."""
+    from kampung_server import keys as keymod
+    from kampung_server.mailsignal import SIGNAL
+
+    sid = register(server, "desktop", "blog")
+    r = _open(server, "desktop", sid, readers)
+    r.wait_for(1)
+    conn = db.connect(server.deps.db_path)
+    try:
+        conn.execute(
+            "UPDATE machines SET key_hash = ? WHERE name = 'desktop'",
+            (keymod.hash_key("a-new-key-the-stream-never-had"),),
+        )
+    finally:
+        conn.close()
+    SIGNAL.bump()
+    assert r.wait_closed()
+
+
+async def test_a_stream_that_never_starts_frees_its_slot(server: Server) -> None:
+    """A client gone before the body starts (the first send fails) must not
+    keep a stream slot: 256 such connects would lock the machine out."""
+    from kampung_server.app import create_app
+
+    sid = register(server, "desktop", "blog")
+    app = create_app(server.deps)
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": f"/v1/sessions/{sid}/events",
+        "raw_path": f"/v1/sessions/{sid}/events".encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"test"),
+            (b"authorization", f"Bearer {server.keys['desktop']}".encode()),
+        ],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, object]) -> None:
+        raise OSError("client went away")
+
+    with pytest.raises(Exception):
+        await app(scope, receive, send)
+    conn = db.connect(server.deps.db_path)
+    try:
+        mid = conn.execute("SELECT id FROM machines WHERE name = 'desktop'").fetchone()[
+            0
+        ]
+    finally:
+        conn.close()
+    assert events._open.get(mid, 0) == 0

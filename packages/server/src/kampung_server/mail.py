@@ -899,19 +899,18 @@ def peek(conn: sqlite3.Connection, session: Session, now: datetime) -> PeekResul
 def peek_counts(
     conn: sqlite3.Connection, session: Session, now: datetime
 ) -> PeekResult:
-    """What peek returns, read only: no sweep, no write (the event stream)."""
-    params = _params(session, now)
+    """What peek returns, read only: no sweep, no write (the event stream).
+    One statement, so the counts and the newest id come from one snapshot even
+    outside a transaction: a send landing between two reads could give
+    wakeable 0 with a newest id, and the adapter would never wake for it."""
     row = conn.execute(
-        "SELECT count(*), coalesce(sum(msg.wake), 0) FROM messages msg "
-        f"WHERE {_READABLE}",
-        params,
+        "SELECT count(*), coalesce(sum(msg.wake), 0), "
+        f"(SELECT msg.id FROM messages msg WHERE {_READABLE} AND msg.wake = 1 "
+        "ORDER BY msg.sent_at DESC, msg.id DESC LIMIT 1) "
+        f"FROM messages msg WHERE {_READABLE}",
+        _params(session, now),
     ).fetchone()
-    newest = conn.execute(
-        f"SELECT msg.id FROM messages msg WHERE {_READABLE} AND msg.wake = 1 "
-        "ORDER BY msg.sent_at DESC, msg.id DESC LIMIT 1",
-        params,
-    ).fetchone()
-    return PeekResult(row[0], row[1], newest[0] if newest else None)
+    return PeekResult(row[0], row[1], row[2])
 
 
 def set_summary(conn: sqlite3.Connection, session: Session, text: str) -> str | None:
