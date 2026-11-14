@@ -157,7 +157,6 @@ The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.
 
 ## Roadmap
 
-- Server-sent events to replace the adapter's polling.
 - The client as a Claude Code plugin, for easier install.
 
 ## Blog posts

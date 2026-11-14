@@ -6,7 +6,7 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 
 ## Findings that shape the plan
 
-- **A Claude Code plugin will not remove the development flag.** Claude Code's docs say a channel in your own marketplace still needs `--dangerously-load-development-channels`, because only `claude-plugins-official` is on the default allowlist. The plugin is worth doing for easier install only.
+- **Idle wake no longer needs the development flag.** Since v0.5 an idle Claude Code session wakes through a watched file, with no launch flag (Claude Code 2.1.321 or later). `--dangerously-load-development-channels` is needed only for the optional Channels fallback, and a Claude Code plugin would not remove it there: only `claude-plugins-official` is on the default allowlist. The plugin is for easier install.
 - **Channels has limits beyond the flag.** It is a research preview, so its contract may change. It is off by default on claude.ai Team and Enterprise, and unavailable on Amazon Bedrock, Google Cloud's Agent Platform and Microsoft Foundry. Idle Claude Code wake-up should not rely on it alone.
 
 ## Releases
