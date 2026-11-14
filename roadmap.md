@@ -53,10 +53,10 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 - Idle wake without Channels (new): a file each session watches and a `FileChanged` hook wake an idle Claude Code session, in a window or in the background, with no flag to launch. Needs Claude Code 2.1.321 or later. On Windows it is verified for a session in a window, not yet for a background session. Channels stays as an optional fallback.
 - Owner instructions (new): the owner's Claude app can send `mode: "instruct"`, a server-stamped message an agent may act on as the owner typing, within limits the owner sets in his own instruction file. Off by default (`kampung owner add`).
 
-### v0.6: more clients
+### v0.6: know which session is which
 
 - Reachable sessions (done on develop): `list_peers`, `send` and the dashboard say when a peer's machine has gone quiet (probably asleep) instead of calling it live.
-- Live push (done on develop): the adapter hears of new mail from a per-session event stream (`GET /v1/sessions/{id}/events`) instead of polling `peek` every 2 seconds, and the server writes once per open session every 30 seconds instead of every 2.
+- Live push (done on develop): the adapter hears of new mail from a per-session event stream (`GET /v1/sessions/{id}/events`) instead of polling `peek` every 2 seconds, and each open session costs the server one small write every 30 seconds (the adapter's check-in) instead of every 2.
 - Session labels in `list_peers` and the dashboard (done on develop), automatic only: the session's git branch, plus a one-line summary the agent sets and keeps up to date itself (never prompt text). Two live windows in one mailbox can then be told apart.
 - A lost owner mark is no longer silent (done on develop): when the Claude app's connection is replaced (a reconnect, a reused refresh token, the app disconnecting, a key rotation) and the owner mark goes with it, the server records why, the `owner_only` refusal says when and how to restore it (reconnect if needed, then `kampung owner add`), the dashboard flags it, and the app's `inbox` and `list_peers` carry a notice. The mark is never carried over to a new connection automatically, since nothing proves it is the owner's account.
 
