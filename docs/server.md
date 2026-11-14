@@ -68,7 +68,7 @@ docker compose start kampung
 | `kampung connect NAME` | Print the connector URL, the client id and a one-time code for the Claude app (needs `KAMPUNG_PUBLIC_URL`); creates the machine if it is new, with a key that is never shown |
 | `kampung disconnect NAME` | End a machine's Claude app connection; its mailboxes and mail stay |
 | `kampung owner add NAME` / `kampung owner remove NAME` | Let a machine's connected Claude app send owner instructions, or stop it (off by default, and cleared by `disconnect`, `revoke`, `key rotate` and a new `connect`; see the [README](../README.md#owner-instructions-off-by-default)) |
-| `kampung owner list` | List the Claude app connections marked as owner, with when each was connected |
+| `kampung owner list` | List the Claude app connections marked as owner, with when each was connected, and any mark that was lost, with when and why (`kampung owner remove NAME` dismisses one) |
 
 With Docker, prefix each with `docker compose exec kampung`. The Claude app steps are in the [README](../README.md#use-it-from-the-claude-app) and the [runbook](deploy-lightsail.md#14-connect-the-claude-app-optional).
 
