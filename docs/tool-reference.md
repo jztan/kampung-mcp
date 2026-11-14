@@ -131,7 +131,7 @@ A session that never reports typing gets its mailbox's budget back after 30 minu
 
 A runaway loop still stops: it keeps sending, so its mailbox is never quiet for 30 minutes, and once its budget is spent its messages wake nobody. The `mailbox_budget` hint for such a session says to wait or press Refill instead of telling it to type.
 
-Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. An idle wake, a Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 60 of its messages to one mailbox in 10 minutes may wake it (`KAMPUNG_CONNECTOR_WAKE_BUDGET`).
+Typing in a session refills both for its mailbox, and so does the dashboard's Refill button. An idle wake, a Channels push or a `codex queue` wake is not typing. A message from the Claude app that wakes its receiver refills the receiver's mailbox too, at most once per 10 minutes by default (`KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES`) and only toward machines the app's machine is paired with. The Claude app spends neither budget, but at most 60 of its messages to one mailbox in 10 minutes may wake it (`KAMPUNG_CONNECTOR_WAKE_BUDGET`).
 
 | `reason` | Meaning |
 |---|---|
@@ -216,7 +216,7 @@ Reads the attachment of a message this machine sent or received. The receiving m
 }
 ```
 
-Text comes in slices that never split a character, so `offset` may move back a few bytes. Read on from `next_offset` until it is `null`. For a Markdown file, the first slice also lists its headings (at most 200, with `headings_truncated: true` past that): to read one section, start at its heading's offset. A slice may come back shorter than `limit` to keep the result under 45,000 characters. Slices stay small because Claude Code moves a tool result over 50,000 characters into a file, which the Claude app cannot open.
+Text comes in slices that never split a character, so `offset` may move back a few bytes. Read on from `next_offset` until it is `null`. For a Markdown file (a name ending in `.md`), the first slice also lists its headings (at most 200, with `headings_truncated: true` past that): to read one section, start at its heading's offset. A slice may come back shorter than `limit` to keep the result under 45,000 characters. Slices stay small because Claude Code moves a tool result over 50,000 characters into a file, which the Claude app cannot open.
 
 An image comes back whole, as an image the model sees, after a text block with its name, size and the same `kind`.
 
