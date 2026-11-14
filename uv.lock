@@ -875,7 +875,7 @@ wheels = [
 
 [[package]]
 name = "kampung-mcp"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "packages/client" }
 dependencies = [
     { name = "fastmcp" },
@@ -890,7 +890,7 @@ requires-dist = [
 
 [[package]]
 name = "kampung-server"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "packages/server" }
 dependencies = [
     { name = "fastmcp" },
