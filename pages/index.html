@@ -1078,7 +1078,7 @@ function fly(dir) { if (REDUCE || fast) return; const p = $("pkt"); p.className 
 const env = (id, from, to, at, reply, body) => ({messages: [{id, from, to, sent_at: at, reply_to: reply, fyi: false, mode: "ask", kind: KIND, body, attachment: null}], more: 0});
 const sent = (id, left, full_at) => ({id, wake: true, budget: {left, size: 9, refill_minutes: 10, full_at}});
 const peers = list => ({kind: PEERS_KIND, peers: list});
-const sess = (suffix, cwd, agent, last_seen) => ({suffix, cwd, agent, live: true, background: false, last_seen});
+const sess = (suffix, cwd, branch, summary, agent, last_seen, reachable, seen) => ({suffix, cwd, branch, summary, agent, live: true, background: false, last_seen, reachable, seen});
 const WAKE = `${WAKE_PREFIX} nas/papers#5e: ${STOP_REASON}`;
 const MAC_TITLE = (dir) => `${dir} · claude · 110\u00d738`;   // macOS Terminal: "folder, process, size"
 
@@ -1092,7 +1092,7 @@ const STORIES = {
     steps: [
       ["L", "prompt", {text: "Draft the zero-trust section of the post. Cite NIST directly, not blogs."}],
       ["L", "say", {text: "The NIST PDFs live on the NAS, and `nas/papers` has them indexed with pdf-mcp. Asking there instead of citing from memory."}],
-      ["L", "mcp", {tool: "list_peers", args: null, result: peers([{mailbox: "laptop/blog", sessions: [sess("c1", "/Users/me/src/blog", "claude-code", "2026-10-29T06:01:02.118000Z")]}, {mailbox: "nas/papers", sessions: [sess("5e", "/home/dev/papers", "codex", "2026-10-29T05:58:40.330000Z")]}])}],
+      ["L", "mcp", {tool: "list_peers", args: null, result: peers([{mailbox: "laptop/blog", sessions: [sess("c1", "/Users/me/src/blog", "main", "drafting the launch post", "claude-code", "2026-10-29T06:01:02.118000Z", true, "just now")]}, {mailbox: "nas/papers", sessions: [sess("5e", "/home/dev/papers", "main", "summarising related papers", "codex", "2026-10-29T05:58:40.330000Z", null, "2 min ago")]}])}],
       ["L", "mcp", {tool: "send", args: {to: "nas/papers", body: "What does NIST SP 800-207 list as the tenets of zero trust? Give section and page numbers, paraphrased per tenet."}, result: sent(P1, 8, "2026-10-29T06:11:07.412000Z"), wire: "r"}],
       ["L", "say", {text: "While that's looked up, I'll outline the section."}],
       ["R", "wake", {text: WAKE}],

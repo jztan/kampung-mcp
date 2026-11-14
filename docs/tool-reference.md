@@ -191,7 +191,7 @@ To answer one session, send to its `from` address. If that session has ended, `s
 
 Each message also has `"attachment"`: `null`, or `{"name", "type", "bytes"}` when it carries one. The content is never in `inbox`.
 
-For the Claude app only, `inbox` and `list_peers` add `"notice"` while its owner mark is lost: when and why it was cleared, and that `kampung owner add <machine>` restores it.
+For the Claude app only, `inbox` and `list_peers` add `"notice"` while its owner mark is lost: when and why it was cleared, and how to restore it: `kampung owner add <machine>`, after a new `kampung connect` if the connection itself is gone.
 
 ## `read_attachment`
 
@@ -242,13 +242,15 @@ From the server:
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
-| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
+| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` (after `kampung connect` if the connection is gone) |
 | `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
 | `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
 | `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses, each with its branch and summary when known, quoted: `laptop/api#ef (branch "feature/x", summary "fixing login"), laptop/api#f7 (branch "develop")`, and ends by saying they are peer-supplied |
 | `no_session` | `send` | An owner instruction to a mailbox or `#xx` with nobody working in it now |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
-| `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
+| `rate_limited` | `send`, `set_summary` | This machine went over 60 sends or 30 summaries a minute. Try again in a minute |
+| `invalid_summary` | `set_summary` | More than one line, over 80 characters, or unprintable characters |
+| `not_for_app` | `set_summary` | The Claude app has no summary: its one session is shared by every chat |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |
 | `invalid_attachment` | `send` | The attachment's name or shape is not allowed, or the outbox or file is a link |
 | `attachment_too_large` | `send` | Text over 256 KB, an image over 25 megapixels (8 on the server, which checks the header) or still over 512 KB after shrinking, or a request that would pass 1 MB |
