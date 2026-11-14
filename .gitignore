@@ -42,7 +42,6 @@ AGENTS.md
 !.claude/settings.json
 
 # Private working documents
-backlog.md
 docs_internal/
 infra_internal/
 docs/superpowers/
