@@ -1,6 +1,6 @@
 # Roadmap
 
-Order is by priority, with no target dates. Reliability comes first, then waking idle sessions, then more clients, then operator hardening. 1.0 follows a real upgrade cycle. CHANGELOG has the detail of each release.
+Each release fixes a problem found in daily use. Nothing is built ahead of a real need: an idea waits under Not scheduled with the event that would bring it back. CHANGELOG has the detail of each release.
 
 ## Findings that shape the plan
 
@@ -48,29 +48,43 @@ Order is by priority, with no target dates. Reliability comes first, then waking
 - A reminder to set the session summary.
 - `set_summary` takes `summary`.
 
-### v0.8: operator hardening and more clients
+### v0.8: whatever daily use turns up
 
-- Claude Code plugin, for easier install.
-- ChatGPT app as a peer (spike first).
-- OpenCode as a client (spike first).
-- Codex waker bound, if daily use needs it.
-- Audit log: append-only, retention by kind, a copy to stdout.
-- Key lifetime: expiry, last used, Rotate on the dashboard.
-- CLI parity: `session end`, `session refill`, `message delete`.
-- Decide whether `/health` keeps returning the version.
-- Decide how the rate limiter and send errors treat failed sends and unpaired keys.
+- No planned features. Fixes for problems hit in daily use, logged below.
 
-### v1.0: stable contract
+### v1.0: a tool trusted day to day
 
-Freeze the five MCP tools and `/v1` once these hold:
+The soak started on 2026-11-14 with v0.7.0. v1.0 ships after three weeks in a row of daily use across the owner's machines with nothing new in the soak log.
 
-- Several weeks of daily use across the owner's machines with no silent failures.
-- A schema migration has run on a live server without losing mail.
-- Linux and Windows verified on real machines.
-- Idle wake has held up in daily use, with no flag labelled "dangerous".
+- [ ] Three weeks with no silent failure and no new problem (earliest 2026-12-05).
+- [x] A schema migration has run on a live server without losing mail (schemas 1 to 11, v0.2 to v0.7).
+- [x] Linux and Windows verified on real machines (v0.7.0 check, 2026-11-14).
+- [x] Idle wake without a flag labelled "dangerous" (since v0.5).
+
+### Soak log
+
+A silent failure is mail lost, or a wake or a reply that should have happened and did not, with no error. A logged problem restarts the three weeks once its fix ships.
+
+| Date | Problem | Fixed in |
+| --- | --- | --- |
+| | None yet | |
+
+## Decided
+
+- `/health` keeps returning the version: `doctor` needs it, and the version is public anyway.
+- Failed sends keep counting toward the rate limit, and send errors keep telling an unknown machine from an unpaired one: every key belongs to the owner, so a clear error is worth more than hiding names.
 
 ## Not scheduled
 
+Each item comes back when its trigger happens.
+
+- Claude Code plugin: setting up a new machine is a real chore.
+- ChatGPT app as a peer (spike first): the owner wants a ChatGPT chat to take part.
+- OpenCode as a client (spike first): the owner starts using OpenCode for real work.
+- Codex waker bound: a closed Codex thread is seen waking headless or taking mail.
+- Audit log hardening (append-only trigger, retention by kind, a copy to stdout): an audit row goes missing or is needed outside the database.
+- Key lifetime (expiry, last used, Rotate on the dashboard): a key leaks or is lost, or rotating one by CLI proves too slow.
+- CLI parity (`session end`, `session refill`, `message delete`): one of them is needed when the dashboard is out of reach.
 - Landing page that shows the Claude apps (phone, desktop, web, voice) as peers.
 - On demand only: Postgres, OIDC, a broker for multiple replicas, live dashboard updates.
 - Keep the FastMCP 3 pin until Claude Code registers channel servers on protocol 2026-07-28.
