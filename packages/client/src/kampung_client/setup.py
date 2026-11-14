@@ -562,3 +562,82 @@ def run_setup(
     if removed:
         lines.append(f"Removed {removed} stale session file(s).")
     return lines
+
+
+def _strip_file(path: Path, server: str | None) -> bool:
+    """Take our hooks (and, for Claude Code, our connector deny entries) out of
+    a hooks file; True if it changed. A file left empty that held nothing but
+    ours is removed, unless it is Claude Code's settings.json."""
+    if not path.exists():
+        return False
+    data = _load_hooks_file(path)
+    before = json.loads(json.dumps(data))
+    hooks = data.get("hooks")
+    if isinstance(hooks, dict):
+        for event in EVENTS + IDLE_WAKE_EVENTS:
+            if event not in hooks:
+                continue
+            stripped = (_strip_ours(e) for e in hooks[event])
+            entries = [e for e in stripped if e is not None]
+            if entries:
+                hooks[event] = entries
+            else:
+                hooks.pop(event)
+        if not hooks:
+            data.pop("hooks")
+    denied = data.get("deniedMcpServers")
+    if isinstance(denied, list):
+        ours: list[dict[str, str]] = [{"serverName": f"claude.ai {CONNECTOR_NAME}"}]
+        if server is not None:
+            ours.append({"serverUrl": connector_url_pattern(server)})
+        data["deniedMcpServers"] = [e for e in denied if e not in ours]
+        if not data["deniedMcpServers"]:
+            data.pop("deniedMcpServers")
+    if data == before:
+        return False
+    if not data and path != _claude_settings_path():
+        path.unlink()
+    else:
+        _write_json_atomic(path, data)
+    return True
+
+
+def uninstall(runner: Runner) -> list[str]:
+    """Undo setup on this machine: our hooks and connector deny entries (anyone
+    else's stay), both MCP registrations, the saved server and key, and the
+    session cache. Every file is checked before any is changed."""
+    config = hook.config_dir() / "config.json"
+    try:
+        server: str | None = str(json.loads(config.read_text())["server"])
+    except (OSError, ValueError, KeyError, TypeError):
+        server = None
+    files = [_claude_settings_path(), _codex_hooks_path()]
+    for path in files:
+        if path.exists():
+            _load_hooks_file(path)  # refuse a broken file before touching any
+    lines = []
+    for path in files:
+        if _strip_file(path, server):
+            lines.append(f"Removed Kampung's hooks from {path}.")
+    for name, cmd in (
+        ("Claude Code", ["claude", "mcp", "remove", "--scope", "user", "kampung"]),
+        ("Codex", ["codex", "mcp", "remove", "kampung"]),
+    ):
+        try:
+            if runner(cmd) == 0:
+                lines.append(f"Removed the {name} MCP server.")
+        except FileNotFoundError:
+            lines.append(
+                f"{cmd[0]} is not on PATH; if {name} has Kampung registered, run: "
+                f"{manual_command(cmd, _windows())}"
+            )
+    if config.exists():
+        config.unlink()
+        lines.append(f"Removed the saved server and key ({config}).")
+    shutil.rmtree(hook.cache_dir(), ignore_errors=True)
+    lines.append(
+        "Removed Kampung from this machine. Restart open Claude Code and Codex "
+        "sessions. The client itself stays installed: uv tool uninstall "
+        "kampung-mcp removes it."
+    )
+    return lines

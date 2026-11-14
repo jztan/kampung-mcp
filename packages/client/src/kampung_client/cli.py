@@ -1,4 +1,5 @@
-"""The `kampung-mcp` command line: run the adapter, or set up or check a machine."""
+"""The `kampung-mcp` command line: run the adapter, set up or check a machine, or
+try Kampung on one machine."""
 
 import argparse
 import os
@@ -60,6 +61,23 @@ def _parser() -> argparse.ArgumentParser:
         "used, or you are asked for it.",
     )
     sub.add_parser("doctor", help="check that this machine's Kampung setup works")
+    sub.add_parser(
+        "uninstall", help="remove Kampung's hooks, MCP registration and key here"
+    )
+    trial = sub.add_parser(
+        "try", help="run a trial server in Docker here and connect to it"
+    )
+    trial.add_argument(
+        "--agent",
+        choices=["claude-code", "codex", "both"],
+        help="default: whichever of claude and codex is on PATH",
+    )
+    trial.add_argument("--port", type=int, default=8803, help="default: 8803")
+    trial.add_argument(
+        "--stop",
+        action="store_true",
+        help="remove the trial server, its mail, and the setup it made",
+    )
     return p
 
 
@@ -128,6 +146,35 @@ def main(argv: list[str] | None = None) -> int:
         from . import doctor
 
         return doctor.main()
+    elif args.command == "uninstall":
+        from . import setup
+
+        try:
+            print("\n".join(setup.uninstall(setup.default_runner)))
+        except setup.SetupError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+    elif args.command == "try":
+        from . import setup, trial
+
+        try:
+            if args.stop:
+                lines = trial.stop_default(port=args.port)
+            else:
+                chosen = (
+                    None
+                    if args.agent is None
+                    else (
+                        ["claude-code", "codex"]
+                        if args.agent == "both"
+                        else [args.agent]
+                    )
+                )
+                lines = trial.start_default(port=args.port, agents=chosen)
+        except (trial.TryError, setup.SetupError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print("\n".join(lines))
     return 0
 
 
