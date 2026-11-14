@@ -625,7 +625,7 @@ def uninstall(runner: Runner) -> list[str]:
     ):
         try:
             if runner(cmd) == 0:
-                lines.append(f"Removed the {name} MCP server.")
+                lines.append(f"Removed {name}'s kampung MCP server, if it had one.")
         except FileNotFoundError:
             lines.append(
                 f"{cmd[0]} is not on PATH; if {name} has Kampung registered, run: "
