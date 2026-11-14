@@ -983,11 +983,42 @@ def step_from_tool(event: Event) -> str | None:
         found = _PATCH_FILE.search(text)
         if found:
             step = f"editing {os.path.basename(found.group(1).strip())}"
+    elif isinstance(given.get("command"), str):
+        programs = programs_in(str(given["command"]))
+        if programs:
+            step = "running " + ", ".join(programs)
     if step is None:
         return None
     step = " ".join(step.split())  # one line, no control characters
     step = "".join(c for c in step if c.isprintable())
     return step[:MAX_NOW_CHARS].strip() or None
+
+
+_WRAPPERS = frozenset({"sudo", "env", "time", "nohup", "exec", "command", "xargs"})
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SEGMENT = re.compile(r"&&|\|\||[;|\n]")
+
+
+def programs_in(command: str, most: int = 3) -> list[str]:
+    """The programs a shell command runs, by bare name, in order and without
+    repeats: never an argument, a value or a path, since those can carry a
+    secret or a private folder name."""
+    found: list[str] = []
+    for segment in _SEGMENT.split(command):
+        for word in segment.split():
+            word = word.strip("()`$'\"{}")
+            if not word or _ASSIGNMENT.match(word) or word in _WRAPPERS:
+                continue
+            if word.startswith("-"):
+                continue
+            name = re.split(r"[\\/]", word)[-1]
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,39}", name):
+                if name not in found:
+                    found.append(name)
+            break  # only the first word of each segment is a program
+        if len(found) >= most:
+            break
+    return found
 
 
 def _record_step(event: Event) -> None:

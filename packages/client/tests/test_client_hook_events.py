@@ -1060,7 +1060,23 @@ def _tool(name: str, given: object, **more: object) -> dict[str, object]:
         ),
         ("Write", {"file_path": "C:\\w\\notes.md"}, None),
         ("Read", {"file_path": "/w/api/README.md"}, "reading README.md"),
-        ("Bash", {"command": "export TOKEN=abc && deploy"}, None),
+        ("Bash", {"command": "export TOKEN=abc && deploy"}, "running export, deploy"),
+        (
+            "Bash",
+            {"command": "API_KEY=sk-123 ./bin/release --token=x"},
+            "running release",
+        ),
+        (
+            "Bash",
+            {"command": "printf 'x' > a.py\npython3 a.py\nprintf 'y' > a.py"},
+            "running printf, python3",
+        ),
+        (
+            "Bash",
+            {"command": "sudo -E env A=1 /opt/secret-proj/tool | grep x | wc -l; ls"},
+            "running tool, grep, wc",
+        ),
+        ("Bash", {"command": "$(cat ~/.token)"}, "running cat"),
         ("Grep", {"pattern": "secret"}, None),
         ("mcp__kampung__send", {"to": "x", "body": "y", "description": "z"}, None),
         (

@@ -20,7 +20,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Server (`ghcr.io/jztan/kampung-mcp`)
 
-- `list_peers` shows each session's latest step as `now`, with how long ago as `now_seen` ("Run the client test suite", "2 min ago"), in place of `summary`. The hooks report the step from what the session actually does, the description its agent wrote on a command or a subagent, or the file it read or edited, so it stays current while an agent works alone and costs no model turn. It is never taken from a command line, and a step that looks like a secret is dropped. The dashboard's Sessions page shows it in a Now column. The database migrates on start (schema 13).
+- `list_peers` shows each session's latest step as `now`, with how long ago as `now_seen` ("Run the client test suite", "2 min ago"), in place of `summary`. The hooks report the step from what the session actually does, the description its agent wrote on a command or a subagent, the file it read or edited, or for a command with no description (usual for Codex) the names of the programs it runs, so it stays current while an agent works alone and costs no model turn. A command's arguments are never sent, and a step that looks like a secret is dropped. The dashboard's Sessions page shows it in a Now column. The database migrates on start (schema 13).
 
 ### Removed
 
