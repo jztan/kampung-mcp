@@ -61,13 +61,13 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 
 ## Easier to try, and real feedback
 
-A separate track: docs during the soak, code after v1.0.
+A separate track, worked on now. It ships in soak patches until it is stable, and then that release is v1.0.
 
 - A "first 5 minutes" quickstart on one machine.
 - Hosting on a home machine or NAS.
 - A "tell us what broke" link in the docs and in `doctor`, and a pinned Discussion.
 - One post where agent users are, once the quickstart exists.
-- After v1.0: `kampung-mcp try` for a one-command local trial, and a join code for adding a machine.
+- `kampung-mcp try` for a one-command local trial.
 
 ## Decided
 
@@ -83,6 +83,7 @@ Each waits for a real need.
 - Codex waker bound.
 - Audit log hardening and key lifetime.
 - CLI parity for the dashboard's session and message actions.
+- A join code for adding a machine, once someone other than the owner sets up a second machine.
 - Landing page that shows the Claude apps (phone, desktop, web, voice) as peers.
 - On demand only: Postgres, OIDC, a broker for multiple replicas, live dashboard updates.
 - Keep the FastMCP 3 pin until Claude Code registers channel servers on protocol 2026-07-28.
