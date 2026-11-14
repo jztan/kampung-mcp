@@ -357,10 +357,10 @@ def notes_file_path(project_root: Path, new_version: str) -> Path:
 
 
 UPGRADE_STEPS = (
-    f"An upgrade: `uv tool upgrade {PACKAGE_NAME}` (from a checkout: `git pull` and "
-    "`uv sync`), then rerun `kampung-mcp setup --server URL` with the flags you "
-    "used before, such as `--agent both` or `--channels`, since a flag left out "
-    "goes back to its default."
+    f"An upgrade: `uv tool install {PACKAGE_NAME}@latest` (from a checkout: "
+    "`git pull` and `uv sync`), then rerun `kampung-mcp setup --server URL` "
+    "with the flags you used before, such as `--agent both` or `--channels`, "
+    "since a flag left out goes back to its default."
 )
 
 
@@ -370,7 +370,7 @@ def install_section(new_version: str) -> str:
 Client, on each machine (on Windows, quit Claude Code and Codex first). A new install:
 
 ```bash
-uv tool install {PACKAGE_NAME}=={new_version}
+uv tool install {PACKAGE_NAME}
 kampung-mcp setup --server https://kampung.example.com
 ```
 

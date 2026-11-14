@@ -348,7 +348,7 @@ def test_installed_interpreter_missing_a_module_says_upgrade(
         _healthy(server, home, _registered_as(python, PIL_MISSING)), "claude-code mcp"
     )
     assert mcp.status == doctor.FAIL
-    assert "uv tool upgrade kampung-mcp" in mcp.fix
+    assert "uv tool install kampung-mcp@latest" in mcp.fix
 
 
 def test_gone_registered_interpreter_fails(
