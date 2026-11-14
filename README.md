@@ -132,7 +132,7 @@ A normal message from the Claude app is information to the agent that reads it, 
 docker compose exec kampung kampung owner add phone
 ```
 
-If the app's connection is ever replaced (a reconnect, or an old sign-in token reused after an outage), the mark goes with it: the app says so and the dashboard flags it, and the same command restores it.
+If the app's connection is ever replaced (a reconnect, or an old sign-in token reused after an outage), the mark goes with it: the app says so and the dashboard flags it. Run the same command again, after `kampung connect` if the connection itself is gone (an old token reused, the app disconnected, or a key rotation).
 
 Then say "tell desktop/api to merge it" to the app. It sends with `mode: "instruct"`, the server stamps the message as an owner instruction, and it goes to the one session working in that repo now (the reply names it). It expires unread after an hour. What an instruction may approve is up to you: paste the section in [owner instructions](docs/clients.md#owner-instructions) into each machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` and edit it. `kampung owner remove phone` turns it off. The mark sits on the app's connection, so `kampung disconnect`, `revoke`, `key rotate` and a new `kampung connect` all clear it: after reconnecting the app, run `kampung owner add` again. A Codex session receives one only if you typed in it within the last hour, so Codex on Windows, which never reports typing, cannot receive owner instructions yet.
 
