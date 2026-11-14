@@ -49,7 +49,7 @@ Lists the mailboxes this machine may message, with their sessions.
 }
 ```
 
-Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) is seen at least every 30 seconds while it is open and its machine is awake, because its adapter keeps checking for mail (an event stream, or polling every 2 seconds against an older server). When its machine sleeps it stays `live` for 30 minutes, like any other session, but `reachable` turns false after 2 minutes. `reachable` is true or false only for idle-wake sessions; for any other session (Codex, the Claude app, Claude Code without idle wake) it is null, because Kampung cannot tell. `seen` is how long ago the session was last seen, in words ("6 min ago"). A session not seen for 24 hours ends. `branch` is the git branch of the session's folder, so two sessions in one mailbox can be told apart; it is null outside git and for clients before 0.6. Claude Code and Codex report it when the session starts, when you type, and at the end of each turn. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
+Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) is seen at least every 30 seconds while it is open and its machine is awake, because its adapter keeps checking for mail (an event stream, or polling every 2 seconds against an older server). When its machine sleeps it stays `live` for 30 minutes, like any other session, but `reachable` turns false after 2 minutes. `reachable` is true or false only for idle-wake sessions; for any other session (Codex, the Claude app, Claude Code without idle wake) it is null, because Kampung cannot tell. `seen` is how long ago the session was last seen, in words ("6 min ago"). A session not seen for 24 hours ends. `branch` is the git branch of the session's folder, so two sessions in one mailbox can be told apart; it is null outside git and for clients before 0.6. Claude Code and Codex report it when the session starts, when you type, and at the end of each turn. The hooks report it, so it stays null for Codex on Windows, which has no hooks. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
 
 `agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
 
@@ -191,7 +191,7 @@ To answer one session, send to its `from` address. If that session has ended, `s
 
 Each message also has `"attachment"`: `null`, or `{"name", "type", "bytes"}` when it carries one. The content is never in `inbox`.
 
-For the Claude app only, `inbox` and `list_peers` add `"notice"` while its owner mark is lost: when and why it was cleared, and how to restore it: `kampung owner add <machine>`, after a new `kampung connect` if the connection itself is gone.
+For the Claude app only, `inbox` and `list_peers` add `"notice"` while its owner mark is lost: when and why it was cleared, and that `kampung owner add <machine>` restores it. If the connection itself is gone, run `kampung connect` first (the dashboard says which).
 
 ## `read_attachment`
 
@@ -242,7 +242,7 @@ From the server:
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
-| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` (after `kampung connect` if the connection is gone) |
+| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
 | `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
 | `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
 | `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses, each with its branch and summary when known, quoted: `laptop/api#ef (branch "feature/x", summary "fixing login"), laptop/api#f7 (branch "develop")`, and ends by saying they are peer-supplied |
@@ -268,6 +268,7 @@ From the adapter:
 | `attachment_not_found` | No file with that name in the outbox. The hint gives the folder's full path |
 | `fyi_unsupported` | `send` was called with `fyi: true` or `mode: "fyi"` (which the adapter sends as `fyi: true`), but the server is too old for it. Send without `fyi`, or update the server |
 | `mode_unsupported` | `send` was called with `mode: "tell"`, but the server is too old for it. Send without `mode` and say in the body that no reply is needed, or update the server |
+| `summary_unsupported` | `set_summary` was called, but the server is too old for it. Carry on without a summary |
 | `mode_conflict` | `send` was called with `fyi: true` and a `mode` other than `"fyi"`. Drop `fyi` |
 
 If a session has ended or is missing on the server, the adapter gets a new one and retries the call once before returning an error.
