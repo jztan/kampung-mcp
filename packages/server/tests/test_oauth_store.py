@@ -103,8 +103,12 @@ def test_replace_grant_drops_old_tokens(
     assert oauth_store.grant_for_machine(conn, _laptop(machines)) == g2
     assert oauth_store.load_token(conn, "access", "kpa_1", now) is None
     with db.transaction(conn):
-        assert oauth_store.delete_grant_for_machine(conn, _laptop(machines), now)
-        assert not oauth_store.delete_grant_for_machine(conn, _laptop(machines), now)
+        assert oauth_store.delete_grant_for_machine(
+            conn, _laptop(machines), now, "disconnect"
+        )
+        assert not oauth_store.delete_grant_for_machine(
+            conn, _laptop(machines), now, "disconnect"
+        )
 
 
 def db_hour():  # type: ignore[no-untyped-def]
@@ -217,5 +221,5 @@ def test_owner_flag_dies_with_the_grant(
     assert oauth_store.is_owner(conn, laptop) is False
     with db.transaction(conn):
         oauth_store.set_owner(conn, laptop, True)
-        oauth_store.delete_grant_for_machine(conn, laptop, clock.now())
+        oauth_store.delete_grant_for_machine(conn, laptop, clock.now(), "disconnect")
     assert oauth_store.is_owner(conn, laptop) is False

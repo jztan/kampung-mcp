@@ -13,9 +13,12 @@ TARGET_FALLBACK = timedelta(hours=24)
 # Owner instructions: unread after this long, one can no longer be read or
 # wake anyone (the row keeps MESSAGE_TTL).
 OWNER_INSTRUCTION_TTL = timedelta(minutes=60)
-# A session that polls (idle wake, Codex) refreshes last_seen every 2 seconds,
-# so one not seen for this long is gone and cannot be bound.
-OWNER_BIND_WINDOW = timedelta(minutes=2)
+# A session that polls (idle wake, Codex) refreshes last_seen every 2 seconds
+# (backing off to 30 seconds on failure), so one not seen for this long is gone:
+# an owner instruction cannot bind to it, and an idle-wake session reports
+# reachable false (its machine is probably asleep or offline).
+POLL_WINDOW = timedelta(minutes=2)
+OWNER_BIND_WINDOW = POLL_WINDOW
 # A Codex thread is bound only if someone typed in it this recently: a closed
 # thread stays loaded and wakeable.
 OWNER_CODEX_TYPED_WINDOW = timedelta(minutes=60)
@@ -24,6 +27,8 @@ SEND_RATE_WINDOW = timedelta(seconds=60)
 REGISTER_RATE = 60
 # Typed-prompt calls per machine per minute: each refills wake budgets.
 HUMAN_TURN_RATE = 60
+STREAM_CONNECT_RATE = 120  # event stream connects per machine per minute
+SUMMARY_RATE = 30  # set_summary calls per machine per minute
 # peek calls per machine per minute: the Channels poller peeks every 2
 # seconds, so this covers MAX_LIVE_SESSIONS_PER_MACHINE windows polling at once.
 PEEK_RATE = 256 * 30
@@ -37,6 +42,9 @@ AUDIT_DELETE_BATCH = 1000
 SWEEP_EVERY = timedelta(minutes=5)
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_CWD_CHARS = 1024
+MAX_BRANCH_CHARS = 100
+MAX_CLIENT_VERSION_CHARS = 32
+MAX_SUMMARY_CHARS = 80
 MAX_AGENT_SESSION_ID_CHARS = 128
 MAX_LIVE_SESSIONS_PER_MAILBOX = 32
 MAX_LIVE_SESSIONS_PER_MACHINE = 256

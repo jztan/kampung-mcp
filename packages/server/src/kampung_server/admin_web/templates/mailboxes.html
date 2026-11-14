@@ -9,7 +9,7 @@
     {% for b in rows %}
       <tr>
         <td class="mono">{{ b.address }}</td>
-        <td>{% if b.live %}<span class="pill ok">{{ b.live }} live</span>{% else %}<span class="pill">{{ "none live" if b.total_sessions else "none" }}</span>{% endif %}</td>
+        <td>{% if b.live and b.unreachable == b.live %}<span class="pill warn">asleep?</span>{% elif b.live %}<span class="pill ok">{{ b.live - b.unreachable }} live</span>{% else %}<span class="pill">{{ "none live" if b.total_sessions else "none" }}</span>{% endif %}</td>
         <td class="right num">{{ b.queued }}</td>
         <td class="num">{{ b.oldest_queued_at | age if b.oldest_queued_at else "none" }}</td>
         <td class="right"><a href="/admin/messages?mailbox={{ b.address | urlencode }}">Messages</a></td>

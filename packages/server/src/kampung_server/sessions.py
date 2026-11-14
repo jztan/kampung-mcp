@@ -1,5 +1,7 @@
 """Agent sessions: registration, revival, resolution and liveness."""
 
+import enum
+import re
 import sqlite3
 from datetime import datetime
 
@@ -8,13 +10,18 @@ from .addressing import validate_name
 from .clock import parse_ts, ts
 from .errors import KampungError
 from .ids import new_suffix
+from .mailsignal import bumps
 from .limits import (
     LIVE_WINDOW,
     MAX_AGENT_SESSION_ID_CHARS,
+    MAX_BRANCH_CHARS,
+    MAX_CLIENT_VERSION_CHARS,
+    MAX_SUMMARY_CHARS,
     MAX_CWD_CHARS,
     MAX_LIVE_SESSIONS_PER_MACHINE,
     MAX_LIVE_SESSIONS_PER_MAILBOX,
     MAX_MAILBOXES_PER_MACHINE,
+    POLL_WINDOW,
 )
 from .models import SESSION_SELECT, Machine, Session, load_session, session_from_row
 
@@ -23,8 +30,56 @@ CONNECTOR_ID_PREFIX = "connector:"
 AGENTS = ("claude-code", "codex", "other", CONNECTOR_AGENT)
 CONNECTOR_REPO = "claude"
 CONNECTOR_CWD = "Claude app"
+_CLIENT_VERSION = re.compile(r"[0-9A-Za-z.+-]+")
 
 
+class Keep(enum.Enum):
+    """A register call that did not mention the branch: keep what is stored."""
+
+    KEEP = 0
+
+
+def check_branch(value: str) -> str | None:
+    """A reported git branch: "" means none now (stored as NULL)."""
+    if value == "":
+        return None
+    if not _printable(value, MAX_BRANCH_CHARS):
+        raise KampungError(
+            "invalid_branch",
+            f"branch must be up to {MAX_BRANCH_CHARS} printable characters.",
+        )
+    return value
+
+
+def check_client_version(value: str) -> str:
+    if len(value) > MAX_CLIENT_VERSION_CHARS or not _CLIENT_VERSION.fullmatch(value):
+        raise KampungError(
+            "invalid_client_version",
+            f"client_version must be 1 to {MAX_CLIENT_VERSION_CHARS} letters, "
+            "digits, dots, plus or minus signs.",
+        )
+    return value
+
+
+def check_summary(text: str) -> str | None:
+    """A summary its agent set: stripped; empty means none."""
+    text = text.strip()
+    if not text:
+        return None
+    if len(text) > MAX_SUMMARY_CHARS or not text.isprintable():
+        raise KampungError(
+            "invalid_summary",
+            f"A summary is one line of up to {MAX_SUMMARY_CHARS} printable "
+            "characters.",
+        )
+    return text
+
+
+def set_branch(conn: sqlite3.Connection, session_id: int, branch: str | None) -> None:
+    conn.execute("UPDATE sessions SET branch = ? WHERE id = ?", (branch, session_id))
+
+
+@bumps
 def register(
     conn: sqlite3.Connection,
     machine: Machine,
@@ -38,6 +93,8 @@ def register(
     suffix: str | None = None,
     background: bool = False,
     idle_wake: bool = False,
+    branch: str | None | Keep = Keep.KEEP,
+    client_version: str | None = None,
 ) -> Session:
     if agent not in AGENTS:
         raise KampungError(
@@ -72,6 +129,8 @@ def register(
         suffix,
         background,
         idle_wake,
+        branch,
+        client_version,
     )
     session = load_session(conn, session_id)
     assert session is not None
@@ -91,6 +150,8 @@ def _register(
     suffix: str | None,
     background: bool,
     idle_wake: bool,
+    branch: str | None | Keep = Keep.KEEP,
+    client_version: str | None = None,
 ) -> int:
     with db.transaction(conn):
         existing = None
@@ -123,11 +184,21 @@ def _register(
             # A conversation can move between a window and the background,
             # and its client can gain or lose idle wake, so each registration
             # says what holds now.
+            # The client version describes whoever registered last; the
+            # branch is kept unless this call reports one.
             conn.execute(
                 "UPDATE sessions SET ended_at = NULL, last_seen = ?, background = ?, "
-                "idle_wake = ? WHERE id = ?",
-                (ts(now), int(background), int(idle_wake), existing.id),
+                "idle_wake = ?, client_version = ? WHERE id = ?",
+                (ts(now), int(background), int(idle_wake), client_version, existing.id),
             )
+            if not isinstance(branch, Keep):
+                set_branch(conn, existing.id, branch)
+            if existing.ended_at is not None:
+                # Picked up again after an end: likely new work, so the old
+                # summary would mislead.
+                conn.execute(
+                    "UPDATE sessions SET summary = NULL WHERE id = ?", (existing.id,)
+                )
             audit.record(
                 conn,
                 now,
@@ -149,6 +220,8 @@ def _register(
                 agent_session_id,
                 background,
                 idle_wake,
+                None if isinstance(branch, Keep) else branch,
+                client_version,
             )
             audit.record(
                 conn,
@@ -183,6 +256,8 @@ def _create(
     agent_session_id: str | None,
     background: bool = False,
     idle_wake: bool = False,
+    branch: str | None = None,
+    client_version: str | None = None,
 ) -> int:
     row = conn.execute(
         "SELECT id FROM mailboxes WHERE machine_id = ? AND repo = ?",
@@ -231,7 +306,8 @@ def _create(
     cur = conn.execute(
         "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, "
         "agent_session_id, hooks, cwd, started_at, last_seen, background, "
-        "idle_wake) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "idle_wake, branch, client_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             mailbox_id,
             machine.id,
@@ -244,6 +320,8 @@ def _create(
             ts(now),
             int(background),
             int(idle_wake),
+            branch,
+            client_version,
         ),
     )
     assert cur.lastrowid is not None
@@ -318,6 +396,7 @@ def human_turn(conn: sqlite3.Connection, session: Session, now: datetime) -> int
     return guard.refill_mailbox(conn, session.mailbox_id)
 
 
+@bumps
 def end(conn: sqlite3.Connection, session_id: int, now: datetime) -> None:
     conn.execute(
         "UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
@@ -327,3 +406,17 @@ def end(conn: sqlite3.Connection, session_id: int, now: datetime) -> None:
 
 def is_live(session: Session, now: datetime) -> bool:
     return parse_ts(session.last_seen) >= now - LIVE_WINDOW
+
+
+# For a query whose sessions table is aliased `s`, with :poll bound to
+# ts(now - POLL_WINDOW): an idle-wake session that has stopped polling.
+STALE_POLLER_SQL = "(s.idle_wake = 1 AND s.last_seen < :poll)"
+
+
+def reachable(session: Session, now: datetime) -> bool | None:
+    """Whether a session can be woken now. Only an idle-wake session polls on
+    a timer, so only it can say no; for any other session (Codex, the Claude
+    app, older clients) and for an ended one the answer is unknown."""
+    if session.ended_at is not None or not session.idle_wake:
+        return None
+    return parse_ts(session.last_seen) >= now - POLL_WINDOW

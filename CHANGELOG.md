@@ -4,6 +4,29 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-14
+
+### Added
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- `list_peers` shows each session's git `branch`, so two windows in one mailbox can be told apart (`laptop/api#ef` on `feature/login`, `#f7` on `develop`). Claude Code and Codex report it when a session starts, when you type, and at the end of each turn, read from the session's own folder (not Codex on Windows, which has no hooks). It is null outside git. The `ambiguous_session` hint for an owner instruction names each session's branch too.
+- A new tool, `set_summary`: a Claude Code or Codex agent says in a few words what its session is working on, and `list_peers` shows it as `summary` next to the branch (and in the `ambiguous_session` hint), so windows on the same branch can be told apart too. The adapter tells agents to set it when a task starts or changes. It is one line of up to 80 characters, checked for secrets like a message body, and cleared when a session that had ended is picked up again. The Claude app has none (its one session is shared by every chat). An adapter talking to an older server gets `summary_unsupported` and carries on.
+- The dashboard's Sessions page shows each session's branch, summary and client version, and the Machines page the newest client version each machine reported. A client whose major.minor differs from the server's is marked.
+- A lost owner mark is no longer silent. When the Claude app's connection is replaced or removed (a reconnect, an old sign-in token reused after an outage, the app disconnecting, or `key rotate`), the mark still goes, but now: a refused owner instruction says when and why and to run `kampung owner add <machine>` (if the connection itself is gone, run `kampung connect` first, as the dashboard says); the app's `inbox` and `list_peers` carry a `notice` until then; the dashboard shows Owner lost on Machines and a line on the overview; and `kampung owner list` lists it. `kampung owner remove` (or Dismiss on the dashboard) dismisses it. Your own `kampung disconnect` or `revoke` still clears the mark but is not reported as a loss. The mark is never carried over to a new connection, since nothing proves it is the same Claude account.
+- The database moves to schema 12 on first start (three added session columns, two added machine columns); take a snapshot first. Sessions show no branch or client version until their client is on this release and registers again (start a new session, or type in an open one for the branch).
+
+### Changed
+
+#### Server (`kampung-server`) and client (`kampung-mcp`)
+
+- Live push: the adapter now hears of new mail from a per-session event stream (`GET /v1/sessions/{id}/events`) instead of asking the server every 2 seconds, so an idle session starts waking within about a second of a send, and the server does one small write per open session every 30 seconds instead of every 2. Against an older server, or while a stream is down, the adapter polls as before. A server restart now closes open streams after 3 seconds; adapters reconnect on their own. If you run your own reverse proxy, it must not buffer the stream (the shipped Caddyfile already sets `flush_interval -1`). New limits: 30 `set_summary` calls per machine per minute, 120 event-stream connects per machine per minute and 256 open streams per machine (`too_many_streams` past that).
+
+#### Server (`kampung-server`)
+
+- The Claude app now picks `mode: "instruct"` more reliably when you ask it to get a session to do something. Its `send` description leads with that rule and is half as long (the app could cut the old one off before reaching it), and the `mode` field has its own description. The owner-instructions section to paste into `CLAUDE.md` or `AGENTS.md` gains a line: a session that declines because a message is not an owner instruction asks for it to be resent with mode instruct.
+- `list_peers` and `send` now say when a peer's machine has gone quiet (probably asleep), even while its session still counts as live. Each session in `list_peers` has `reachable` (false once an idle-wake session has not checked for mail for 2 minutes; null when Kampung cannot tell) and `seen` ("6 min ago"). A `send` to such a session returns `"note": "unreachable"` with when it was last seen and a hint to tell your user if it is urgent; the message still waits and wakes it when the machine is back, and spends no wake budget. The dashboard shows these sessions as Unreachable and their mailboxes as "asleep?".
+
 ## [0.5.0] - 2026-11-12
 
 ### Added
@@ -242,6 +265,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.6.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.4.0
 [0.3.2]: https://github.com/jztan/kampung-mcp/releases/tag/v0.3.2

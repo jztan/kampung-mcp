@@ -369,3 +369,50 @@ def test_messages_page_marks_owner(
     login(web)
     assert ">instruct<" in web.get("/admin/messages").text
     assert "instruct" in web.get(f"/admin/messages/{msg_id}").text
+
+
+def test_unreachable_session_and_asleep_mailbox(
+    web: TestClient, make_session: MakeSession, clock: FakeClock
+) -> None:
+    make_session("desktop", "blog", idle_wake=True)
+    clock.advance(minutes=6)
+    login(web)
+    assert (
+        '<span class="pill bad">Unreachable</span>' in web.get("/admin/sessions").text
+    )
+    assert "asleep?" in web.get("/admin/mailboxes").text
+
+
+def test_sessions_and_machines_pages_show_branch_and_client(
+    web: TestClient, make_session: MakeSession
+) -> None:
+    import kampung_server
+
+    major_minor = ".".join(kampung_server.__version__.split(".")[:2])
+    make_session("laptop", "api", agent_session_id="a", branch="feature/x")
+    make_session(
+        "laptop", "api", agent_session_id="b", client_version=kampung_server.__version__
+    )
+    make_session("desktop", "api", client_version="0.1.0")
+    login(web)
+    sessions = web.get("/admin/sessions").text
+    assert "feature/x" in sessions and "Branch" in sessions and "Client" in sessions
+    assert '<span class="branch" title="feature/x">feature/x</span>' in sessions
+    assert "0.1.0" in sessions and f'title="server is {major_minor}"' in sessions
+    assert sessions.count('title="server is ') == 1
+    machines = web.get("/admin/machines").text
+    assert "0.1.0" in machines and f'title="server is {major_minor}"' in machines
+
+
+def test_sessions_page_shows_the_summary(
+    web: TestClient, conn: sqlite3.Connection, make_session: MakeSession
+) -> None:
+    s = make_session("laptop", "api", agent_session_id="a")
+    mail.set_summary(conn, s, "reviewing the owner-mark branch")
+    login(web)
+    page = web.get("/admin/sessions").text
+    assert "<th>Summary</th>" in page
+    assert (
+        '<span class="branch" title="reviewing the owner-mark branch">'
+        "reviewing the owner-mark branch</span>" in page
+    )

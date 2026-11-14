@@ -244,10 +244,14 @@ def test_list_peers_sessions_and_live_flag(
         {
             "suffix": s.suffix,
             "cwd": "/home/u/blog",
+            "branch": None,
+            "summary": None,
             "agent": "claude-code",
             "live": False,
             "background": False,
             "last_seen": s.last_seen,
+            "reachable": None,
+            "seen": "31 min ago",
         }
     ]
 

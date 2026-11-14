@@ -1,13 +1,16 @@
 """Read-only views of the store for the dashboard. Writes go through AdminService."""
 
 import json
+import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 
 from ..clock import ts
-from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL
+from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL, POLL_WINDOW
+from ..oauth_store import lost_marks, owner_lost_at_text, owner_lost_words
+from ..sessions import STALE_POLLER_SQL
 
 LIMIT = 100
 THREAD_PREVIEW = 1000  # characters of each body a thread shows; Open has the rest
@@ -51,6 +54,9 @@ class Overview:
     sent_24h: int
     oldest_queued_at: str | None
     recent_audit: list[AuditRow]
+    # (machine, "<at> UTC (<why>)", has a Claude app connection now) for each
+    # lost owner mark; without a connection, owner add needs a reconnect first.
+    owner_lost: list[tuple[str, str, bool]] = field(default_factory=list)
 
 
 @dataclass
@@ -64,6 +70,10 @@ class MachineRow:
     # send owner instructions.
     grant_created_at: str | None = None
     owner: bool = False
+    # The newest client version its sessions reported (self-reported).
+    client_version: str | None = None
+    # When and why its Claude app's owner mark was lost, as one line.
+    owner_lost: str | None = None
 
 
 @dataclass
@@ -73,6 +83,8 @@ class MailboxRow:
     total_sessions: int
     queued: int
     oldest_queued_at: str | None
+    # Live sessions that poll but have stopped: their machine is likely asleep.
+    unreachable: int = 0
 
 
 @dataclass
@@ -87,6 +99,9 @@ class SessionRow:
     started_at: str
     last_seen: str
     background: bool = False
+    branch: str | None = None
+    client_version: str | None = None
+    summary: str | None = None
 
 
 @dataclass
@@ -177,6 +192,10 @@ def _live_since(now: datetime) -> str:
     return ts(now - LIVE_WINDOW)
 
 
+def _poll_since(now: datetime) -> str:
+    return ts(now - POLL_WINDOW)
+
+
 def _at(now: datetime) -> dict[str, object]:
     """The time parameters every message query takes."""
     return {"now": ts(now), "owner_cutoff": ts(now - OWNER_INSTRUCTION_TTL)}
@@ -215,7 +234,52 @@ def overview(conn: sqlite3.Connection, now: datetime) -> Overview:
         ),
         oldest_queued_at=oldest,
         recent_audit=audit(conn, None, None, limit=20).rows,
+        owner_lost=[
+            (
+                name,
+                f"{owner_lost_at_text(at)} UTC ({owner_lost_words(reason)})",
+                conn.execute(
+                    "SELECT 1 FROM oauth_grants g JOIN machines m "
+                    "ON m.id = g.machine_id WHERE m.name = ?",
+                    (name,),
+                ).fetchone()
+                is not None,
+            )
+            for name, at, reason in lost_marks(conn)
+        ],
     )
+
+
+_VERSION = re.compile(r"\d+(?:\.\d+)*")
+
+
+def version_key(version: str) -> tuple[int, ...] | None:
+    """The leading dotted numbers of a version, for comparing; None when it
+    does not start with one."""
+    m = _VERSION.match(version)
+    return tuple(int(n) for n in m.group().split(".")) if m else None
+
+
+def minor_mismatch(client: str | None, server: str) -> bool:
+    """Whether a client's major.minor differs from the server's. Unknown or
+    unreadable versions never count as a mismatch."""
+    a = version_key(client) if client else None
+    b = version_key(server)
+    return a is not None and b is not None and a[:2] != b[:2]
+
+
+def _newest_client_versions(conn: sqlite3.Connection) -> dict[int, str]:
+    newest: dict[int, tuple[tuple[int, ...], str]] = {}
+    for r in conn.execute(
+        "SELECT DISTINCT machine_id, client_version FROM sessions "
+        "WHERE client_version IS NOT NULL"
+    ):
+        key = version_key(r["client_version"])
+        if key is not None and (
+            r["machine_id"] not in newest or key > newest[r["machine_id"]][0]
+        ):
+            newest[r["machine_id"]] = (key, r["client_version"])
+    return {machine: v for machine, (_, v) in newest.items()}
 
 
 def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
@@ -231,6 +295,11 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
         "SELECT a.name AS a, b.name AS b FROM pairings p "
         "JOIN machines a ON a.id = p.machine_a JOIN machines b ON b.id = p.machine_b"
     ).fetchall()
+    versions = _newest_client_versions(conn)
+    lost = {
+        name: f"{owner_lost_at_text(at)} UTC: {owner_lost_words(reason)}"
+        for name, at, reason in lost_marks(conn)
+    }
     peers: dict[str, list[str]] = {}
     for r in pairs:
         peers.setdefault(r["a"], []).append(r["b"])
@@ -244,6 +313,8 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
             created_at=r["created_at"],
             grant_created_at=r["grant_created_at"],
             owner=bool(r["owner"]),
+            client_version=versions.get(r["id"]),
+            owner_lost=lost.get(r["name"]),
         )
         for r in rows
     ]
@@ -254,6 +325,9 @@ def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
         "SELECT m.name || '/' || mb.repo AS address, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
         " AND s.ended_at IS NULL AND s.last_seen >= :live) AS live, "
+        "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
+        f" AND s.ended_at IS NULL AND s.last_seen >= :live AND {STALE_POLLER_SQL}) "
+        "AS unreachable, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id) AS total, "
         f"(SELECT COUNT(*) FROM messages msg WHERE msg.to_mailbox_id = mb.id "
         f" AND {_QUEUED}) AS queued, "
@@ -261,10 +335,17 @@ def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
         f" AND {_QUEUED}) AS oldest "
         "FROM mailboxes mb JOIN machines m ON m.id = mb.machine_id "
         "ORDER BY address",
-        {**_at(now), "live": _live_since(now)},
+        {**_at(now), "live": _live_since(now), "poll": _poll_since(now)},
     ).fetchall()
     return [
-        MailboxRow(r["address"], r["live"], r["total"], r["queued"], r["oldest"])
+        MailboxRow(
+            r["address"],
+            r["live"],
+            r["total"],
+            r["queued"],
+            r["oldest"],
+            r["unreachable"],
+        )
         for r in rows
     ]
 
@@ -278,7 +359,11 @@ def sessions(
     where = {"open": "s.ended_at IS NULL", "ended": "s.ended_at IS NOT NULL"}.get(
         state, "1"
     )
-    p: dict[str, object] = {"live": _live_since(now), "agent": agent}
+    p: dict[str, object] = {
+        "live": _live_since(now),
+        "poll": _poll_since(now),
+        "agent": agent,
+    }
     cond = f"{where} AND (:agent IS NULL OR s.agent = :agent)"
     base = (
         "FROM sessions s JOIN mailboxes mb ON mb.id = s.mailbox_id "
@@ -287,7 +372,9 @@ def sessions(
     rows = conn.execute(
         f"SELECT s.id, {_SESSION_ADDRESS} AS address, s.agent, s.cwd, "
         "s.started_at, s.last_seen, mb.wakes_since_refill, s.background, "
+        "s.branch, s.client_version, s.summary, "
         "CASE WHEN s.ended_at IS NOT NULL THEN 'ended' "
+        f"WHEN s.last_seen >= :live AND {STALE_POLLER_SQL} THEN 'unreachable' "
         "WHEN s.last_seen >= :live THEN 'live' ELSE 'idle' END AS state "
         f"{base} ORDER BY s.last_seen DESC, s.id DESC LIMIT {LIMIT}",
         p,
@@ -304,6 +391,9 @@ def sessions(
                 r["started_at"],
                 r["last_seen"],
                 bool(r["background"]),
+                r["branch"],
+                r["client_version"],
+                r["summary"],
             )
             for r in rows
         ],

@@ -85,7 +85,8 @@ def test_unknown_machine_and_mailbox(
 def test_targeted_unknown_session(
     conn: sqlite3.Connection, pair: tuple[Session, Session], clock: FakeClock
 ) -> None:
-    code = _code(conn, pair[0], "desktop/blog#ff", "hi", clock.now())
+    unused = "fe" if pair[1].suffix == "ff" else "ff"  # suffixes are random
+    code = _code(conn, pair[0], f"desktop/blog#{unused}", "hi", clock.now())
     assert code == "unknown_session"
 
 
@@ -214,6 +215,9 @@ def test_one_sender_cannot_fill_a_mailbox_for_everyone(
     for _ in range(MAX_WAITING_PER_SENDER):
         send(conn, flooder, "desktop/blog", "spam", None, clock.now())
     assert _code(conn, flooder, "desktop/blog", "more", clock.now()) == "mailbox_full"
+    # Later than the flood, so the reader below takes a flood message: with one
+    # frozen time, the tie fell to the ids' random tail (failed ~1 run in 200).
+    clock.advance(seconds=1)
     assert send(conn, tablet, "desktop/blog", "still gets through", None, clock.now())
     inbox(conn, reader, 1, clock.now())
     assert send(conn, flooder, "desktop/blog", "room again", None, clock.now())

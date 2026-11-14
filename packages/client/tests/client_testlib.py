@@ -18,7 +18,7 @@ import uvicorn
 from kampung_client import hook
 from kampung_server import db
 from kampung_server.admin import AdminService
-from kampung_server.app import create_app
+from kampung_server.app import SHUTDOWN_GRACE, create_app
 from kampung_server.clock import utcnow
 from kampung_server.deps import ServerDeps
 from kampung_server.ratelimit import RateLimiter
@@ -82,7 +82,15 @@ def start_server(tmp: Path) -> LiveServer:
     port = sock.getsockname()[1]
     sock.close()
     srv = uvicorn.Server(
-        uvicorn.Config(create_app(deps), host="127.0.0.1", port=port, log_level="error")
+        uvicorn.Config(
+            create_app(deps),
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            # As in production (app.SHUTDOWN_GRACE), so a stopped test
+            # server really stops while adapters hold event streams open.
+            timeout_graceful_shutdown=SHUTDOWN_GRACE,
+        )
     )
     threading.Thread(target=srv.run, daemon=True).start()
     while not srv.started:

@@ -315,3 +315,18 @@ def test_revive_sends_idle_wake(home: Path, server: LiveServer, repo: Path) -> N
     hook.api("POST", f"/v1/sessions/{data['session']}/end")
     resolver.refresh()
     assert db_query(server, live, "claude-code") == [(1,)]
+
+
+async def test_cancelling_the_poller_closes_its_stream(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    # A stream task left behind after the loop ends kept the event loop
+    # busy at shutdown on Windows (CI hung until the job timed out).
+    hooked_session(repo)
+    hook.ensure_wake_file(SID)
+    p, _ = poller(repo, channels=False)
+    async with background(p.poll()):
+        await until(lambda: p.source.state == "streaming")
+        stream = p.source.task
+        assert stream is not None and not stream.done()
+    assert stream.done() and p.source.task is None

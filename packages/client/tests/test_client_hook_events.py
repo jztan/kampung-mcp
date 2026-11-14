@@ -290,7 +290,9 @@ def test_stop_re_registers_only_once_for_a_session_that_stays_ended(
     r = run_hook(home, event("Stop", cwd=str(repo)))
     httpd.shutdown()
     assert r.returncode == 0 and r.stdout == ""
-    assert hits == [
+    # A session file without branch_sent (as a 0.5 client wrote) sends the
+    # branch once, on the peek and on its retry.
+    assert [h.split("?")[0] for h in hits] == [
         "GET /v1/sessions/1/peek",
         "POST /v1/sessions",
         "GET /v1/sessions/2/peek",
@@ -307,7 +309,7 @@ def test_stop_with_a_revoked_key_fails_open_without_registering(
     r = run_hook(home, event("Stop", cwd=str(repo)))
     httpd.shutdown()
     assert r.returncode == 0 and r.stdout == ""
-    assert hits == ["GET /v1/sessions/1/peek"]
+    assert [h.split("?")[0] for h in hits] == ["GET /v1/sessions/1/peek"]
     assert "HTTP 401" in (home / ".cache" / "kampung" / "hooks.log").read_text()
 
 
@@ -925,3 +927,102 @@ def test_codex_never_wakes_through_the_file_hook(
     peer_send(server, "laptop/api", "hello")
     r = run_hook(home, changed(), "--wake", "--agent", "codex")
     assert r.returncode == 0 and not hook.ack_path("cc-1").exists()
+
+
+# Branch refresh -------------------------------------------------------------
+
+
+def _set_head(repo: Path, branch: str) -> None:
+    (repo / ".git" / "HEAD").write_text(f"ref: refs/heads/{branch}\n")
+
+
+def _branch(server: LiveServer) -> object:
+    return db_query(server, "SELECT branch FROM sessions")[0][0]
+
+
+def _set_branch(server: LiveServer, value: str) -> None:
+    db_query(server, "UPDATE sessions SET branch = ?", value)
+
+
+def test_user_prompt_sends_registered_folders_branch(
+    home: Path, server: LiveServer, repo: Path, tmp_path: Path
+) -> None:
+    _set_head(repo, "a")
+    start(home, repo)
+    _set_head(repo, "b")
+    other = git_repo(tmp_path, "blog")
+    _set_head(other, "not-this-one")
+    r = run_hook(home, event("UserPromptSubmit", cwd=str(other), prompt="hi"))
+    assert r.returncode == 0, r.stderr
+    assert _branch(server) == "b"
+    assert hook.read_session_file("cc-1")["branch_sent"] == "b"  # type: ignore[index]
+
+
+def test_wake_prompt_sends_no_branch(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    _set_branch(server, "sentinel")
+    _set_head(repo, "c")
+    prompt = f"{hook.TASK_PREFIX} mail"
+    run_hook(home, event("UserPromptSubmit", cwd=str(repo), prompt=prompt))
+    assert _branch(server) == "sentinel"
+
+
+def test_stop_sends_branch_only_when_changed(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    _set_head(repo, "a")
+    start(home, repo)
+    _set_branch(server, "sentinel")
+    r = run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    assert r.returncode == 0 and r.stdout == "", r.stderr
+    assert _branch(server) == "sentinel"  # unchanged since register: not sent
+    _set_head(repo, "fix/a&b#c")
+    run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    assert _branch(server) == "fix/a&b#c"
+    data = hook.read_session_file("cc-1")
+    assert data is not None and data["branch_sent"] == "fix/a&b#c"
+
+
+def test_stop_sends_once_for_a_0_5_session_file(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    _set_head(repo, "develop")
+    start(home, repo)
+    data = hook.read_session_file("cc-1")
+    assert data is not None
+    del data["branch_sent"]
+    hook.write_session_file("cc-1", data)
+    _set_branch(server, "sentinel")
+    run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    assert _branch(server) == "develop"
+    _set_branch(server, "sentinel")
+    run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    assert _branch(server) == "sentinel"
+
+
+def test_stop_still_blocks_when_wakeable_with_branch(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    _set_head(repo, "feature/y")
+    peer_send(server, "laptop/api", "hello")
+    r = run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    assert json.loads(r.stdout) == {"decision": "block", "reason": BLOCK_REASON}
+    assert _branch(server) == "feature/y"
+
+
+def test_stop_with_an_old_server_keeps_sending_the_branch(
+    home: Path, repo: Path
+) -> None:
+    httpd, hits = scripted_server(200)
+    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
+    _set_head(repo, "feature/z")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": [], "cwd": str(repo)})
+    for _ in range(2):
+        run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    httpd.shutdown()
+    assert hits == ["GET /v1/sessions/1/peek?branch=feature%2Fz"] * 2
+    data = hook.read_session_file("cc-1")
+    assert data is not None and "branch_sent" not in data

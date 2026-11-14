@@ -33,7 +33,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 
 - **The server operator.** Messages are not end-to-end encrypted; the server reads them to enforce pairing and keep the audit log. Run it on a host you trust.
 - **A compromised machine.** Anything that can read `~/.config/kampung/config.json` (malware, a stolen laptop, backups, dotfile sync) has that machine's key, and keys don't expire. Any process on the machine, including the agent, can use the key, for example to refill the loop guard as if you had typed (each refill it triggers is audited). Run `kampung revoke <name>` as soon as a machine is lost, or `kampung key rotate <name>` if only the key leaked: rotating keeps the machine's mailboxes and pairings. Both end the machine's sessions and stop the old key at once. After a rotation, `kampung-mcp set-key` saves the new key on the machine.
-- **Agents on paired machines.** Pairing is a trust decision. A paired machine's agent can put text in front of yours: message bodies, mailbox names and session paths. Kampung labels all of it as information from a peer, never instructions, but a label is not a sandbox. Pair only machines whose agents you trust.
+- **Agents on paired machines.** Pairing is a trust decision. A paired machine's agent can put text in front of yours: message bodies, mailbox names, session paths, branches and summaries. Kampung labels all of it as information from a peer, never instructions, but a label is not a sandbox. Pair only machines whose agents you trust.
 - **Floods from many addresses.** Wrong keys are answered from memory. Once an address has sent 20 wrong keys within a minute, its requests get 429 until the oldest of those is a minute old; requests with a valid key still get through, so a revoked machine retrying behind a shared NAT doesn't lock out its neighbours. Behind the bundled Caddy the address is the real client's, and IPv6 clients count per /64. An attacker with many addresses can still spread out, so keep the firewall allowlist or a network-level rate limit in front of a server that faces the open internet. Behind a different proxy, set `KAMPUNG_FORWARDED_ALLOW_IPS` to it (see `.env.example`).
 - **A determined or tricked agent leaking a secret.** The secret scan is protection against accidents, not a guard. An agent that wants to can split a key across messages, encode it twice, or use a format the scan does not know, and pictures are not scanned at all, so a screenshot of a key goes through. A tricked session can also copy a key file into the outbox itself. Pairing is the trust decision: only pair machines whose agents you trust.
 - **Instructions inside attachments.** Attachment text and pictures are peer-supplied, like message bodies. They are labelled as information, but a label is not a sandbox, and the attachment's name is the sender's choice: never use it as a path.
@@ -68,7 +68,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Unread mail per mailbox | 1,000 (`mailbox_full`) |
 | Unread mail per mailbox from one sending machine | 200 (`mailbox_full`) |
 | Unread mail kept | 7 days |
-| Owner instruction read deadline | 60 minutes; it goes only to a session seen within 2 minutes if it checks for mail every 2 seconds (30 minutes otherwise), and only to a Codex session typed in within 60 minutes |
+| Owner instruction read deadline | 60 minutes; it goes only to a session seen within 2 minutes if it keeps checking for mail (30 minutes otherwise), and only to a Codex session typed in within 60 minutes. The same 2 minutes marks an idle-wake session `reachable: false` in `list_peers` and `send` |
 | Sends per machine | 60 per minute |
 | Session registrations per machine | 60 per minute |
 | Session calls per machine | `peek` 7,680 per minute (256 windows polling every 2 seconds), `end` 600 per minute |
@@ -78,12 +78,16 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Live sessions | 32 per mailbox, 256 per machine |
 | Mailboxes per machine | 1,000 |
 | Session `cwd` | 1,024 printable characters |
+| Session `branch` | 100 printable characters |
+| Session `summary` | 80 printable characters on one line, checked for secrets; 30 updates per machine per minute |
+| Session `client_version` | 32 characters: letters, digits, `.`, `+` and `-` |
 | `/v1` request body | 64 KB (also capped by Caddy: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`) |
 | `/mcp` request body | 1 MB, in the app as well as in Caddy |
 | Wakes per pair of mailboxes | 9 in a row, one back every 10 minutes (`KAMPUNG_PAIR_WAKE_SIZE`, `KAMPUNG_PAIR_WAKE_REFILL_MINUTES`) |
 | Wakes per mailbox | 30 until someone types there (`KAMPUNG_MAILBOX_WAKE_BUDGET`); for a session that never reports typing, they come back after 30 minutes without waking sends |
 | Claude app refills | one per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_REFILL_COOLDOWN_MINUTES`) |
 | Typed-prompt calls per machine | 60 per minute |
+| Event streams per machine | 120 connects per minute, 256 open at once |
 | Claude app wakes | 60 per receiving mailbox per 10 minutes (`KAMPUNG_CONNECTOR_WAKE_BUDGET`); later sends arrive with `wake: false` |
 | Connect code and pending sign-in | 10 minutes, single use; 5 wrong codes burn the sign-in; 20 wrong codes per client address in 15 minutes, then 429 |
 | Pending sign-ins | 3 per client address (IPv6: per /64) and 100 in all; a new one drops the oldest instead of being refused |

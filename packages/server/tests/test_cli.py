@@ -251,3 +251,40 @@ def test_owner_add_prints_grant_time(
     assert capsys.readouterr().out == f"phone  grant created {created}\n"
     assert cli.main(["owner", "remove", "phone"]) == 0
     assert "phone" in capsys.readouterr().out
+
+
+def test_owner_list_shows_and_remove_dismisses_a_lost_mark(
+    capsys: pytest.CaptureFixture[str], env: Path
+) -> None:
+    import re
+
+    assert cli.main(["key", "add", "phone"]) == 0
+    _phone_grant(env)
+    assert cli.main(["owner", "add", "phone"]) == 0
+    assert cli.main(["key", "rotate", "phone"]) == 0
+    capsys.readouterr()
+    assert cli.main(["owner", "list"]) == 0
+    assert re.fullmatch(
+        r"phone  owner mark lost \d{4}-\d\d-\d\d \d\d:\d\d UTC "
+        r"\(the machine key was rotated\)\n",
+        capsys.readouterr().out,
+    )
+    assert cli.main(["owner", "remove", "phone"]) == 0
+    assert capsys.readouterr().out == "phone's lost owner mark dismissed.\n"
+    assert cli.main(["owner", "list"]) == 0
+    assert capsys.readouterr().out == "No owners.\n"
+
+
+def test_serve_ends_open_event_streams_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An event stream never finishes by itself, so without a grace period a
+    # restart would wait for every stream until the container is killed.
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(app, "start_sweeper", lambda *a, **kw: None)
+    monkeypatch.setattr(app, "create_app", lambda deps: "asgi-app")
+    monkeypatch.setattr(app.uvicorn, "run", lambda asgi, **kw: seen.update(kw))
+    monkeypatch.setattr(app, "cap_pair_debt", lambda deps: None)
+    deps = SimpleNamespace(db_path=Path("unused.db"), clock=None)
+    app.serve(deps, "0.0.0.0", 8000)  # type: ignore[arg-type]
+    assert seen["timeout_graceful_shutdown"] == app.SHUTDOWN_GRACE == 3

@@ -363,20 +363,22 @@ async def test_send_description_states_the_live_settings(
     from kampung_server.ratelimit import RateLimiter
     from kampung_server.tools import SERVER_INSTRUCTIONS
 
-    g = GuardSettings(pair_size=5, mailbox_budget=40)
+    g = GuardSettings(connector_wake_budget=45)
     deps = ServerDeps(db_path, clock.now, RateLimiter(), guard=g)
     async with Client(build_server(deps)) as c:
         tools = {t.name: t for t in await c.list_tools()}
     text = tools["send"].description or ""
-    assert "5 times in a row" in text and "every 10 minutes" in text
-    assert "40" in text and "fyi" in text and "hint" in text
+    # Only the Claude app sees this description, so it states the app's own
+    # wake limit, not the machine-key budgets it never spends.
+    flat = " ".join(text.split())
+    assert "45 times per 10 minutes" in flat
+    assert "fyi" in text and "hint" in text
     assert '"tell"' in text and '"ask"' in text and "not woken" in text
-    assert "Codex on Windows" in text and "after 30 minutes without waking" in text
     assert "wake false" in SERVER_INSTRUCTIONS and "hint" in SERVER_INSTRUCTIONS
     assert 'mode "tell"' in SERVER_INSTRUCTIONS and "fyi" in SERVER_INSTRUCTIONS
     assert "background" in SERVER_INSTRUCTIONS and "background" in text
     assert "Prefer a peer's foreground session" in SERVER_INSTRUCTIONS
-    assert "prefer a foreground session" in " ".join(text.split())
+    assert "prefer a foreground session" in flat
     assert "which cannot be woken" not in SERVER_INSTRUCTIONS
     assert "They cannot be woken" not in text
 

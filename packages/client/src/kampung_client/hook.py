@@ -8,6 +8,7 @@ the agent: every failure is logged and swallowed.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import ipaddress
 import json
 import math
@@ -379,6 +380,59 @@ def _folder(cwd: str) -> tuple[str, bool]:
     return cwd, False
 
 
+MAX_BRANCH_CHARS = 100  # the server's limit; cut here so a long name never fails
+_DETACHED = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def _head_file(cwd: str) -> Path | None:
+    """The HEAD file of the git checkout holding cwd: .git/HEAD, or for a
+    worktree or submodule (.git is a file) the HEAD its gitdir line names."""
+    folder = Path(cwd)
+    for d in (folder, *folder.parents):
+        dot_git = d / ".git"
+        if dot_git.is_dir():
+            return dot_git / "HEAD"
+        if dot_git.is_file():
+            line = dot_git.read_text(encoding="utf-8").strip()
+            if not line.startswith("gitdir:"):
+                return None
+            return (d / line[len("gitdir:") :].strip()) / "HEAD"
+    return None
+
+
+def git_branch(cwd: str) -> str | None:
+    """The git branch of cwd's checkout, read from HEAD without running git
+    (hooks have 2 seconds, and git starts slowly on Windows). None outside
+    git or on anything unexpected; never raises."""
+    try:
+        head_file = _head_file(cwd)
+        if head_file is None:
+            return None
+        head = head_file.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return None
+    if head.startswith("ref:"):
+        ref = head[len("ref:") :].strip()
+        name = ref[len("refs/heads/") :] if ref.startswith("refs/heads/") else ref
+        if name.startswith("refs/"):
+            name = name[len("refs/") :]
+    elif _DETACHED.fullmatch(head):
+        name = f"detached {head[:7]}"
+    else:
+        return None
+    name = name.strip()[:MAX_BRANCH_CHARS]
+    return name if name and name.isprintable() else None
+
+
+def client_version() -> str | None:
+    """This client's version. hook.py runs as a file, not as part of the
+    package, so it asks the installed distribution."""
+    try:
+        return importlib.metadata.version("kampung-mcp")
+    except Exception:
+        return None
+
+
 def _pins_path() -> Path:
     return cache_dir() / "mailboxes.json"
 
@@ -687,8 +741,13 @@ def register(
     agent_session_id: str | None = None,
     timeout: float = 2.0,
     ancestry: bool = True,
+    report_branch: bool = True,
 ) -> dict[str, object]:
     """Register (or revive) a session and return its session-file contents.
+
+    Without `report_branch` the branch is left as the server has it: the
+    adapter cannot tell a session's folder (every Codex window shares one
+    daemon), so only the hooks report it.
 
     Without `ancestry` the file records no ancestors: Codex files are adopted
     by session id, and every Codex process shares one long-lived daemon.
@@ -708,6 +767,13 @@ def register(
         body["background"] = True
     if idle_wake_on(agent, agent_session_id):
         body["idle_wake"] = True  # likewise: a server before 0.5 ignores it
+    # A server before 0.6 ignores both.
+    branch = git_branch(cwd) or ""
+    if report_branch:
+        body["branch"] = branch
+    version = client_version()
+    if version is not None:
+        body["client_version"] = version
     status, data = api("POST", "/v1/sessions", body, timeout)
     if status != 200:
         raise HookError(f"register failed: HTTP {status} {data.get('error')}")
@@ -726,6 +792,9 @@ def register(
         "agent_session_id": agent_session_id,
         "ancestors": [list(a) for a in ancestors()] if ancestry else [],
         "background": background,
+        # Only a server that keeps the branch echoes it; with an older one the
+        # branch counts as unsent, so it goes again once the server is new.
+        **({"branch_sent": branch} if report_branch and "branch" in data else {}),
     }
 
 
@@ -770,7 +839,13 @@ def _session(event: Event) -> dict[str, object]:
 
 
 def _call(
-    event: Event, clock: _Clock, method: str, action: str, revive: bool
+    event: Event,
+    clock: _Clock,
+    method: str,
+    action: str,
+    revive: bool,
+    body: dict[str, object] | None = None,
+    query: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Call /v1/sessions/{id}/{action}; on 409 or 404 re-register and retry once.
 
@@ -787,13 +862,15 @@ def _call(
     )
     for attempt in range(2):
         path = f"/v1/sessions/{data['session']}/{action}"
-        status, body = api(method, path, None, clock.timeout())
+        if query:
+            path += "?" + urllib.parse.urlencode(query)
+        status, answer = api(method, path, body, clock.timeout())
         if status == 200:
-            return body
+            return answer
         if status in (404, 409) and attempt == 0:
             data = _register_and_save(event, clock)
             continue
-        raise HookError(f"{action}: HTTP {status} {body.get('error')}")
+        raise HookError(f"{action}: HTTP {status} {answer.get('error')}")
     raise HookError(f"{action}: gave up")
 
 
@@ -858,6 +935,28 @@ def turn_active(sid: str) -> bool:
         return False
 
 
+def _current_branch(event: Event) -> tuple[dict[str, object] | None, str]:
+    """The session file and the branch of the session's registered folder
+    (the event's cwd only when there is no file yet): the same folder as the
+    cwd and mailbox peers see, never where the session has cd'd since."""
+    data = read_session_file(str(event["session_id"]))
+    cwd = data.get("cwd") if data else None
+    if not isinstance(cwd, str) or not cwd:
+        cwd = event.get("cwd")
+    branch = git_branch(cwd) if isinstance(cwd, str) and cwd else None
+    return data, branch or ""
+
+
+def _mark_branch_sent(sid: str, branch: str) -> None:
+    data = read_session_file(sid)
+    if data is None or data.get("branch_sent") == branch:
+        return
+    try:
+        write_session_file(sid, {**data, "branch_sent": branch})
+    except OSError:
+        pass  # sent again next time; never fail a hook over this
+
+
 def on_user_prompt(event: Event, clock: _Clock) -> None:
     if _agent(event) == "codex":
         mark_turn(str(event["session_id"]))
@@ -871,7 +970,12 @@ def on_user_prompt(event: Event, clock: _Clock) -> None:
         return
     # Registers when the session file is missing (SessionStart failed earlier):
     # a deliberate departure from fail-open, so the window recovers.
-    _call(event, clock, "POST", "human-turn", revive=True)
+    _, branch = _current_branch(event)
+    answer = _call(
+        event, clock, "POST", "human-turn", revive=True, body={"branch": branch}
+    )
+    if "branch" in answer:  # a server before 0.6 does not keep it
+        _mark_branch_sent(str(event["session_id"]), branch)
 
 
 Seen = str | int | None  # what was last announced: a message id, or a count
@@ -959,7 +1063,14 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
     result: dict[str, object] | None = None
     try:
         if not event.get("stop_hook_active"):
-            body = _call(event, clock, "GET", "peek", revive=False)
+            # The branch rides on this peek only when it changed, so an agent's
+            # own `git switch` shows by the end of its turn.
+            data, branch = _current_branch(event)
+            changed = data is not None and data.get("branch_sent") != branch
+            query = {"branch": branch} if changed else None
+            body = _call(event, clock, "GET", "peek", revive=False, query=query)
+            if changed and "branch" in body:  # an older server ignores it
+                _mark_branch_sent(str(event["session_id"]), branch)
             wakeable = int(str(body.get("wakeable", 0)))
             if wakeable > 0:
                 reason = STOP_BLOCK_REASON.format(n=wakeable)

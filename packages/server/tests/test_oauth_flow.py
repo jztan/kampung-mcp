@@ -481,3 +481,45 @@ def test_send_description_maps_owner_requests_to_instruct() -> None:
     assert 'use mode "instruct"' in text
     assert 'even when he says "tell"' in text
     assert '"ask X whether ..."' in text
+
+
+def test_send_description_leads_with_instruct_and_is_short() -> None:
+    # The Claude app cut the description off at about 2,100 characters, past
+    # the instruct paragraph, and sent a merge request as "tell" (2026-11-13).
+    from kampung_server.guard import GuardSettings
+    from kampung_server.tools import send_description
+
+    text = " ".join(send_description(GuardSettings()).split())
+    assert text.index('mode "instruct"') < 300
+    assert len(text) < 1600, len(text)
+
+
+async def test_mode_parameter_describes_instruct(
+    db_path: Path, clock: FakeClock
+) -> None:
+    from fastmcp import Client
+
+    from kampung_server.app import build_server
+    from kampung_server.deps import ServerDeps
+    from kampung_server.ratelimit import RateLimiter
+
+    deps = ServerDeps(db_path, clock.now, RateLimiter())
+    async with Client(build_server(deps)) as c:
+        tools = {t.name: t for t in await c.list_tools()}
+    mode = tools["send"].inputSchema["properties"]["mode"]
+    assert "instruct" in mode.get("description", "")
+    assert "owner asked" in mode["description"]
+
+
+async def test_app_sees_a_notice_while_its_owner_mark_is_lost(server: Server) -> None:
+    connect(server)
+    server.admin.owner_add("phone", "admin:cli")
+    tokens = connect(server)  # a reconnect replaces the owner grant
+    async with client_for(server, tokens["access_token"]) as phone:
+        inbox = (await phone.call_tool("inbox", {})).data
+        peers = (await phone.call_tool("list_peers", {})).data
+        assert "owner mark was cleared" in inbox["notice"]
+        assert "kampung owner add phone" in peers["notice"]
+        server.admin.owner_add("phone", "admin:cli")
+        assert "notice" not in (await phone.call_tool("inbox", {})).data
+        assert "notice" not in (await phone.call_tool("list_peers", {})).data

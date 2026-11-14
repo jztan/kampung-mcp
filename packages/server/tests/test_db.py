@@ -460,9 +460,37 @@ def test_schema_9_adds_owner_columns(tmp_path: Path) -> None:
     )
     old.execute("INSERT INTO oauth_grants (machine_id, created_at) VALUES (1, 't')")
     db.migrate(old)
-    assert db.SCHEMA_VERSION == 9
-    assert old.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert old.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert old.execute("SELECT owner FROM oauth_grants").fetchone()[0] == 0
     cols = {r[1]: r for r in old.execute("PRAGMA table_info(messages)")}
     assert cols["owner"][3] == 1 and cols["owner"][4] == "0"
     old.close()
+
+
+def test_sessions_has_branch_and_client_version(conn: sqlite3.Connection) -> None:
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
+    assert {"branch", "client_version"} <= cols
+
+
+def test_migrate_9_to_10_keeps_sessions(tmp_path: Path) -> None:
+    old = db.connect(tmp_path / "old.db")
+    v1 = resources.files("kampung_server").joinpath("schema.sql").read_text()
+    for statement in db._statements(v1):
+        old.execute(statement)
+    for target in range(2, 10):
+        for statement in db._statements(db._script(target)):
+            old.execute(statement)
+    old.execute("PRAGMA user_version=9")
+    machine = _machine(old, "laptop")
+    old.execute(
+        "INSERT INTO mailboxes (machine_id, repo, created_at) VALUES (?, 'api', 't')",
+        (machine,),
+    )
+    old.execute(
+        "INSERT INTO sessions (mailbox_id, machine_id, suffix, agent, hooks, cwd, "
+        "started_at, last_seen) VALUES (1, ?, 'ab', 'claude-code', 1, '/a', 't', 't')",
+        (machine,),
+    )
+    db.migrate(old)
+    row = old.execute("SELECT branch, client_version FROM sessions").fetchone()
+    assert tuple(row) == (None, None)

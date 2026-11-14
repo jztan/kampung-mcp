@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% from "_macros.html" import detail %}
 {% block content %}
+{% for name, when, connected in o.owner_lost %}<div class="flash warn" role="status"><span class="flash-text">{{ name }}'s owner mark was cleared at {{ when }}. {% if connected %}Run <span class="mono">kampung owner add {{ name }}</span>{% else %}Reconnect the Claude app (<span class="mono">kampung connect {{ name }}</span>), then run <span class="mono">kampung owner add {{ name }}</span>{% endif %}, or dismiss it on <a href="/admin/machines">Machines</a>.</span></div>
+{% endfor %}
 <div class="stats">
   <div class="stat"><span class="label">Machines</span><span class="value">{{ o.machines - o.revoked }}</span><span class="hint">{{ o.revoked }} revoked</span></div>
   <div class="stat"><span class="label">Live sessions</span><span class="value">{{ o.live_sessions }}</span><span class="hint">seen in the last 30 min</span></div>
