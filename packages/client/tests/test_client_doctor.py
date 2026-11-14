@@ -458,10 +458,7 @@ def test_agent_with_only_an_mcp_registration_is_checked(
 
     checks = doctor.run_checks(codex_only)
     assert "claude-code hooks" not in [c.name for c in checks]
-    if os.name == "nt":  # Codex on Windows polls: it has no hooks to check
-        assert "codex hooks" not in [c.name for c in checks]
-    else:
-        assert _by_name(checks, "codex hooks").status == doctor.FAIL
+    assert _by_name(checks, "codex hooks").status == doctor.FAIL
 
 
 def _log(home: Path, *lines: str) -> None:
@@ -1090,3 +1087,17 @@ def test_background_sessions_note_says_idle_wake_reaches_them(
         "Channels push and leave mailbox mail to a window there; with idle wake "
         "on they wake like any other)"
     )
+
+
+def test_codex_hooks_are_checked_on_windows_without_the_launch_check(
+    home: Path, server: LiveServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Setup writes Codex hooks on Windows too (PowerShell form); the launch
+    # binding needs the daemon's Unix socket, which Windows does not have.
+    monkeypatch.setattr(setup, "_windows", lambda: True)
+    setup._merge_codex_hooks({})
+    checks = doctor.run_checks(
+        lambda cmd: _registered(cmd) if cmd[0] == "codex" else _unregistered(cmd)
+    )
+    assert _by_name(checks, "codex hooks").status == doctor.OK
+    assert "codex launch" not in [c.name for c in checks]
