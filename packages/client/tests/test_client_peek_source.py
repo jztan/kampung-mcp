@@ -99,8 +99,8 @@ async def test_heartbeat_peeks_while_streaming(
     async with _pumping(source, sid, []):
         await _until(lambda: source.state == "streaming")
         settled = len(peeks)
-        await asyncio.sleep(1.0)
-        assert len(peeks) >= settled + 2
+        # Two heartbeats, with room for a slow runner; a stream alone never peeks.
+        await _until(lambda: len(peeks) >= settled + 2)
 
 
 async def test_a_dropped_stream_polls_at_once_then_reconnects(
