@@ -59,7 +59,7 @@ Says in a few words what this session is working on now, so peers can tell sessi
 
 | Argument | Type | Meaning |
 |---|---|---|
-| `text` | string | One line of up to 80 printable characters, in the agent's own words. An empty string clears it |
+| `summary` | string | One line of up to 80 printable characters, in the agent's own words. An empty string clears it. The server's own `/mcp` tool calls it `text`; the adapter renames it |
 
 ```json
 { "summary": "reviewing the owner-mark branch" }

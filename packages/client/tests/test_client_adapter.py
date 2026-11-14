@@ -419,7 +419,10 @@ async def test_adapter_offers_set_summary_and_forwards_it(
         assert " ".join((tools["set_summary"].description or "").split()) == (
             SUMMARY_DESCRIPTION
         )
-        r = await c.call_tool("set_summary", {"text": "fixing the login form"})
+        # Named like its result and the list_peers field: Codex guessed
+        # `summary` when this was `text`. The server still takes `text`.
+        assert set(tools["set_summary"].inputSchema["properties"]) == {"summary"}
+        r = await c.call_tool("set_summary", {"summary": "fixing the login form"})
     assert r.data == {"summary": "fixing the login form"}
     assert db_query(server, "SELECT summary FROM sessions") == [
         ("fixing the login form",)
@@ -444,7 +447,7 @@ async def test_set_summary_against_an_old_server_is_a_clear_error(
     monkeypatch.setattr(adapter, "Client", OldServer)
     monkeypatch.setattr(adapter, "_diagnose", lambda: diagnosed.append(True) or {})
     async with Client(build_adapter("claude-code", str(repo))) as c:
-        r = await c.call_tool("set_summary", {"text": "x"})
+        r = await c.call_tool("set_summary", {"summary": "x"})
     assert r.data == {
         "error": "summary_unsupported",
         "hint": "This Kampung server is too old for set_summary; carry on without "

@@ -649,12 +649,13 @@ def build_adapter(
         )
 
     @mcp.tool
-    async def set_summary(ctx: Context, text: str) -> dict[str, Any]:
+    async def set_summary(ctx: Context, summary: str) -> dict[str, Any]:
         """Say in a few words of your own what this session is working on now,
         so peers can tell sessions apart in list_peers. Call it when you start
         a task and when the task changes; an empty string clears it. Peers see
         it: never include secrets or the user's words verbatim."""
-        return await forward("set_summary", {"text": text}, ctx)
+        # Named like its result for the model; the server's argument is `text`.
+        return await forward("set_summary", {"text": summary}, ctx)
 
     @mcp.tool
     async def inbox(ctx: Context, limit: int = 20) -> dict[str, Any]:
