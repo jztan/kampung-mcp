@@ -31,6 +31,26 @@ Without Caddy, set `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1` in `.env`. The defaul
 
 Then either keep the port on loopback and put `tailscale serve` in front, or publish it on the machine's tailnet address (`KAMPUNG_HOST_PORT` is published on `127.0.0.1`; change the `ports` line to `<tailnet address>:8803:8000`). Through `tailscale serve`, every client reaches the container from the same address, so those limits are shared: wrong tries from one machine count for all of them, which can lock the dashboard login or the connect page for everyone for up to 15 minutes. Requests with a valid key are never held back, and a browser that has signed in to the dashboard before keeps its access.
 
+### On a home network
+
+An always-on computer at home (a desktop, a mini PC, or a NAS that runs Docker) can host the server for machines on the same network, with no domain, certificate or cost. Machines away from that network can't reach it, and neither can the Claude app, which connects from Anthropic's cloud.
+
+1. Give the host a fixed address on your network (a DHCP reservation in your router), say `192.168.1.20`.
+2. In `.env` (copy `.env.example` if you have none), set `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1`, for the reason under [Tailscale only](#tailscale-only).
+3. Publish the port on that address too, with a `docker-compose.override.yml` next to `docker-compose.yml`. Compose adds it to the loopback publish:
+
+   ```yaml
+   services:
+     kampung:
+       ports:
+         - "192.168.1.20:8803:8000"
+   ```
+
+   Then `docker compose up -d --wait`. If the host runs a firewall, allow port 8803 from your network.
+4. On each machine, after `kampung key add` and `kampung pair` on the server: `kampung-mcp setup --server http://192.168.1.20:8803 --allow-insecure-http`.
+
+Plain `http` sends each machine's key unencrypted across your network, so anyone who can see that traffic (a shared or guest Wi-Fi that is not isolated, a compromised device) can read a key and act as that machine. Use this only on a network you trust; otherwise use [HTTPS with Caddy](#https-with-caddy) or [Tailscale](#tailscale-only).
+
 ## Without Docker
 
 Run it from the checkout with Python 3.12 or newer: `uv sync`, set `KAMPUNG_DB_PATH` to where the database should live, then `uv run kampung key add ...` and `uv run kampung serve` (port 8000). Put it behind your own TLS proxy, with `flush_interval -1` or its equivalent so streamed responses are not buffered.

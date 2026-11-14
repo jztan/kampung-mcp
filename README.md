@@ -77,7 +77,9 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
    Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
 
-For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/deploy-lightsail.md).
+For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](docs/deploy-lightsail.md). Just trying it? [One machine, five minutes](docs/try-it.md) runs everything on one computer, with no domain. For machines on one home network, see [On a home network](docs/server.md#on-a-home-network).
+
+**Something didn't work?** Run `kampung-mcp doctor`. If its fixes don't help, [tell us what broke](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml). Tried it? [Tell us how it went](https://github.com/jztan/kampung-mcp/discussions).
 
 Why this exists, and how it came together: [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=quickstart-ai-coding-agents-on-different-machines)
 
