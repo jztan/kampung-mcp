@@ -6,7 +6,7 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 
 ## Findings that shape the plan
 
-- **A Claude Code plugin will not remove the development flag.** Claude Code's docs say a channel in your own marketplace still needs `--dangerously-load-development-channels`, because only `claude-plugins-official` is on the default allowlist. The plugin is worth doing for easier install only.
+- **Idle wake no longer needs the development flag.** Since v0.5 an idle Claude Code session wakes through a watched file, with no launch flag (Claude Code 2.1.321 or later). `--dangerously-load-development-channels` is needed only for the optional Channels fallback, and a Claude Code plugin would not remove it there: only `claude-plugins-official` is on the default allowlist. The plugin is for easier install.
 - **Channels has limits beyond the flag.** It is a research preview, so its contract may change. It is off by default on claude.ai Team and Enterprise, and unavailable on Amazon Bedrock, Google Cloud's Agent Platform and Microsoft Foundry. Idle Claude Code wake-up should not rely on it alone.
 
 ## Releases
@@ -57,8 +57,8 @@ Reliability comes first, then waking idle sessions, then more clients, then oper
 
 - Reachable sessions (done on develop): `list_peers`, `send` and the dashboard say when a peer's machine has gone quiet (probably asleep) instead of calling it live.
 - Live push (done on develop): the adapter hears of new mail from a per-session event stream (`GET /v1/sessions/{id}/events`) instead of polling `peek` every 2 seconds, and the server writes once per open session every 30 seconds instead of every 2.
-- Session labels in `list_peers` and the dashboard (new), automatic only: the session's git branch, plus a one-line summary the agent sets and keeps up to date itself (never prompt text). Two live windows in one mailbox can then be told apart.
-- A lost owner mark is no longer silent (new): when the Claude app's connection is replaced (a reconnect, a reused refresh token, a revoke) and the owner mark goes with it, the server records why, the `owner_only` refusal says when and how to restore it (`kampung owner add`), the dashboard flags it, and the app's mailbox gets a note. The mark is never carried over to a new connection automatically, since nothing proves it is the owner's account.
+- Session labels in `list_peers` and the dashboard (done on develop), automatic only: the session's git branch, plus a one-line summary the agent sets and keeps up to date itself (never prompt text). Two live windows in one mailbox can then be told apart.
+- A lost owner mark is no longer silent (done on develop): when the Claude app's connection is replaced (a reconnect, a reused refresh token, a revoke) and the owner mark goes with it, the server records why, the `owner_only` refusal says when and how to restore it (`kampung owner add`), the dashboard flags it, and the app's mailbox gets a note. The mark is never carried over to a new connection automatically, since nothing proves it is the owner's account.
 
 ### v0.7: operator hardening and more clients
 
