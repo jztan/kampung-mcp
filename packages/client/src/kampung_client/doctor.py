@@ -163,7 +163,7 @@ def _version_check(server_version: str) -> Check:
         WARN,
         "version",
         detail,
-        "Upgrade the older side: uv tool upgrade kampung-mcp here, or pull the "
+        "Upgrade the older side: uv tool install kampung-mcp@latest here, or pull the "
         "new image on the server.",
     )
 
@@ -389,7 +389,7 @@ def _interpreter_problem(name: str, python: str, query: Query) -> Check | None:
     fix = (
         f"Run uv sync in {checkout}."
         if checkout is not None
-        else "Run uv tool upgrade kampung-mcp, then kampung-mcp setup."
+        else "Run uv tool install kampung-mcp@latest, then kampung-mcp setup."
     )
     try:
         code, output = query([python, "-c", INTERPRETER_PROBE])
