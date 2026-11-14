@@ -8,6 +8,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Client (`kampung-mcp`)
 
+- When a check fails, `kampung-mcp doctor` ends with a link to report the bug, for when the fixes it prints don't help.
 - Upgrade instructions, in the docs and in `kampung-mcp doctor`'s fixes, now say `uv tool install kampung-mcp@latest`. `uv tool upgrade kampung-mcp` did nothing on a client installed with a version (`kampung-mcp==0.6.0`, as release notes up to 0.7.0 said), because uv keeps that pin; `@latest` upgrades either way and drops the pin.
 
 ## [0.7.0] - 2026-11-14

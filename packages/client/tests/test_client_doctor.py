@@ -605,6 +605,25 @@ def test_cli_exits_1_and_prints_the_fix(
     assert cli.main(["doctor"]) == 1
     out = capsys.readouterr().out
     assert "FAIL" in out and "Fix: " in out and "kampung-mcp setup" in out
+    assert doctor.BUG_REPORT_URL in out
+
+
+def test_cli_names_the_bug_report_only_on_a_failure(
+    home: Path,
+    server: LiveServer,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(doctor, "default_query", _no_agent_cli)
+    _install_hooks(home)
+    assert cli.main(["doctor"]) == 0
+    assert doctor.BUG_REPORT_URL not in capsys.readouterr().out
+
+
+def test_bug_report_url_opens_the_bug_template() -> None:
+    assert doctor.BUG_REPORT_URL == (
+        "https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml"
+    )
 
 
 def test_try_hook_reads_the_powershell_form() -> None:
