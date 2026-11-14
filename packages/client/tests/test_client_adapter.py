@@ -176,7 +176,7 @@ async def test_adapter_failure_with_a_good_key_is_not_called_unreachable(
 async def test_adapter_lists_the_five_tools(home: Path) -> None:
     async with Client(build_adapter("claude-code", "/w/api")) as c:
         names = {t.name for t in await c.list_tools()}
-    assert names == {"list_peers", "send", "inbox", "read_attachment", "set_summary"}
+    assert names == {"list_peers", "send", "inbox", "read_attachment"}
 
 
 async def test_adapter_send_does_not_offer_instruct(home: Path) -> None:
@@ -187,13 +187,9 @@ async def test_adapter_send_does_not_offer_instruct(home: Path) -> None:
     assert enum == ["ask", "tell", "fyi"]
 
 
-async def test_adapter_instructions_are_the_servers_plus_summary(home: Path) -> None:
+async def test_adapter_instructions_are_the_servers(home: Path) -> None:
     async with Client(build_adapter("claude-code", "/w/api")) as c:
-        assert c.initialize_result.instructions == (
-            SERVER_INSTRUCTIONS
-            + " When you start a task, and when it changes, call set_summary "
-            "with a few words on what you are doing."
-        )
+        assert c.initialize_result.instructions == SERVER_INSTRUCTIONS
 
 
 async def test_codex_agent_registers_without_hooks(
@@ -397,60 +393,3 @@ async def test_send_description_explains_the_budget_without_numbers(
     assert "They cannot be woken" not in flat
     budget = text[text.index("wake") :]
     assert not re.search(r"[0-9]", budget)
-
-
-SUMMARY_DESCRIPTION = (
-    "Say in a few words of your own what this session is working on now, so "
-    "peers can tell sessions apart in list_peers. Call it when you start a task "
-    "and when the task changes; an empty string clears it. Peers see it: never "
-    "include secrets or the user's words verbatim."
-)
-
-
-async def test_adapter_offers_set_summary_and_forwards_it(
-    home: Path, server: LiveServer, tmp_path: Path
-) -> None:
-    from client_testlib import db_query
-
-    repo = git_repo(tmp_path, "api")
-    hooked_session(repo, "cc-1")
-    async with Client(build_adapter("claude-code", str(repo))) as c:
-        tools = {t.name: t for t in await c.list_tools()}
-        assert " ".join((tools["set_summary"].description or "").split()) == (
-            SUMMARY_DESCRIPTION
-        )
-        # Named like its result and the list_peers field: Codex guessed
-        # `summary` when this was `text`. The server still takes `text`.
-        assert set(tools["set_summary"].inputSchema["properties"]) == {"summary"}
-        r = await c.call_tool("set_summary", {"summary": "fixing the login form"})
-    assert r.data == {"summary": "fixing the login form"}
-    assert db_query(server, "SELECT summary FROM sessions") == [
-        ("fixing the login form",)
-    ]
-
-
-async def test_set_summary_against_an_old_server_is_a_clear_error(
-    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from fastmcp.exceptions import ToolError
-
-    repo = git_repo(tmp_path, "api")
-    hooked_session(repo, "cc-1")
-    diagnosed: list[bool] = []
-
-    class OldServer(Client):  # type: ignore[type-arg]
-        async def call_tool(  # type: ignore[no-untyped-def]
-            self, name, arguments=None, *a, **kw
-        ):
-            raise ToolError(f"Unknown tool: '{name}'")
-
-    monkeypatch.setattr(adapter, "Client", OldServer)
-    monkeypatch.setattr(adapter, "_diagnose", lambda: diagnosed.append(True) or {})
-    async with Client(build_adapter("claude-code", str(repo))) as c:
-        r = await c.call_tool("set_summary", {"summary": "x"})
-    assert r.data == {
-        "error": "summary_unsupported",
-        "hint": "This Kampung server is too old for set_summary; carry on without "
-        "it and don't call it again in this session.",
-    }
-    assert diagnosed == []

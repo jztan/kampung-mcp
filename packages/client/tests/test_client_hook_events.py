@@ -1028,51 +1028,85 @@ def test_stop_with_an_old_server_keeps_sending_the_branch(
     assert data is not None and "branch_sent" not in data
 
 
-def _summary_reminder(stdout: str) -> str | None:
-    if not stdout:
-        return None
-    out = json.loads(stdout)["hookSpecificOutput"]
-    assert out["hookEventName"] == "UserPromptSubmit"
-    return str(out["additionalContext"])
-
-
-def test_user_prompt_reminds_to_set_a_summary_while_none_is_set(
+def test_user_prompt_says_nothing_about_a_summary(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
     start(home, repo)
     r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
-    assert r.returncode == 0, r.stderr
-    reminder = _summary_reminder(r.stdout)
-    assert reminder is not None and "set_summary" in reminder
-
-
-def test_user_prompt_summary_reminder_waits_between_reminders(
-    home: Path, server: LiveServer, repo: Path
-) -> None:
-    start(home, repo)
-    assert _summary_reminder(
-        run_hook(home, event("UserPromptSubmit", prompt="a")).stdout
-    )
-    r = run_hook(home, event("UserPromptSubmit", prompt="b"))
     assert r.returncode == 0 and r.stdout == ""
 
 
-def test_user_prompt_stays_quiet_once_a_summary_is_set(
+def _tool(name: str, given: object, **more: object) -> dict[str, object]:
+    return event("PostToolUse", tool_name=name, tool_input=given, **more)
+
+
+@pytest.mark.parametrize(
+    ("name", "given", "step"),
+    [
+        (
+            "Bash",
+            {"command": "pytest -q", "description": "Run the tests"},
+            "Run the tests",
+        ),
+        (
+            "Agent",
+            {"description": "Reformat backlog", "prompt": "..."},
+            "Reformat backlog",
+        ),
+        (
+            "Edit",
+            {"file_path": "/w/api/src/hook.py", "old_string": "a"},
+            "editing hook.py",
+        ),
+        ("Write", {"file_path": "C:\\w\\notes.md"}, None),
+        ("Read", {"file_path": "/w/api/README.md"}, "reading README.md"),
+        ("Bash", {"command": "export TOKEN=abc && deploy"}, None),
+        ("Grep", {"pattern": "secret"}, None),
+        ("mcp__kampung__send", {"to": "x", "body": "y", "description": "z"}, None),
+        (
+            "apply_patch",
+            {"input": "*** Begin Patch\n*** Update File: src/app.py\n"},
+            "editing app.py",
+        ),
+        ("Bash", {"description": "two\nlines\there"}, "two lines here"),
+        ("Bash", {"description": "x" * 120}, "x" * 80),
+    ],
+)
+def test_step_from_tool(name: str, given: object, step: str | None) -> None:
+    got = hook.step_from_tool(_tool(name, given))
+    if name == "Write":
+        assert got is not None and got.startswith("editing ")
+    else:
+        assert got == step
+
+
+def test_a_step_rides_on_the_next_peek_and_shows_to_peers(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
     start(home, repo)
+    given = {"command": "uv run pytest", "description": "Run the client test suite"}
+    run_hook(home, _tool("Bash", given))
+    data = hook.read_session_file("cc-1")
+    assert data is not None and data["now"] == "Run the client test suite"
+    sid = int(str(data["session"]))
+    assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
+        ("Run the client test suite",)
+    ]
+    data = hook.read_session_file("cc-1")
+    assert data is not None and data["now_sent"] == "Run the client test suite"
+
+
+def test_a_step_waiting_for_the_nudge_interval_goes_with_the_stop_peek(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    run_hook(home, _tool("Bash", {"description": "First step"}))  # peeks, sends
+    run_hook(home, _tool("Edit", {"file_path": str(repo / "app.py")}))  # too soon
     sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
-    db_query(server, "UPDATE sessions SET summary = 'fixing login' WHERE id = ?", sid)
-    r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
-    assert r.returncode == 0 and r.stdout == ""
-
-
-def test_user_prompt_sends_no_reminder_to_a_server_without_summaries(
-    home: Path, repo: Path
-) -> None:
-    httpd, _ = scripted_server(200)  # answers human-turn without a summary key
-    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
-    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
-    r = run_hook(home, event("UserPromptSubmit", cwd=str(repo), prompt="hi"))
-    httpd.shutdown()
-    assert r.returncode == 0 and r.stdout == ""
+    assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
+        ("First step",)
+    ]
+    run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
+        ("editing app.py",)
+    ]

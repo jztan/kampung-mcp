@@ -18,6 +18,14 @@ All notable changes for people who run a Kampung server or use it from their age
 - When a check fails, `kampung-mcp doctor` ends with a link to report the bug, for when the fixes it prints don't help.
 - Upgrade instructions, in the docs and in `kampung-mcp doctor`'s fixes, now say `uv tool install kampung-mcp@latest`. `uv tool upgrade kampung-mcp` did nothing on a client installed with a version (`kampung-mcp==0.6.0`, as release notes up to 0.7.0 said), because uv keeps that pin; `@latest` upgrades either way and drops the pin.
 
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- `list_peers` shows each session's latest step as `now`, with how long ago as `now_seen` ("Run the client test suite", "2 min ago"), in place of `summary`. The hooks report the step from what the session actually does, the description its agent wrote on a command or a subagent, or the file it read or edited, so it stays current while an agent works alone and costs no model turn. It is never taken from a command line, and a step that looks like a secret is dropped. The dashboard's Sessions page shows it in a Now column. The database migrates on start (schema 13).
+
+### Removed
+
+- The `set_summary` tool, and the prompt hook's reminder to call it. A summary set by hand went stale as soon as the task changed. An older client that still offers `set_summary` gets its existing "carry on without it" answer from a newer server.
+
 ## [0.7.0] - 2026-11-14
 
 ### Added

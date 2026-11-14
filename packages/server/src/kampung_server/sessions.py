@@ -16,7 +16,7 @@ from .limits import (
     MAX_AGENT_SESSION_ID_CHARS,
     MAX_BRANCH_CHARS,
     MAX_CLIENT_VERSION_CHARS,
-    MAX_SUMMARY_CHARS,
+    MAX_ACTIVITY_CHARS,
     MAX_CWD_CHARS,
     MAX_LIVE_SESSIONS_PER_MACHINE,
     MAX_LIVE_SESSIONS_PER_MAILBOX,
@@ -61,18 +61,27 @@ def check_client_version(value: str) -> str:
     return value
 
 
-def check_summary(text: str) -> str | None:
-    """A summary its agent set: stripped; empty means none."""
+def check_activity(text: str) -> str | None:
+    """A session's latest step as its hook reported it: stripped; empty means
+    none."""
     text = text.strip()
     if not text:
         return None
-    if len(text) > MAX_SUMMARY_CHARS or not text.isprintable():
+    if len(text) > MAX_ACTIVITY_CHARS or not text.isprintable():
         raise KampungError(
-            "invalid_summary",
-            f"A summary is one line of up to {MAX_SUMMARY_CHARS} printable "
-            "characters.",
+            "invalid_now",
+            f"now is one line of up to {MAX_ACTIVITY_CHARS} printable characters.",
         )
     return text
+
+
+def set_activity(
+    conn: sqlite3.Connection, session_id: int, activity: str, now: datetime
+) -> None:
+    conn.execute(
+        "UPDATE sessions SET activity = ?, activity_at = ? WHERE id = ?",
+        (activity, ts(now), session_id),
+    )
 
 
 def set_branch(conn: sqlite3.Connection, session_id: int, branch: str | None) -> None:
@@ -195,9 +204,11 @@ def _register(
                 set_branch(conn, existing.id, branch)
             if existing.ended_at is not None:
                 # Picked up again after an end: likely new work, so the old
-                # summary would mislead.
+                # step would mislead.
                 conn.execute(
-                    "UPDATE sessions SET summary = NULL WHERE id = ?", (existing.id,)
+                    "UPDATE sessions SET activity = NULL, activity_at = NULL "
+                    "WHERE id = ?",
+                    (existing.id,),
                 )
             audit.record(
                 conn,

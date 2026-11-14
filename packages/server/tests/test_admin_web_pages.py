@@ -5,7 +5,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from admin_web_testlib import login
-from kampung_server import mail
+from kampung_server import mail, sessions
 from kampung_server.admin import AdminService
 from server_testlib import FakeClock, MakeSession
 
@@ -404,15 +404,18 @@ def test_sessions_and_machines_pages_show_branch_and_client(
     assert "0.1.0" in machines and f'title="server is {major_minor}"' in machines
 
 
-def test_sessions_page_shows_the_summary(
-    web: TestClient, conn: sqlite3.Connection, make_session: MakeSession
+def test_sessions_page_shows_now(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
 ) -> None:
     s = make_session("laptop", "api", agent_session_id="a")
-    mail.set_summary(conn, s, "reviewing the owner-mark branch")
+    sessions.set_activity(conn, s.id, "Run the client test suite", clock.now())
     login(web)
     page = web.get("/admin/sessions").text
-    assert "<th>Summary</th>" in page
+    assert "<th>Now</th>" in page and "<th>Summary</th>" not in page
     assert (
-        '<span class="branch" title="reviewing the owner-mark branch">'
-        "reviewing the owner-mark branch</span>" in page
+        '<span class="branch" title="Run the client test suite">'
+        "Run the client test suite</span>" in page
     )

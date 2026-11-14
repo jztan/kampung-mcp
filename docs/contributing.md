@@ -56,7 +56,7 @@ The FastMCP server, Streamable HTTP at `/mcp`, the hook API at `/v1`, SQLite sto
 | Module | What it holds |
 |---|---|
 | `app.py` | Assembles the server: auth, MCP tools, hook API and health |
-| `tools.py` | The MCP tools agents see: `list_peers`, `send`, `inbox`, `read_attachment`, `set_summary` |
+| `tools.py` | The MCP tools agents see: `list_peers`, `send`, `inbox`, `read_attachment` |
 | `hook_api.py` | The `/v1` hook API (register session, human turn, peek, end session, event stream) |
 | `events.py` | The per-session event stream: pushes peek counts when they change |
 | `mailsignal.py` | The in-process signal that mail state changed, bumped after each commit |

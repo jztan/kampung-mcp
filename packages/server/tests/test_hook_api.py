@@ -624,20 +624,36 @@ def test_peek_echoes_branch_only_when_sent(
     assert r.json()["branch"] == "fix/y"
 
 
-def test_human_turn_reports_the_sessions_summary(
+def test_human_turn_and_peek_store_now_and_echo_it(
     client: TestClient, machines: Machines, conn: sqlite3.Connection
 ) -> None:
-    # The UserPromptSubmit hook reminds the agent to call set_summary while
-    # this is null, so the key must be there even when no summary is set.
-    from kampung_server import mail
-
     key = machines["laptop"][1]
     sid = _register(client, key)
-    url = f"/v1/sessions/{sid}/human-turn"
-    r = client.post(url, headers=bearer(key))
-    assert r.status_code == 200 and r.json()["summary"] is None
+    turn = f"/v1/sessions/{sid}/human-turn"
+    assert "now" not in client.post(turn, headers=bearer(key)).json()
+    assert "summary" not in client.post(turn, headers=bearer(key)).json()
+    r = client.post(turn, headers=bearer(key), json={"now": "Run the tests"})
+    assert r.json()["now"] == "Run the tests"
+    r = client.get(
+        f"/v1/sessions/{sid}/peek", headers=bearer(key), params={"now": "editing a.py"}
+    )
+    assert r.json()["now"] == "editing a.py"
     s = load_session(conn, int(sid))
-    assert s is not None
-    mail.set_summary(conn, s, "fixing the login form")
-    r = client.post(url, headers=bearer(key))
-    assert r.json()["summary"] == "fixing the login form"
+    assert s is not None and s.activity == "editing a.py" and s.activity_at
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["two\nlines", "x" * 81, "token ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"],
+)
+def test_a_bad_or_secret_now_is_dropped_not_refused(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection, bad: str
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/peek"
+    client.get(url, headers=bearer(key), params={"now": "before"})
+    r = client.get(url, headers=bearer(key), params={"now": bad})
+    assert r.status_code == 200 and "now" not in r.json()
+    s = load_session(conn, int(sid))
+    assert s is not None and s.activity == "before"
