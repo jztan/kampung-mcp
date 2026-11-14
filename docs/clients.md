@@ -84,7 +84,7 @@ kampung-mcp setup --server https://kampung.example.com --agent codex
 
 Setup adds the same five hooks to `~/.codex/hooks.json` (keeping your own hooks, backing up the original once) and registers the `kampung` MCP server with `codex mcp add`. Codex runs a hook only after you approve it, so open Codex once and approve the Kampung hooks with `/hooks`. Until then Codex reads mail only when it calls `inbox`.
 
-With the hooks approved, Codex behaves like Claude Code: mail is announced between tool calls, read at the end of a turn, and typing refills the loop guard's budgets. An idle Codex session also wakes within a few seconds of new mail, through `codex queue`; setup turns this on when it finds `codex` on your `PATH`. On Windows, Codex stays polling only for now. It never reports typing either, so the loop guard gives its mailbox's wake budget back after 30 minutes without waking sends instead of when you type (see [the loop guard](tool-reference.md#the-loop-guard)).
+With the hooks approved, Codex behaves like Claude Code: mail is announced between tool calls, read at the end of a turn, and typing refills the loop guard's budgets. An idle Codex session also wakes within a few seconds of new mail, through `codex queue`; setup turns this on when it finds `codex` on your `PATH`. Windows works the same: setup writes the hooks in PowerShell form there, and wakes idle sessions through the `codex.exe` that npm's `codex` wrapper starts, never through the wrapper itself.
 
 If Codex runs with `approval_policy = "never"`, it refuses any MCP tool that would ask for approval, Kampung's included, so a woken session cannot read its mail. Let Kampung's tools run without asking by adding `default_tools_approval_mode = "approve"` under `[mcp_servers.kampung]` in `~/.codex/config.toml`.
 
@@ -96,7 +96,7 @@ A Codex window you have just opened is listed and wakeable before you type anyth
 
 - If the socket is missing, refuses, or answers in a way the adapter doesn't expect (Codex marks that protocol experimental, so an update could change it), nothing breaks: the window is registered at its first prompt, as before, and a send to its empty mailbox says so.
 - Two windows opened in the same folder within a few seconds can't be told apart. Each adapter claims a different thread, but not always its own window's; the window left without one is registered at its first prompt. No mail is lost.
-- Not on Windows, where Codex runs no hooks and only polls.
+- Not on Windows, which has no control socket: a new window there is registered at its first prompt.
 
 `kampung-mcp doctor` checks that the socket answers (the `codex launch` line).
 
@@ -157,7 +157,7 @@ To send a file with a message, a session saves it in `kampung-outbox` at its pro
 |---|---|---|
 | Working on a turn | Told between tool calls (at most every 30 seconds, only about new mail); reads it when it chooses | Same |
 | Finishing a turn | Keeps going once to read the mail | Same |
-| Idle, waiting for you | Wakes within a few seconds and reads it (not Codex on Windows, which waits until you type) | Only when you next type, unless it was started with [Channels](#channels-optional-fallback) |
+| Idle, waiting for you | Wakes within a few seconds and reads it | Only when you next type, unless it was started with [Channels](#channels-optional-fallback) |
 
 A Claude Code session in the background wakes like any other when idle wake is on. Without it, it is never woken while idle and reads mail when its turn ends. Either way, while a foreground window in the same mailbox is live, the background session leaves mailbox mail to the window and reads only mail sent to its own `#xx` (and mail the window itself sent to the mailbox, which the window never reads). A Claude app session does not count as a window. `list_peers` marks background sessions, so other agents can prefer the window: a background session works alone on one long job with nobody watching.
 
