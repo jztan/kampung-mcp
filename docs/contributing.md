@@ -84,9 +84,10 @@ The per-session stdio adapter and the hooks for Claude Code and Codex.
 |---|---|
 | `adapter.py` | The stdio MCP adapter: adds the machine key and session identity, forwards to the server, wakes idle sessions (idle wake, `codex queue`, Channels as a fallback) |
 | `hook.py` | The hook script for Claude Code and Codex. **Standard library only** (a test enforces this) |
-| `setup.py` | `kampung-mcp setup`: writes the config and hook entries |
+| `setup.py` | `kampung-mcp setup` and `uninstall`: writes the config and hook entries, and removes them again |
 | `doctor.py` | `kampung-mcp doctor`: read-only checks of a machine's setup |
-| `cli.py` | The `kampung-mcp` command: run the adapter, or set up or check a machine |
+| `cli.py` | The `kampung-mcp` command: run the adapter, set up, check or uninstall a machine, or start a trial |
+| `trial.py` | `kampung-mcp try`: a trial server in Docker on this machine, and `try --stop` |
 | `outbox.py` | Reads and checks an attachment from the project's `kampung-outbox` folder |
 | `images.py` | Shrinks PNG and JPEG attachments before they are sent |
 | `codex_launch.py` | Finds and claims a new Codex window's thread at launch |

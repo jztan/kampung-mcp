@@ -1,4 +1,5 @@
 import sqlite3
+import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
 from datetime import timedelta
@@ -634,12 +635,26 @@ def test_human_turn_and_peek_store_now_and_echo_it(
     assert "summary" not in client.post(turn, headers=bearer(key)).json()
     r = client.post(turn, headers=bearer(key), json={"now": "Run the tests"})
     assert r.json()["now"] == "Run the tests"
-    r = client.get(
-        f"/v1/sessions/{sid}/peek", headers=bearer(key), params={"now": "editing a.py"}
-    )
+    r = client.get(f"/v1/sessions/{sid}/peek", headers=_with_step(key, "editing a.py"))
     assert r.json()["now"] == "editing a.py"
     s = load_session(conn, int(sid))
     assert s is not None and s.activity == "editing a.py" and s.activity_at
+
+
+def _with_step(key: str, step: str) -> dict[str, str]:
+    return {**bearer(key), "X-Kampung-Now": urllib.parse.quote(step, safe="")}
+
+
+def test_peek_takes_the_step_from_its_header_never_the_url(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/peek"
+    r = client.get(url, headers=bearer(key), params={"now": "in the url"})
+    assert "now" not in r.json()
+    r = client.get(url, headers=_with_step(key, "reading café.md; ok"))
+    assert r.json()["now"] == "reading café.md; ok"
 
 
 @pytest.mark.parametrize(
@@ -652,8 +667,8 @@ def test_a_bad_or_secret_now_is_dropped_not_refused(
     key = machines["laptop"][1]
     sid = _register(client, key)
     url = f"/v1/sessions/{sid}/peek"
-    client.get(url, headers=bearer(key), params={"now": "before"})
-    r = client.get(url, headers=bearer(key), params={"now": bad})
+    client.get(url, headers=_with_step(key, "before"))
+    r = client.get(url, headers=_with_step(key, bad))
     assert r.status_code == 200 and "now" not in r.json()
     s = load_session(conn, int(sid))
     assert s is not None and s.activity == "before"

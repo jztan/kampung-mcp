@@ -1077,6 +1077,23 @@ def _tool(name: str, given: object, **more: object) -> dict[str, object]:
             "running tool, grep, wc",
         ),
         ("Bash", {"command": "$(cat ~/.token)"}, "running cat"),
+        (
+            "Bash",
+            {"command": 'curl --user "alice:x;Hunter2Battery" https://h'},
+            "running curl",
+        ),
+        (
+            "Bash",
+            {"command": "echo 'a | Hunter2Battery' && git push"},
+            "running echo, git",
+        ),
+        ("Bash", {"command": "echo hi > Hunter2Battery; ls"}, "running echo, ls"),
+        ("Bash", {"command": 'echo "unclosed; Hunter2Battery'}, None),
+        (
+            "PowerShell",
+            {"command": 'Write-Host "a;Hunter2Battery"; Get-Item C:\\w'},
+            "running Write-Host, Get-Item",
+        ),
         ("Grep", {"pattern": "secret"}, None),
         ("mcp__kampung__send", {"to": "x", "body": "y", "description": "z"}, None),
         (

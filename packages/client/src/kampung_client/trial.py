@@ -197,25 +197,67 @@ def next_steps(name: str, url: str, agents: list[str]) -> list[str]:
     ]
     if "codex" in agents:
         lines.append("In Codex, approve the Kampung hooks once with /hooks.")
-    lines.append("When you are done: kampung-mcp try --stop")
+    stop = "kampung-mcp try --stop"
+    if url != server_url(DEFAULT_PORT):
+        stop += f" --port {url.rsplit(':', 1)[-1]}"
+    lines.append(f"When you are done: {stop}")
     return lines
 
 
 def stop(docker: Docker, uninstall: Callable[[], list[str]], port: int) -> list[str]:
     """Remove the container and its mail, and undo setup if this machine is
-    connected to the trial server; a machine connected elsewhere keeps that."""
+    connected to the trial server; a machine connected elsewhere keeps that.
+    Docker is checked first, so a stopped Docker changes nothing."""
+    if docker(["info", "--format", "{{.ServerVersion}}"]).returncode != 0:
+        raise TryError(
+            "Docker is not running, so the trial server cannot be removed. "
+            "Start Docker and run kampung-mcp try --stop again. Nothing was "
+            "changed."
+        )
+    trial_urls = {server_url(port)}
+    published = _published_port(docker)
+    if published is not None:
+        trial_urls.add(server_url(published))
     lines = []
-    if _connected_server() == server_url(port):
+    if _connected_server() in trial_urls:
         lines += uninstall()
     else:
         lines.append(
             "This machine is not connected to the trial server, so its hooks "
             "and key were left alone."
         )
-    docker(["rm", "-f", CONTAINER])
-    docker(["volume", "rm", "-f", VOLUME])
+    failed = [
+        what
+        for what, args in (
+            (f"the {CONTAINER} container", ["rm", "-f", CONTAINER]),
+            (f"the {VOLUME} volume (its mail)", ["volume", "rm", "-f", VOLUME]),
+        )
+        if docker(args).returncode != 0
+    ]
+    if failed:
+        raise TryError(
+            "\n".join(
+                lines
+                + [
+                    f"Could not remove {' or '.join(failed)}; run "
+                    "kampung-mcp try --stop again."
+                ]
+            )
+        )
     lines.append(f"Removed the {CONTAINER} container and its mail.")
     return lines
+
+
+def _published_port(docker: Docker) -> int | None:
+    """The host port the trial container is published on, if it exists."""
+    done = docker(["port", CONTAINER, "8000/tcp"])
+    if done.returncode != 0:
+        return None
+    for line in done.stdout.splitlines():
+        found = re.search(r"127\.0\.0\.1:(\d+)$", line.strip())
+        if found:
+            return int(found.group(1))
+    return None
 
 
 def _default_setup(server: str, key: str, agents: list[str]) -> list[str]:

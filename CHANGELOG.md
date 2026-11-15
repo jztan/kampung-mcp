@@ -9,10 +9,12 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Client (`kampung-mcp`)
 
 - `kampung-mcp try` runs a trial server on this machine in one step: it starts the server in Docker (listening on `127.0.0.1:8803` only), makes this machine's key and connects whichever of Claude Code and Codex it finds, then says how to send the first message, between two folders of one agent or between Claude Code and Codex. `kampung-mcp try --stop` removes the server, its mail and the setup it made. It needs Docker, and it refuses to touch a machine already connected to another server.
-- `kampung-mcp uninstall` undoes setup: it removes Kampung's hooks and the connector deny entries setup added (anyone else's entries stay), Codex's approvals of those hooks in its `config.toml`, both MCP registrations, the saved server and key, and the session cache. It checks every settings file before it changes any.
+- `kampung-mcp uninstall` undoes setup: it removes Kampung's hooks and the connector deny entries setup added (anyone else's entries stay), Codex's approvals of those hooks in its `config.toml`, both MCP registrations, the saved server and key, and Kampung's cache folder (session files, saved mailbox names and `hooks.log`). It checks the Claude Code and Codex settings files before it changes any.
 
 #### Docs
 
+- [One machine, five minutes](docs/try-it.md): a trial on one computer with `kampung-mcp try`, or the same by hand with compose.
+- Running the server: an "On a home network" section, and the Docker requirement (Engine 25 or later with Compose 2.24 or later; Debian 12's own `docker.io` is too old).
 - An [Across your machines, with Tailscale](docs/tailscale.md) guide: the one-machine server reached from your other computers over Tailscale with `tailscale serve`, with no domain or open port.
 
 ### Changed
@@ -25,7 +27,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Server (`ghcr.io/jztan/kampung-mcp`)
 
 - `inbox` can read just some of the mail and leave the rest waiting: `sender` reads only one mailbox's mail, and `replies_to` only replies to the given message ids. Every result now counts the mail still waiting by sender (`waiting_by_sender`, no bodies), and `limit: 0` only counts. This is for the Claude app, where every chat shares one mailbox: a chat reads its own mail, and its description tells it so, instead of taking mail meant for another chat. Through an older server, the adapter answers `filter_unsupported`.
-- `list_peers` shows each session's latest step as `now`, with how long ago as `now_seen` ("Run the client test suite", "2 min ago"), in place of `summary`. The hooks report the step from what the session actually does, the description its agent wrote on a command or a subagent, the file it read or edited, or for a command with no description (usual for Codex) the names of the programs it runs, so it stays current while an agent works alone and costs no model turn. A command's arguments are never sent, and a step that looks like a secret is dropped. The dashboard's Sessions page shows it in a Now column. The database migrates on start (schema 13).
+- `list_peers` shows each session's latest step as `now`, with how long ago as `now_seen` ("Run the client test suite", "2 min ago"), in place of `summary`. The hooks report the step from what the session actually does, the description its agent wrote on a command or a subagent, the file it read or edited, or for a command with no description (usual for Codex) the names of the programs it runs, so it keeps up while an agent works alone (sent with the hooks' checks for mail, at most every 30 seconds and at each turn end) and costs no model turn. A command's arguments are never sent, quoted ones included; the step travels in a request header, never the URL, so it stays out of access logs; and a step that looks like a secret is dropped. The dashboard's Sessions page shows it in a Now column. The database migrates on start (schema 13).
 
 ### Removed
 
