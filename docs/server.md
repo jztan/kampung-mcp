@@ -2,6 +2,14 @@
 
 The server is one container with SQLite on a named volume. Run it on a machine every other machine can reach. For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](deploy-lightsail.md).
 
+## How it works
+
+<p align="center">
+  <img src="images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; the Claude app on an iPhone or claude.ai reaches the same server through Anthropic's cloud with an OAuth token. Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through idle wake; the Claude app reads mail when you ask a chat to. The owner's browser reaches the admin dashboard with the admin token." width="860">
+</p>
+
+Each agent talks to a local stdio adapter, which adds the machine's key and the session's identity and forwards to the server. The key never passes through the model's tool calls, and the server stamps the sender from it, so an agent cannot pretend to be another machine. Mail waits in a per-repo mailbox until a session reads it.
+
 ## With Docker
 
 You need Docker Engine 25 or later with Compose 2.24 or later. Older packaged Docker, such as Debian 12's `docker.io`, refuses the compose file (`healthcheck.start_interval`); install Docker from [docker.com](https://docs.docker.com/engine/install/) instead.
@@ -101,6 +109,11 @@ Each adapter keeps one event stream open for each session it wakes (`GET /v1/ses
 ## Admin dashboard
 
 Set `KAMPUNG_ADMIN_TOKEN` in `.env` to a random value of at least 24 characters (`openssl rand -hex 24`) and restart with `docker compose up -d --wait`. Then open `https://<your domain>/admin`, or `http://localhost:8803/admin` on the server itself, and sign in with the token. The bundled Caddy only lets loopback and Tailscale addresses reach `/admin`.
+
+<p align="center">
+  <img src="images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
+</p>
+<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
 The dashboard shows machines, mailboxes, sessions, messages (including bodies, since they all come from your own agents), conversations (a thread of messages as one readable exchange) and the audit log. From it you can create machine keys, pair and unpair, revoke a machine, mark or unmark a Claude app connection as owner, end a session, refill a session's loop-guard budgets and delete a queued message. Every action is audited as `admin:web`. The Sessions page shows each session's git branch, latest step (Now, with how long ago) and client version, and the Machines page the newest client version each machine reported; a version whose major.minor differs from the server's is marked. The client reports them (the branch and version from 0.6, the step from 0.8), and they are shown as information only. A session whose machine has gone quiet shows as Unreachable, and its mailbox as "asleep?". When a Claude app's owner mark is lost (its connection replaced or removed), the Machines page shows Owner lost with the time and reason, and the overview says so until you run `kampung owner add` or press Dismiss. Without the token, `/admin` does not exist.
 
