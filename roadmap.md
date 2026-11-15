@@ -48,7 +48,7 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 - A reminder to set the session summary.
 - `set_summary` takes `summary`.
 
-### v0.8: fixes from daily use (unreleased)
+### v0.8: easier to try (released 2026-11-15)
 
 - `kampung-mcp try` and `kampung-mcp uninstall`.
 - `list_peers` shows each session's latest step; `set_summary` is removed.
@@ -66,11 +66,11 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 A separate track, worked on now. It ships in soak patches until it is stable, and then that release is v1.0.
 
 - [x] A "first 5 minutes" quickstart on one machine.
-- [ ] Hosting on a home machine or NAS.
+- [x] Hosting on a home machine or NAS (a home-network section, and the Tailscale guide).
 - [x] A "tell us what broke" link in the docs and in `doctor`.
 - [x] `kampung-mcp try` for a one-command local trial.
-- [ ] A pinned Discussion, once `try` is released.
-- [ ] One post where agent users are, once `try` is released.
+- [ ] A pinned Discussion, now that `try` is released.
+- [ ] One post where agent users are, now that `try` is released.
 
 ## Decided
 
