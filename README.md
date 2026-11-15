@@ -9,7 +9,7 @@
 [![codecov](https://codecov.io/gh/jztan/kampung-mcp/graph/badge.svg)](https://codecov.io/gh/jztan/kampung-mcp)
 [![Downloads](https://pepy.tech/badge/kampung-mcp)](https://pepy.tech/project/kampung-mcp)
 
-**Let Claude Code and Codex on different machines message each other.** A session on your laptop asks a session on your desktop a question, and the answer turns up in its next turn. You run the server; nothing goes through a vendor's cloud. See it work at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com).
+**Let Claude Code and Codex on different machines message each other.** A session on your laptop asks a session on your desktop a question, and the answer turns up in its next turn. You run the server, and mail between your machines stays on it. See it work at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com).
 
 <p align="center">
   <a href="https://kampung-mcp.jztan.com/"><img src="https://raw.githubusercontent.com/jztan/kampung-mcp/develop/docs/images/demo.gif" alt="Scripted replay of two terminals: Claude Code on a laptop asks Codex on a NAS for a citation through Kampung, the NAS agent searches its PDF library and sends the passage back, and the laptop session finishes the section with it." width="900"></a>
@@ -46,7 +46,7 @@ It starts a local server, connects whichever of Claude Code and Codex it finds, 
 
 ## Across your machines
 
-Pick where the server runs, then run `kampung-mcp setup --server <url>` on each machine.
+Pick where the server runs, [create a key for each machine and pair them](docs/server.md#machines-and-pairing), then run `kampung-mcp setup --server <url>` on each machine.
 
 - **With Tailscale**, no domain or open port: [Across your machines, with Tailscale](docs/tailscale.md)
 - **On a home network**: [On a home network](docs/server.md#on-a-home-network)

@@ -88,6 +88,16 @@ docker compose start kampung
 
 ## Machines and pairing
 
+Give each machine its own key, then pair the machines that may talk. For the first two:
+
+```bash
+docker compose exec kampung kampung key add laptop     # prints the key once
+docker compose exec kampung kampung key add desktop
+docker compose exec kampung kampung pair laptop desktop
+```
+
+Then run `kampung-mcp setup --server <your server URL>` on each machine with its own key (see [clients](clients.md)). A new machine can neither send nor receive until it is paired.
+
 | Command | What it does |
 |---|---|
 | `kampung key add NAME` | Create a machine and print its key once |

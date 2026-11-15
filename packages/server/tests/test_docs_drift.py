@@ -314,4 +314,15 @@ def test_relative_links_resolve(path: Path) -> None:
 
 
 def test_readme_keeps_the_registry_line() -> None:
-    assert "mcp-name: io.github.jztan/kampung-mcp" in _read(ROOT / "README.md")
+    lines = _read(ROOT / "README.md").splitlines()
+    assert "**mcp-name: io.github.jztan/kampung-mcp**" in lines
+
+
+# README anchors that pages outside this repo link to (the blog posts, the
+# landing page, release notes): renaming the heading breaks them silently.
+LINKED_FROM_OUTSIDE = ["use-it-from-the-claude-app"]
+
+
+@pytest.mark.parametrize("anchor", LINKED_FROM_OUTSIDE)
+def test_readme_keeps_anchors_linked_from_outside(anchor: str) -> None:
+    assert anchor in _anchors(ROOT / "README.md")
