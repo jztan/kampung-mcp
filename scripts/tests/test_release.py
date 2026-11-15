@@ -141,7 +141,8 @@ def test_notes_file_checks(tmp_path: Path) -> None:
 
 def test_release_body_has_the_install_lines() -> None:
     body = release.build_release_body("## Highlights\n\nNew.", "", "0.2.0")
-    assert "uv tool install kampung-mcp==0.2.0" in body
+    assert "uv tool install kampung-mcp\n" in body
+    assert "kampung-mcp==" not in body
     assert "KAMPUNG_IMAGE_TAG=0.2.0" in body
 
 

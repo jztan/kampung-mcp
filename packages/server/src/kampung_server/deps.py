@@ -16,7 +16,6 @@ from .limits import (
     PEEK_RATE,
     REGISTER_RATE,
     STREAM_CONNECT_RATE,
-    SUMMARY_RATE,
 )
 from .oauth import TokenIndex
 from .ratelimit import RateLimiter
@@ -25,12 +24,6 @@ from .ratelimit import RateLimiter
 def _human_turn_limiter() -> RateLimiter:
     return RateLimiter(
         HUMAN_TURN_RATE, hint="Too many typed-prompt calls; try again in a minute."
-    )
-
-
-def summary_limiter() -> RateLimiter:
-    return RateLimiter(
-        SUMMARY_RATE, hint="Too many set_summary calls; try again in a minute."
     )
 
 
@@ -63,7 +56,6 @@ class ServerDeps:
     public_url: str | None = None
     register_limiter: RateLimiter = field(default_factory=_register_limiter)
     human_turn_limiter: RateLimiter = field(default_factory=_human_turn_limiter)
-    summary_limiter: RateLimiter = field(default_factory=summary_limiter)
     stream_limiter: RateLimiter = field(default_factory=stream_limiter)
     peek_limiter: RateLimiter = field(default_factory=peek_limiter)
     end_limiter: RateLimiter = field(default_factory=end_limiter)

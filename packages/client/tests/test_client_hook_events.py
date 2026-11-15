@@ -1,6 +1,7 @@
 import io
 import subprocess
 import json
+import sys
 import os
 import threading
 import time
@@ -1028,51 +1029,173 @@ def test_stop_with_an_old_server_keeps_sending_the_branch(
     assert data is not None and "branch_sent" not in data
 
 
-def _summary_reminder(stdout: str) -> str | None:
-    if not stdout:
-        return None
-    out = json.loads(stdout)["hookSpecificOutput"]
-    assert out["hookEventName"] == "UserPromptSubmit"
-    return str(out["additionalContext"])
-
-
-def test_user_prompt_reminds_to_set_a_summary_while_none_is_set(
+def test_user_prompt_says_nothing_about_a_summary(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
     start(home, repo)
     r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
-    assert r.returncode == 0, r.stderr
-    reminder = _summary_reminder(r.stdout)
-    assert reminder is not None and "set_summary" in reminder
-
-
-def test_user_prompt_summary_reminder_waits_between_reminders(
-    home: Path, server: LiveServer, repo: Path
-) -> None:
-    start(home, repo)
-    assert _summary_reminder(
-        run_hook(home, event("UserPromptSubmit", prompt="a")).stdout
-    )
-    r = run_hook(home, event("UserPromptSubmit", prompt="b"))
     assert r.returncode == 0 and r.stdout == ""
 
 
-def test_user_prompt_stays_quiet_once_a_summary_is_set(
+def _tool(name: str, given: object, **more: object) -> dict[str, object]:
+    return event("PostToolUse", tool_name=name, tool_input=given, **more)
+
+
+@pytest.mark.parametrize(
+    ("name", "given", "step"),
+    [
+        (
+            "Bash",
+            {"command": "pytest -q", "description": "Run the tests"},
+            "Run the tests",
+        ),
+        (
+            "Agent",
+            {"description": "Reformat backlog", "prompt": "..."},
+            "Reformat backlog",
+        ),
+        (
+            "Edit",
+            {"file_path": "/w/api/src/hook.py", "old_string": "a"},
+            "editing hook.py",
+        ),
+        ("Write", {"file_path": "C:\\w\\notes.md"}, None),
+        ("Read", {"file_path": "/w/api/README.md"}, "reading README.md"),
+        ("Bash", {"command": "export TOKEN=abc && deploy"}, "running export, deploy"),
+        (
+            "Bash",
+            {"command": "API_KEY=sk-123 ./bin/release --token=x"},
+            "running release",
+        ),
+        (
+            "Bash",
+            {"command": "printf 'x' > a.py\npython3 a.py\nprintf 'y' > a.py"},
+            "running printf, python3",
+        ),
+        (
+            "Bash",
+            {"command": "sudo -E env A=1 /opt/secret-proj/tool | grep x | wc -l; ls"},
+            "running tool, grep, wc",
+        ),
+        ("Bash", {"command": "$(cat ~/.token)"}, "running cat"),
+        (
+            "Bash",
+            {"command": 'curl --user "alice:x;Hunter2Battery" https://h'},
+            "running curl",
+        ),
+        (
+            "Bash",
+            {"command": "echo 'a | Hunter2Battery' && git push"},
+            "running echo, git",
+        ),
+        ("Bash", {"command": "echo hi > Hunter2Battery; ls"}, "running echo, ls"),
+        ("Bash", {"command": 'echo "unclosed; Hunter2Battery'}, None),
+        (
+            "PowerShell",
+            {"command": 'Write-Host "a;Hunter2Battery"; Get-Item C:\\w'},
+            "running Write-Host, Get-Item",
+        ),
+        ("Bash", {"command": 'printf "%s" ";" Hunter2Battery'}, "running printf"),
+        ("Bash", {"command": "printf %s \\| Hunter2Battery"}, "running printf"),
+        ("Bash", {"command": "cat <<'EOF'\n/p/Hunter2Battery\nEOF"}, "running cat"),
+        ("Bash", {"command": "echo ok # ; /p/Hunter2Battery"}, "running echo"),
+        ("Bash", {"command": "echo $(true) /p/Hunter2Battery"}, "running echo, true"),
+        ("Bash", {"command": "env -u Hunter2Battery echo ok"}, None),
+        ("Bash", {"command": "sudo -u Hunter2Battery git push"}, None),
+        (
+            "PowerShell",
+            {"command": "Write-Host a`;Hunter2Battery"},
+            "running Write-Host",
+        ),
+        (
+            "PowerShell",
+            {"command": '$Hunter2Battery = "v"; Get-Date'},
+            "running Get-Date",
+        ),
+        ("Bash", {"command": "Hunter2Battery"}, None),
+        (
+            "PowerShell",
+            {"command": "get-childitem . | select-object Name"},
+            "running Get-ChildItem, Select-Object",
+        ),
+        ("Bash", {"command": "echo $(true) /p/git"}, "running echo, true"),
+        ("Bash", {"command": "./audit.sh /p/git"}, None),
+        (
+            "PowerShell",
+            {"command": "$password = 'Get-Coffee'; Get-Date"},
+            "running Get-Date",
+        ),
+        ("PowerShell", {"command": '$source = "v"; Get-Date'}, "running Get-Date"),
+        ("Bash", {"command": "printf '%s' ';' /p/New-Acquisition"}, "running printf"),
+        ("Grep", {"pattern": "secret"}, None),
+        ("mcp__kampung__send", {"to": "x", "body": "y", "description": "z"}, None),
+        (
+            "apply_patch",
+            {"input": "*** Begin Patch\n*** Update File: src/app.py\n"},
+            "editing app.py",
+        ),
+        ("Bash", {"description": "two\nlines\there"}, "two lines here"),
+        ("Bash", {"description": "x" * 120}, "x" * 80),
+    ],
+)
+def test_step_from_tool(
+    name: str, given: object, step: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PATH differs per machine; these stand in for the programs installed here.
+    here = {"pytest", "deploy", "release", "python3", "tool", "grep", "wc", "ls"}
+    here |= {"cat", "curl", "git", "id", "cd", "echo", "export", "printf", "true"}
+    here |= {"Write-Host", "Get-Item", "Get-Date", "Get-ChildItem", "Select-Object"}
+    monkeypatch.setattr(hook, "is_program", lambda name: name in here)
+    got = hook.step_from_tool(_tool(name, given))
+    if name == "Write":
+        assert got is not None and got.startswith("editing ")
+    else:
+        assert got == step
+
+
+def test_only_a_real_program_counts() -> None:
+    assert hook.is_program("cd") and hook.is_program("Get-ChildItem")
+    assert hook.is_program(Path(sys.executable).name)
+    assert not hook.is_program("Hunter2Battery")
+    assert not hook.is_program("New-Acquisition")  # cmdlet-shaped, not a cmdlet
+
+
+def test_a_long_command_searches_path_only_a_few_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    looked: list[str] = []
+    monkeypatch.setattr(hook, "is_program", lambda n: looked.append(n) or False)
+    hook.programs_in("; ".join(f"Tok{i}" for i in range(5000)))
+    assert len(looked) == 10
+
+
+def test_a_step_rides_on_the_next_peek_and_shows_to_peers(
     home: Path, server: LiveServer, repo: Path
 ) -> None:
     start(home, repo)
+    given = {"command": "uv run pytest", "description": "Run the client test suite"}
+    run_hook(home, _tool("Bash", given))
+    data = hook.read_session_file("cc-1")
+    assert data is not None and data["now"] == "Run the client test suite"
+    sid = int(str(data["session"]))
+    assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
+        ("Run the client test suite",)
+    ]
+    data = hook.read_session_file("cc-1")
+    assert data is not None and data["now_sent"] == "Run the client test suite"
+
+
+def test_a_step_waiting_for_the_nudge_interval_goes_with_the_stop_peek(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    start(home, repo)
+    run_hook(home, _tool("Bash", {"description": "First step"}))  # peeks, sends
+    run_hook(home, _tool("Edit", {"file_path": str(repo / "app.py")}))  # too soon
     sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
-    db_query(server, "UPDATE sessions SET summary = 'fixing login' WHERE id = ?", sid)
-    r = run_hook(home, event("UserPromptSubmit", prompt="hi"))
-    assert r.returncode == 0 and r.stdout == ""
-
-
-def test_user_prompt_sends_no_reminder_to_a_server_without_summaries(
-    home: Path, repo: Path
-) -> None:
-    httpd, _ = scripted_server(200)  # answers human-turn without a summary key
-    write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
-    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
-    r = run_hook(home, event("UserPromptSubmit", cwd=str(repo), prompt="hi"))
-    httpd.shutdown()
-    assert r.returncode == 0 and r.stdout == ""
+    assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
+        ("First step",)
+    ]
+    run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=False))
+    assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
+        ("editing app.py",)
+    ]

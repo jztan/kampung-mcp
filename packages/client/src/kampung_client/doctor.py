@@ -26,6 +26,9 @@ from . import __version__, codex_launch, hook, setup
 OK = "ok"
 WARN = "WARN"
 FAIL = "FAIL"
+BUG_REPORT_URL = (
+    "https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml"
+)
 
 Query = Callable[[list[str]], tuple[int, str]]
 HTTP_TIMEOUT = 5  # seconds
@@ -163,7 +166,7 @@ def _version_check(server_version: str) -> Check:
         WARN,
         "version",
         detail,
-        "Upgrade the older side: uv tool upgrade kampung-mcp here, or pull the "
+        "Upgrade the older side: uv tool install kampung-mcp@latest here, or pull the "
         "new image on the server.",
     )
 
@@ -389,7 +392,7 @@ def _interpreter_problem(name: str, python: str, query: Query) -> Check | None:
     fix = (
         f"Run uv sync in {checkout}."
         if checkout is not None
-        else "Run uv tool upgrade kampung-mcp, then kampung-mcp setup."
+        else "Run uv tool install kampung-mcp@latest, then kampung-mcp setup."
     )
     try:
         code, output = query([python, "-c", INTERPRETER_PROBE])
@@ -644,6 +647,8 @@ def main() -> int:
     warnings = sum(c.status == WARN for c in checks)
     if problems or warnings:
         print(f"{problems} problem(s), {warnings} warning(s).")
+        if problems:
+            print(f"Still failing after the fixes? Tell us: {BUG_REPORT_URL}")
     else:
         print("All checks passed.")
     return 1 if problems else 0

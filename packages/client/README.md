@@ -48,6 +48,15 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
 ## Quick start
 
+**Just trying it on one computer?** With Docker running:
+
+```bash
+uv tool install kampung-mcp
+kampung-mcp try
+```
+
+It starts a local server and connects your agents; `kampung-mcp try --stop` removes it all again. See [One machine, five minutes](https://github.com/jztan/kampung-mcp/blob/master/docs/try-it.md). To reach a server from your other computers with no domain or open port, see [Across your machines, with Tailscale](https://github.com/jztan/kampung-mcp/blob/master/docs/tailscale.md). For your machines to talk to each other:
+
 1. **Run the server** (on a machine every other machine can reach):
 
    ```bash
@@ -77,7 +86,9 @@ Each agent talks to a local stdio adapter, which adds the machine's key and the 
 
    Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
 
-For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md).
+For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md). For machines on one home network, see [On a home network](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md#on-a-home-network).
+
+**Something didn't work?** Run `kampung-mcp doctor`. If its fixes don't help, [tell us what broke](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml). Tried it? [Tell us how it went](https://github.com/jztan/kampung-mcp/discussions).
 
 Why this exists, and how it came together: [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=quickstart-ai-coding-agents-on-different-machines)
 
@@ -90,11 +101,10 @@ Why this exists, and how it came together: [How I Let AI Agents on Different Mac
 
 | Tool | What it does |
 |---|---|
-| `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions. Mailboxes with no open session are hidden unless `include_empty` is true |
+| `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions: each one's git branch and latest step (`now`, with how long ago). Mailboxes with no open session are hidden unless `include_empty` is true |
 | `send(to, body, reply_to?, attachment?, mode?, fyi?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `mode` is `ask` (the default: wakes the receiver, a reply is welcome), `tell` (wakes it to act, no reply needed) or `fyi` (a note that wakes nobody); `fyi: true` is the older spelling of `mode: "fyi"` |
-| `inbox(limit=20)` | Read new messages, at most 20 at a time plus a count of the rest. Reading delivers them |
+| `inbox(limit=20, sender?, replies_to?)` | Read new messages, at most 20 at a time plus a count of the rest by sender. Reading delivers them. `sender` or `replies_to` reads only some and leaves the rest waiting; `limit=0` only counts |
 | `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
-| `set_summary(summary)` | Say in a few words what this session is working on; peers see it in `list_peers`. Claude Code and Codex only |
 
 Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag; only an owner instruction from your own Claude app is marked otherwise (below). Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
 
@@ -107,7 +117,7 @@ docker compose exec kampung kampung connect phone
 docker compose exec kampung kampung pair phone mac
 ```
 
-`connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read, so the first chat to read the inbox gets it.
+`connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read. A chat that reads only its own mail, by sender or as replies to messages it sent, leaves the rest for the chat it belongs to; the tool tells chats to do that, and you can ask one to.
 
 **Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. `kampung-mcp setup` denies any connector to your Kampung server's address (the one in `--server`) for every project in `~/.claude/settings.json`, whatever you named it, and `kampung-mcp doctor` warns when that entry is missing (rerun setup on machines set up with an older client). The entry it writes, with your server's address, is:
 
@@ -163,6 +173,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](https://git
 
 **The story behind the releases.** I write about building Kampung and the other tools I work on in [The Dispatch](https://blog.jztan.com/newsletter/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-newsletter). Come along if that's your kind of thing.
 
+- [I Asked My Phone to Coordinate Three AI Coding Agents](https://blog.jztan.com/run-coding-agents-from-your-phone/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-run-coding-agents-from-your-phone): One spoken request from the Claude app, and Claude Code and Codex on three operating systems checked a release and reported back, with no message carried by hand
 - [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-ai-coding-agents-on-different-machines): Why I stopped relaying questions between terminals, and how a self-hosted mailbox lets Claude Code and Codex on different machines message each other over MCP
 
 ## Contributing

@@ -19,7 +19,7 @@ Setup asks for the key without showing it, so it stays out of your shell history
 
 Restart Claude Code, and ask it to `list_peers`.
 
-The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool upgrade kampung-mcp` (or a `git pull`) updates the hooks too. In a checkout, run `uv sync` after the pull as well: a `.venv` that lags behind (after 0.3 it lacked Pillow) stops the adapter at start, which the agent shows only as a closed connection, and `kampung-mcp doctor` names the missing module. Rerun setup when the release notes say so (0.3 and 0.5 do, and 0.7 for Codex on Windows), or when the install moves, which includes `uv tool` moving it to another Python minor version. On Windows, quit every Claude Code and Codex window before upgrading: Windows locks the files of the adapter they run, so an upgrade with a window open stops halfway and leaves the client broken until it is run again with the windows closed.
+The hooks run from the `uv tool` environment (or the checkout) with the Python interpreter setup ran under, so keep it in place. `uv tool install kampung-mcp@latest` (or a `git pull`) updates the hooks too. In a checkout, run `uv sync` after the pull as well: a `.venv` that lags behind (after 0.3 it lacked Pillow) stops the adapter at start, which the agent shows only as a closed connection, and `kampung-mcp doctor` names the missing module. Rerun setup when the release notes say so (0.3 and 0.5 do, and 0.7 for Codex on Windows), or when the install moves, which includes `uv tool` moving it to another Python minor version. On Windows, quit every Claude Code and Codex window before upgrading: Windows locks the files of the adapter they run, so an upgrade with a window open stops halfway and leaves the client broken until it is run again with the windows closed.
 
 Hook and adapter failures are logged to `~/.cache/kampung/hooks.log`, which rolls over to `hooks.log.1` at 1 MB.
 
@@ -33,11 +33,21 @@ kampung-mcp doctor
 
 It checks the config, the server, the key, whether client and server versions match, each agent's hooks and MCP registration (including whether the registered interpreter can start the adapter, so a checkout whose `.venv` lags after an upgrade is named with the missing module and a `uv sync` fix), whether [idle wake](#idle-wake) is on and whether each open session's last wake was confirmed, whether Claude Code is kept from loading the Claude app connector, whether new Codex windows can be bound at launch, the sessions open on this machine (naming any that run in the background), and the last 24 hours of `hooks.log`. Each problem comes with a fix. It exits 1 if a check fails; warnings alone exit 0. It changes nothing, and it never prints the key.
 
+If a check still fails after its fix, doctor ends with a link to [report the bug](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml); please do.
+
 It can't see whether Codex has approved the hooks (`/hooks`), or whether this machine is paired with another: the dashboard's machines page shows that, and `list_peers` shows who an agent can reach.
 
 ### Rotating the key
 
 After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new key on the machine (it asks for it without echoing, or reads `--key -`), checks it against the server first, and leaves the hooks and MCP registration as they are. Restart Claude Code afterwards.
+
+### Trying it on one machine
+
+`kampung-mcp try` runs the server image matching the client's version in Docker as the container `kampung-try`, published on `127.0.0.1:8803` only (`--port` changes it), with its mail in the volume `kampung-try-data`, the compose file's lockdown (read-only root, a tmpfs for `/tmp`, every capability dropped, no new privileges) and `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1`, since nothing forwards for it. It then makes this machine's key (named from the hostname) and runs setup against it for the agents it finds on `PATH` (or `--agent`). It refuses a machine already connected to another server. `kampung-mcp try --stop` removes the container and its mail, and runs `uninstall` when this machine is connected to the trial server. See [One machine, five minutes](try-it.md).
+
+### Removing Kampung from a machine
+
+`kampung-mcp uninstall` removes Kampung's hooks and the connector deny entries for `claude.ai kampung` and your server's URL (your own entries in those files stay; one written with `setup --connector-name` stays too), Codex's approvals of those hooks in its `config.toml`, the Claude Code and Codex MCP registrations, the saved server and key, and Kampung's cache folder (`~/.cache/kampung`: session files, saved mailbox names and `hooks.log`). It checks the Claude Code and Codex settings files first and changes nothing if one is broken; a Codex `config.toml` it cannot read keeps its approvals. Restart open sessions afterwards; `uv tool uninstall kampung-mcp` removes the client itself.
 
 ### HTTPS only
 
@@ -163,7 +173,9 @@ A Claude Code session in the background wakes like any other when idle wake is o
 
 If the server is slow or down, the hooks give up within seconds and the agent carries on.
 
-The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so the first chat to read it is the one that gets it. See [Use it from the Claude app](../README.md#use-it-from-the-claude-app).
+If mail arrives later than this table says, or not at all, run `kampung-mcp doctor`, and if that finds nothing, [tell us what broke](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml).
+
+The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so a chat that reads everything takes mail meant for another chat. `inbox` can read only one sender's mail or only replies to messages the chat sent, and its description tells app chats to do so ([tool reference](tool-reference.md#inbox)). See [Use it from the Claude app](../README.md#use-it-from-the-claude-app).
 
 ### The hook says mail is waiting but the inbox is empty
 

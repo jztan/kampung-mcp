@@ -4,7 +4,7 @@ The server is one container with SQLite on a named volume. Run it on a machine e
 
 ## With Docker
 
-You need Docker with Compose.
+You need Docker Engine 25 or later with Compose 2.24 or later. Older packaged Docker, such as Debian 12's `docker.io`, refuses the compose file (`healthcheck.start_interval`); install Docker from [docker.com](https://docs.docker.com/engine/install/) instead.
 
 ```bash
 git clone --branch master https://github.com/jztan/kampung-mcp.git
@@ -27,9 +27,31 @@ docker compose --profile tls up -d
 
 ### Tailscale only
 
+[Across your machines, with Tailscale](tailscale.md) walks through this setup with `tailscale serve`, step by step.
+
 Without Caddy, set `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1` in `.env`. The default, `*`, trusts the `X-Forwarded-For` header from any peer, which is only safe because Caddy replaces that header. Without Caddy, a client could send its own and pick the address that the wrong-key limit, the dashboard login limit and the connect-code limit count against. Inside the container, no outside client connects from `127.0.0.1`, so this setting trusts the header from nobody. Leaving the value empty does not work: compose replaces an empty value with `*`.
 
 Then either keep the port on loopback and put `tailscale serve` in front, or publish it on the machine's tailnet address (`KAMPUNG_HOST_PORT` is published on `127.0.0.1`; change the `ports` line to `<tailnet address>:8803:8000`). Through `tailscale serve`, every client reaches the container from the same address, so those limits are shared: wrong tries from one machine count for all of them, which can lock the dashboard login or the connect page for everyone for up to 15 minutes. Requests with a valid key are never held back, and a browser that has signed in to the dashboard before keeps its access.
+
+### On a home network
+
+An always-on computer at home (a desktop, a mini PC, or a NAS that runs Docker) can host the server for machines on the same network, with no domain, certificate or cost. Machines away from that network can't reach it, and neither can the Claude app, which connects from Anthropic's cloud.
+
+1. Give the host a fixed address on your network (a DHCP reservation in your router), say `192.168.1.20`.
+2. In `.env` (copy `.env.example` if you have none), set `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1`, for the reason under [Tailscale only](#tailscale-only).
+3. Publish the port on that address too, with a `docker-compose.override.yml` next to `docker-compose.yml`. Compose adds it to the loopback publish:
+
+   ```yaml
+   services:
+     kampung:
+       ports:
+         - "192.168.1.20:8803:8000"
+   ```
+
+   Then `docker compose up -d --wait`. If the host runs a firewall, allow port 8803 from your network.
+4. On each machine, after `kampung key add` and `kampung pair` on the server: `kampung-mcp setup --server http://192.168.1.20:8803 --allow-insecure-http`.
+
+Plain `http` sends each machine's key unencrypted across your network, so anyone who can see that traffic (a shared or guest Wi-Fi that is not isolated, a compromised device) can read a key and act as that machine. Use this only on a network you trust; otherwise use [HTTPS with Caddy](#https-with-caddy) or [Tailscale](#tailscale-only).
 
 ## Without Docker
 
@@ -42,9 +64,9 @@ Back up first (see [Backup](#backup)). The database migrates forward on start, a
 - Published image: `git pull`, set the new `KAMPUNG_IMAGE_TAG` in `.env` if you pinned one, then `docker compose pull && docker compose up -d --wait`. Add `--profile tls` to both commands if you run the bundled Caddy.
 - From a checkout: `git pull && docker compose up -d --build --wait` (again with `--profile tls` for Caddy).
 - If the release changed `deploy/Caddyfile` (0.3 and 0.4 do), run `docker compose --profile tls restart caddy`. Caddy runs with its admin API off and reads the read-only file only at start, so `up -d` alone keeps the old rules.
-- A release that changes the schema migrates the database once on first start. 0.3 rewrites it (schema 2 to 5, and switches it to incremental vacuum), which takes free disk about the size of the database, and a large database takes a while; 0.4 only adds two columns (schema 6 and 7), 0.5 three more (schema 8 and 9), and 0.6 five more (schema 10 to 12).
+- A release that changes the schema migrates the database once on first start. 0.3 rewrites it (schema 2 to 5, and switches it to incremental vacuum), which takes free disk about the size of the database, and a large database takes a while; 0.4 only adds two columns (schema 6 and 7), 0.5 three more (schema 8 and 9), 0.6 five more (schema 10 to 12), and 0.8 two more (schema 13).
 - With the Claude app connector, upgrading to 0.4: also allow Anthropic's second range, `153.61.208.0/20`, on port 443 (see the [README](../README.md#use-it-from-the-claude-app)).
-- Client: on Windows, quit Claude Code and Codex first. Then `uv tool upgrade kampung-mcp` on each machine (a client run from a checkout: `git pull` and `uv sync`), rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`, 0.3.2 adds a second entry for your server's URL, and 0.5 installs the idle wake hooks; 0.6 changes nothing in setup; 0.7 installs Codex hooks on Windows, so rerun it there with `--agent codex` or `--agent both` and approve them once in Codex with `/hooks`). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
+- Client: on Windows, quit Claude Code and Codex first. From 0.7 to 0.8, `uv tool install kampung-mcp@latest` and a restart of the agents are enough. Otherwise, `uv tool install kampung-mcp@latest` on each machine (a client run from a checkout: `git pull` and `uv sync`), rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`, 0.3.2 adds a second entry for your server's URL, and 0.5 installs the idle wake hooks; 0.6 changes nothing in setup; 0.7 installs Codex hooks on Windows, so rerun it there with `--agent codex` or `--agent both` and approve them once in Codex with `/hooks`; 0.8 changes nothing in setup, so the upgrade and a restart of the agents are enough). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
 
 ## Backup
 
@@ -80,7 +102,7 @@ Each adapter keeps one event stream open for each session it wakes (`GET /v1/ses
 
 Set `KAMPUNG_ADMIN_TOKEN` in `.env` to a random value of at least 24 characters (`openssl rand -hex 24`) and restart with `docker compose up -d --wait`. Then open `https://<your domain>/admin`, or `http://localhost:8803/admin` on the server itself, and sign in with the token. The bundled Caddy only lets loopback and Tailscale addresses reach `/admin`.
 
-The dashboard shows machines, mailboxes, sessions, messages (including bodies, since they all come from your own agents), conversations (a thread of messages as one readable exchange) and the audit log. From it you can create machine keys, pair and unpair, revoke a machine, mark or unmark a Claude app connection as owner, end a session, refill a session's loop-guard budgets and delete a queued message. Every action is audited as `admin:web`. The Sessions page shows each session's git branch, summary and client version, and the Machines page the newest client version each machine reported; a version whose major.minor differs from the server's is marked. Both are reported by the client (0.6 or later) and shown as information only. A session whose machine has gone quiet shows as Unreachable, and its mailbox as "asleep?". When a Claude app's owner mark is lost (its connection replaced or removed), the Machines page shows Owner lost with the time and reason, and the overview says so until you run `kampung owner add` or press Dismiss. Without the token, `/admin` does not exist.
+The dashboard shows machines, mailboxes, sessions, messages (including bodies, since they all come from your own agents), conversations (a thread of messages as one readable exchange) and the audit log. From it you can create machine keys, pair and unpair, revoke a machine, mark or unmark a Claude app connection as owner, end a session, refill a session's loop-guard budgets and delete a queued message. Every action is audited as `admin:web`. The Sessions page shows each session's git branch, latest step (Now, with how long ago) and client version, and the Machines page the newest client version each machine reported; a version whose major.minor differs from the server's is marked. The client reports them (the branch and version from 0.6, the step from 0.8), and they are shown as information only. A session whose machine has gone quiet shows as Unreachable, and its mailbox as "asleep?". When a Claude app's owner mark is lost (its connection replaced or removed), the Machines page shows Owner lost with the time and reason, and the overview says so until you run `kampung owner add` or press Dismiss. Without the token, `/admin` does not exist.
 
 ## Configuration
 

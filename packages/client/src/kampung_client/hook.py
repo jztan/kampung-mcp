@@ -15,6 +15,8 @@ import math
 import os
 import re
 import secrets
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -54,16 +56,11 @@ CODEX_START_CONTEXT = (
     "Kampung is connected. Call the kampung inbox tool once now to check for "
     "peer messages."
 )
-# Said on a typed prompt while the session has no summary, at most once per
-# SUMMARY_REMINDER_INTERVAL: the server instructions alone never got it called,
-# and a softer "this session has no summary" line was ignored by Claude Code.
-SUMMARY_REMINDER = (
-    "Kampung: before you do anything else this turn, call the kampung "
-    "set_summary tool once with a few words on your current task, so peers "
-    "can tell sessions apart. Use your own words: never secrets or the "
-    "user's words verbatim."
-)
-SUMMARY_REMINDER_INTERVAL = 600.0
+# The session's latest step ("now"), shown to peers: at most this long, and
+# taken only from what the agent wrote for people (a command's description) or
+# a file's name, never from a command line, which can carry a secret.
+MAX_NOW_CHARS = 80
+_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
 STOP_REASON = (
     "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
 )
@@ -704,6 +701,7 @@ def api(
     path: str,
     body: dict[str, object] | None = None,
     timeout: float = 2.0,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, object]]:
     """Call the Kampung server. 4xx comes back as (status, body); 5xx and
     network failures raise HookError."""
@@ -715,6 +713,7 @@ def api(
         headers={
             "Authorization": f"Bearer {config['key']}",
             "Content-Type": "application/json",
+            **(headers or {}),
         },
     )
     try:
@@ -856,6 +855,7 @@ def _call(
     revive: bool,
     body: dict[str, object] | None = None,
     query: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Call /v1/sessions/{id}/{action}; on 409 or 404 re-register and retry once.
 
@@ -874,7 +874,7 @@ def _call(
         path = f"/v1/sessions/{data['session']}/{action}"
         if query:
             path += "?" + urllib.parse.urlencode(query)
-        status, answer = api(method, path, body, clock.timeout())
+        status, answer = api(method, path, body, clock.timeout(), headers)
         if status == 200:
             return answer
         if status in (404, 409) and attempt == 0:
@@ -967,29 +967,166 @@ def _mark_branch_sent(sid: str, branch: str) -> None:
         pass  # sent again next time; never fail a hook over this
 
 
-def _summary_reminder(sid: str, answer: dict[str, object]) -> dict[str, object] | None:
-    """A reminder to call set_summary, when the server says this session has
-    none (an older server sends no summary key: never) and none was given
-    in the last SUMMARY_REMINDER_INTERVAL."""
-    if "summary" not in answer or answer["summary"] is not None:
+def step_from_tool(event: Event) -> str | None:
+    """The session's latest step, from a PostToolUse event: the description the
+    agent gave a command or a subagent, or the file it read or edited. None for
+    anything else (Kampung's own tools, searches, a bare command)."""
+    tool = str(event.get("tool_name", ""))
+    raw = event.get("tool_input")
+    given = raw if isinstance(raw, dict) else {}
+    if tool.startswith("mcp__"):
         return None
-    data = read_session_file(sid)
-    if data is None:
+    step: str | None = None
+    description = given.get("description")
+    if isinstance(description, str) and description.strip():
+        step = description
+    elif isinstance(given.get("file_path"), str) and given["file_path"]:
+        name = os.path.basename(str(given["file_path"]))
+        step = f"reading {name}" if tool == "Read" else f"editing {name}"
+    elif tool == "apply_patch" or "patch" in tool.lower():
+        text = raw if isinstance(raw, str) else str(given.get("input", ""))
+        found = _PATCH_FILE.search(text)
+        if found:
+            step = f"editing {os.path.basename(found.group(1).strip())}"
+    elif isinstance(given.get("command"), str):
+        programs = programs_in(str(given["command"]))
+        if programs:
+            step = "running " + ", ".join(programs)
+    if step is None:
         return None
-    last = data.get("summary_reminded")
-    now = time.time()
-    if isinstance(last, (int, float)) and 0 <= now - last < SUMMARY_REMINDER_INTERVAL:
-        return None
-    try:
-        write_session_file(sid, {**data, "summary_reminded": now})
-    except OSError:
-        return None  # unrecorded, it would repeat on every prompt
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": SUMMARY_REMINDER,
-        }
+    step = " ".join(step.split())  # one line, no control characters
+    step = "".join(c for c in step if c.isprintable())
+    return step[:MAX_NOW_CHARS].strip() or None
+
+
+_WRAPPERS = frozenset({"sudo", "env", "time", "nohup", "exec", "command", "xargs"})
+_BUILTINS = frozenset(
+    {
+        "cd", "echo", "export", "source", "set", "unset", "test", "read",
+        "pwd", "exit", "alias", "type", "printf", "eval", "trap", "wait",
+        "kill", "true", "false", "pushd", "popd", "ulimit", "umask", "shift",
     }
+)  # fmt: skip
+# PowerShell cmdlets are not on PATH: only these common ones count, by name.
+_CMDLETS = frozenset(
+    {
+        "Get-ChildItem", "Get-Content", "Set-Content", "Add-Content",
+        "Get-Item", "New-Item", "Remove-Item", "Copy-Item", "Move-Item",
+        "Rename-Item", "Test-Path", "Get-Location", "Set-Location",
+        "Select-String", "Select-Object", "Where-Object", "ForEach-Object",
+        "Sort-Object", "Measure-Object", "Format-Table", "Format-List",
+        "Out-File", "Out-Null", "Write-Host", "Write-Output", "Get-Process",
+        "Stop-Process", "Start-Process", "Get-Service", "Restart-Service",
+        "Invoke-WebRequest", "Invoke-RestMethod", "Expand-Archive",
+        "Compress-Archive", "Get-Date", "Start-Sleep", "Get-Command",
+        "Resolve-Path", "Join-Path", "Split-Path", "ConvertTo-Json",
+        "ConvertFrom-Json", "Get-ScheduledTask", "Start-ScheduledTask",
+    }
+)  # fmt: skip
+_CMDLET_NAMES = {name.lower(): name for name in _CMDLETS}  # case-blind
+_MAX_LOOKUPS = 10  # PATH searches per command, so a long command stays fast
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SEPARATORS = "();<>|&\n"
+_PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,39}")
+
+
+def is_program(name: str) -> bool:
+    """Whether a word names a program here: a shell builtin, a PowerShell
+    cmdlet, or something on PATH. A secret, a value or a folder name is none
+    of these, so it can never become a step."""
+    if name in _BUILTINS or name in _CMDLETS:
+        return True
+    return shutil.which(name) is not None
+
+
+def programs_in(command: str, most: int = 3) -> list[str]:
+    """The programs a shell command runs, by bare name, in order and without
+    repeats: never an argument, a value or a path, since those can carry a
+    secret or a private folder name.
+
+    The command is split by shell rules to find each command's first word,
+    and a word counts only if it names a program on this machine
+    (`is_program`); anything else, such as a value the splitter mistook for a
+    command, is skipped. A command that cannot be split reports nothing."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=_SEPARATORS)
+    lexer.whitespace = " \t\r"  # a newline separates commands, like ;
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        words = list(lexer)
+    except ValueError:
+        return []
+    found: list[str] = []
+    expect_program, skip_next, lookups = True, False, 0
+    for word in words:
+        if word and set(word) <= set(_SEPARATORS):
+            if set(word) & set("<>"):
+                skip_next = True  # a redirection's target is a file name
+            elif set(word) != {")"}:  # after `)`, the outer command's arguments
+                expect_program = True
+            continue
+        if skip_next:
+            skip_next = False
+            continue
+        if not expect_program:
+            continue
+        if _ASSIGNMENT.match(word) or word in _WRAPPERS or word.startswith("-"):
+            continue
+        expect_program = False  # only a command's first word can name it
+        if word.startswith("$") or lookups >= _MAX_LOOKUPS:
+            continue  # a variable, or enough searching for one command
+        name = re.split(r"[\\/]", word.strip("`'\"{}"))[-1]
+        name = _CMDLET_NAMES.get(name.lower(), name)  # PowerShell ignores case
+        lookups += 1
+        if not (_PROGRAM.fullmatch(name) and is_program(name)):
+            continue
+        if name not in found:
+            found.append(name)
+            if len(found) >= most:
+                break
+    return found
+
+
+def _record_step(event: Event) -> None:
+    """Keep the latest step in the session file; the next peek sends it."""
+    step = step_from_tool(event)
+    if step is None:
+        return
+    sid = str(event["session_id"])
+    data = read_session_file(sid)
+    if data is None or data.get("now") == step:
+        return
+    try:
+        write_session_file(sid, {**data, "now": step})
+    except OSError:
+        pass  # a missed step; never fail a hook over this
+
+
+# The step rides in a header, never the URL: a URL reaches access logs and
+# error messages before the server's secret check can drop the step.
+STEP_HEADER = "X-Kampung-Now"
+
+
+def _step_header(data: dict[str, object] | None) -> dict[str, str]:
+    """The step to send with a peek: only one not yet sent, percent-encoded
+    so any text fits in a header."""
+    if data is None:
+        return {}
+    step = data.get("now")
+    if isinstance(step, str) and step and data.get("now_sent") != step:
+        return {STEP_HEADER: urllib.parse.quote(step, safe="")}
+    return {}
+
+
+def _mark_step_sent(sid: str, body: dict[str, object]) -> None:
+    sent = body.get("now")
+    data = read_session_file(sid)
+    if not isinstance(sent, str) or data is None or data.get("now_sent") == sent:
+        return
+    try:
+        write_session_file(sid, {**data, "now_sent": sent})
+    except OSError:
+        pass  # sent again next time
 
 
 def on_user_prompt(event: Event, clock: _Clock) -> dict[str, object] | None:
@@ -1011,7 +1148,7 @@ def on_user_prompt(event: Event, clock: _Clock) -> dict[str, object] | None:
     )
     if "branch" in answer:  # a server before 0.6 does not keep it
         _mark_branch_sent(str(event["session_id"]), branch)
-    return _summary_reminder(str(event["session_id"]), answer)
+    return None
 
 
 Seen = str | int | None  # what was last announced: a message id, or a count
@@ -1070,6 +1207,7 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     if _agent(event) == "codex":
         mark_turn(str(event["session_id"]))  # keeps a long turn from going stale
     path = _nudge_path(event)
+    _record_step(event)
     if str(event.get("tool_name", "")).startswith("mcp__kampung__"):
         # The agent is already talking to Kampung; whatever it read is handled.
         _save_nudge_state(path, {"checked": time.time(), "notified": None})
@@ -1081,7 +1219,10 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     # Record the attempt first, so a slow or unreachable server costs at most
     # one check per NUDGE_INTERVAL instead of a timeout on every tool call.
     _save_nudge_state(path, {"checked": now, "notified": state["notified"]})
-    body = _call(event, clock, "GET", "peek", revive=False)
+    sid = str(event["session_id"])
+    step = _step_header(read_session_file(sid))
+    body = _call(event, clock, "GET", "peek", revive=False, headers=step or None)
+    _mark_step_sent(sid, body)
     wakeable = int(str(body.get("wakeable", 0)))
     notify, seen = new_mail(body, state["notified"])
     _save_nudge_state(path, {"checked": time.time(), "notified": seen})
@@ -1103,10 +1244,20 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
             # own `git switch` shows by the end of its turn.
             data, branch = _current_branch(event)
             changed = data is not None and data.get("branch_sent") != branch
-            query = {"branch": branch} if changed else None
-            body = _call(event, clock, "GET", "peek", revive=False, query=query)
+            query = {"branch": branch} if changed else {}
+            step = _step_header(data)  # the turn's last step, if new
+            body = _call(
+                event,
+                clock,
+                "GET",
+                "peek",
+                revive=False,
+                query=query or None,
+                headers=step or None,
+            )
             if changed and "branch" in body:  # an older server ignores it
                 _mark_branch_sent(str(event["session_id"]), branch)
+            _mark_step_sent(str(event["session_id"]), body)
             wakeable = int(str(body.get("wakeable", 0)))
             if wakeable > 0:
                 reason = STOP_BLOCK_REASON.format(n=wakeable)
@@ -1206,6 +1357,15 @@ def _log(name: str, error: BaseException) -> None:
             f.write(f"{stamp} {name}: {type(error).__name__}: {error}\n")
     except OSError:
         pass
+
+
+def log_from_adapter(name: str, error: BaseException) -> None:
+    """The adapter's failures, kept out of hooks.log on a machine with no
+    config.json: Codex's daemon can keep an adapter running after `kampung-mcp
+    uninstall`, and its errors must not bring the log back. A hook, which only
+    runs while it is installed, still logs a missing config (see _log)."""
+    if (config_dir() / "config.json").exists():
+        _log(name, error)
 
 
 def main(argv: list[str] | None = None, stdin: TextIO | None = None) -> int:

@@ -4,6 +4,37 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-15
+
+### Added
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp try` runs a trial server on this machine in one step: it starts the server in Docker (listening on `127.0.0.1:8803` only), makes this machine's key and connects whichever of Claude Code and Codex it finds, then says how to send the first message, between two folders of one agent or between Claude Code and Codex. `--agent` picks the agents and `--port` the port (8803 by default). `kampung-mcp try --stop` removes the server, its mail and the setup it made. It needs Docker, and it refuses to touch a machine already connected to another server.
+- `kampung-mcp uninstall` undoes setup: it removes Kampung's hooks and the connector deny entries for `claude.ai kampung` and your server's URL (anyone else's entries stay; one written with `--connector-name` stays too), Codex's approvals of those hooks in its `config.toml`, both MCP registrations, the saved server and key, and Kampung's cache folder (session files, saved mailbox names and `hooks.log`). It checks the Claude Code and Codex settings files before it changes any.
+
+#### Docs
+
+- [One machine, five minutes](docs/try-it.md): a trial on one computer with `kampung-mcp try`, or the same by hand with compose.
+- Running the server: an "On a home network" section, and the Docker requirement (Engine 25 or later with Compose 2.24 or later; Debian 12's own `docker.io` is too old).
+- An [Across your machines, with Tailscale](docs/tailscale.md) guide: the one-machine server reached from your other computers over Tailscale with `tailscale serve`, with no domain or open port.
+
+### Changed
+
+#### Client (`kampung-mcp`)
+
+- When a check fails, `kampung-mcp doctor` ends with a link to report the bug, for when the fixes it prints don't help.
+- Upgrade instructions, in the docs and in `kampung-mcp doctor`'s fixes, now say `uv tool install kampung-mcp@latest`. `uv tool upgrade kampung-mcp` did nothing on a client installed with a version (`kampung-mcp==0.6.0`, as release notes up to 0.7.0 said), because uv keeps that pin; `@latest` upgrades either way and drops the pin.
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- `inbox` can read just some of the mail and leave the rest waiting: `sender` reads only one mailbox's mail, and `replies_to` only replies to the given message ids. Every result now counts the mail still waiting by sender (`waiting_by_sender`, no bodies), and `limit: 0` only counts. This is for the Claude app, where every chat shares one mailbox: a chat reads its own mail, and its description tells it so, instead of taking mail meant for another chat. A `sender` with a `#suffix` gets `invalid_address`, and a `replies_to` that isn't a list of up to 50 message ids gets `invalid_replies_to`. Through an older server, the adapter answers `filter_unsupported`.
+- `list_peers` shows each session's latest step as `now`, with how long ago as `now_seen` ("Run the client test suite", "2 min ago"), in place of `summary`. The hooks report the step from what the session actually does, the description its agent wrote on a command or a subagent, the file it read or edited, or for a command with no description (usual for Codex) the names of the programs it runs, so it keeps up while an agent works alone (sent with the hooks' checks for mail, at most every 30 seconds and at each turn end) and costs no model turn. A command's arguments are never sent: a word is shown only if it names a program on that machine; the step travels in a request header, never the URL, so it stays out of access logs; and a step that looks like a secret is dropped. The dashboard's Sessions page shows it in a Now column, and the `ambiguous_session` hint for an owner instruction names each session's step instead of its summary. A session picked up again after it ended starts with no step. The step needs the 0.8 client as well: a session on an older client shows null. The database migrates on start (schema 13, two columns); take a backup or snapshot first, as for any upgrade.
+
+### Removed
+
+- The `set_summary` tool, and the prompt hook's reminder to call it. A summary set by hand went stale as soon as the task changed. An older client that still offers `set_summary` gets its existing "carry on without it" answer from a newer server.
+
 ## [0.7.0] - 2026-11-14
 
 ### Added
@@ -283,6 +314,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.8.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.8.0
 [0.7.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.7.0
 [0.6.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.5.0

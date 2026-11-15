@@ -253,6 +253,7 @@ def test_an_outage_is_logged_once_however_its_error_reads(
         def target(self) -> dict[str, object]:
             return {"session": "1"}
 
+    write_config(home, "http://127.0.0.1:9", "kmp_x")  # only set-up machines log
     monkeypatch.setattr(hook, "api", down)
     monkeypatch.setattr(adapter, "CHANNEL_POLL", 0.001)
     monkeypatch.setattr(adapter, "CHANNEL_MAX_BACKOFF", 0.001)
