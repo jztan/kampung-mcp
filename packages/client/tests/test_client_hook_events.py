@@ -1113,6 +1113,11 @@ def _tool(name: str, given: object, **more: object) -> dict[str, object]:
             "running Get-Date",
         ),
         ("Bash", {"command": "Hunter2Battery"}, None),
+        (
+            "PowerShell",
+            {"command": "get-childitem . | select-object Name"},
+            "running Get-ChildItem, Select-Object",
+        ),
         ("Bash", {"command": "echo $(true) /p/git"}, "running echo, true"),
         ("Bash", {"command": "./audit.sh /p/git"}, None),
         (
@@ -1139,7 +1144,7 @@ def test_step_from_tool(
     # PATH differs per machine; these stand in for the programs installed here.
     here = {"pytest", "deploy", "release", "python3", "tool", "grep", "wc", "ls"}
     here |= {"cat", "curl", "git", "id", "cd", "echo", "export", "printf", "true"}
-    here |= {"Write-Host", "Get-Item", "Get-Date"}
+    here |= {"Write-Host", "Get-Item", "Get-Date", "Get-ChildItem", "Select-Object"}
     monkeypatch.setattr(hook, "is_program", lambda name: name in here)
     got = hook.step_from_tool(_tool(name, given))
     if name == "Write":

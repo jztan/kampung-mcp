@@ -1023,6 +1023,7 @@ _CMDLETS = frozenset(
         "ConvertFrom-Json", "Get-ScheduledTask", "Start-ScheduledTask",
     }
 )  # fmt: skip
+_CMDLET_NAMES = {name.lower(): name for name in _CMDLETS}  # case-blind
 _MAX_LOOKUPS = 10  # PATH searches per command, so a long command stays fast
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _SEPARATORS = "();<>|&\n"
@@ -1075,6 +1076,7 @@ def programs_in(command: str, most: int = 3) -> list[str]:
         if word.startswith("$") or lookups >= _MAX_LOOKUPS:
             continue  # a variable, or enough searching for one command
         name = re.split(r"[\\/]", word.strip("`'\"{}"))[-1]
+        name = _CMDLET_NAMES.get(name.lower(), name)  # PowerShell ignores case
         lookups += 1
         if not (_PROGRAM.fullmatch(name) and is_program(name)):
             continue
