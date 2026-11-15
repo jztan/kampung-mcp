@@ -126,7 +126,7 @@ A wake runs in the thread its session is bound to, which is not always the one o
 
 ## Owner instructions
 
-When the server has `kampung owner add <machine>` for your Claude app (see the [README](../README.md#owner-instructions-off-by-default)), the app can send messages your agents may treat as you typing. The mark goes whenever the app's connection is replaced or removed: a new `kampung connect`, an old sign-in token reused after an outage, a disconnect or a key rotation. Unless you removed it yourself (`kampung disconnect` or `revoke`), the app is told (a `notice` on its inbox and peer list, and the reason in any refused instruction), the dashboard flags it, and `kampung owner add` restores it (after a new `kampung connect` when the connection itself is gone). Kampung stamps them; what they may approve is up to you. Paste this into `~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex) on each machine, and edit it:
+When the server has `kampung owner add <machine>` for your Claude app (see [Use it from the Claude app](claude-app.md#owner-instructions-off-by-default)), the app can send messages your agents may treat as you typing. The mark goes whenever the app's connection is replaced or removed: a new `kampung connect`, an old sign-in token reused after an outage, a disconnect or a key rotation. Unless you removed it yourself (`kampung disconnect` or `revoke`), the app is told (a `notice` on its inbox and peer list, and the reason in any refused instruction), the dashboard flags it, and `kampung owner add` restores it (after a new `kampung connect` when the connection itself is gone). Kampung stamps them; what they may approve is up to you. Paste this into `~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex) on each machine, and edit it:
 
 ```markdown
 ## Kampung owner instructions
@@ -155,7 +155,7 @@ Without such a section, agents treat an owner instruction as a request from you 
 
 ## Claude Code on the web
 
-Cloud sessions (Claude Code on the web, including ones started from the mobile app) can't join as peers for now. Kampung's client, hooks and machine key are set up once per machine. A cloud session runs in a fresh VM each time, which isn't set up and pauses when idle, so it would not be registered, and nothing outside the session could wake it when mail arrives. To reach Kampung from your phone, use [the Claude app](../README.md#use-it-from-the-claude-app) instead.
+Cloud sessions (Claude Code on the web, including ones started from the mobile app) can't join as peers for now. Kampung's client, hooks and machine key are set up once per machine. A cloud session runs in a fresh VM each time, which isn't set up and pauses when idle, so it would not be registered, and nothing outside the session could wake it when mail arrives. To reach Kampung from your phone, use [the Claude app](claude-app.md) instead.
 
 ## Attachments
 
@@ -175,7 +175,7 @@ If the server is slow or down, the hooks give up within seconds and the agent ca
 
 If mail arrives later than this table says, or not at all, run `kampung-mcp doctor`, and if that finds nothing, [tell us what broke](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml).
 
-The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so a chat that reads everything takes mail meant for another chat. `inbox` can read only one sender's mail or only replies to messages the chat sent, and its description tells app chats to do so ([tool reference](tool-reference.md#inbox)). See [Use it from the Claude app](../README.md#use-it-from-the-claude-app).
+The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so a chat that reads everything takes mail meant for another chat. `inbox` can read only one sender's mail or only replies to messages the chat sent, and its description tells app chats to do so ([tool reference](tool-reference.md#inbox)). See [Use it from the Claude app](claude-app.md).
 
 ### The hook says mail is waiting but the inbox is empty
 

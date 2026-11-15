@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 690" width="720" height="690"
+     role="img" aria-labelledby="t d" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="t">Two Claude app chats share one mailbox, and each reads only its own replies</title>
+  <desc id="d">Two chats in the Claude app reach the Kampung server through Anthropic's cloud. Chat 1 asked Codex in desktop/api for a review; chat 2 asked Claude Code in laptop/api for a test run. Both replies land in the one phone/claude mailbox. Chat 1 reads only the replies to the messages it sent, so it takes the review and leaves the test result waiting for chat 2.</desc>
+  <defs>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#6b625a"/></marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7c6fc4"/></marker>
+    <marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#d97757"/></marker>
+    <g id="i-chat" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></g>
+    <g id="i-inbox" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></g>
+    <g id="i-terminal" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></g>
+    <g id="i-cloud" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></g>
+  </defs>
+  <rect width="720" height="690" fill="#faf7f0"/>
+  <text x="360" y="44" font-size="24" fill="#1a1613" text-anchor="middle" font-weight="600">One mailbox, each chat reads its own mail</text>
+
+  <!-- Claude app: two chats -->
+  <rect x="24" y="72" width="672" height="150" rx="14" fill="none" stroke="#c9bfb3" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="44" y="96" font-size="14" fill="#6b625a" font-weight="500" letter-spacing=".04em">CLAUDE APP (PHONE OR CLAUDE.AI)</text>
+
+  <rect x="48" y="110" width="296" height="92" rx="12" fill="#efecf9" stroke="#7c6fc4" stroke-width="2"/>
+  <use href="#i-chat" transform="translate(64 124) scale(1.25)" stroke="#7c6fc4" stroke-width="1.6"/>
+  <text x="104" y="142" font-size="18" fill="#1a1613" font-weight="600">Chat 1</text>
+  <text x="64" y="172" font-size="14" fill="#4a423b">asked desktop/api for a review</text>
+  <text x="64" y="191" font-size="12.5" fill="#6b625a" font-family="'JetBrains Mono', ui-monospace, Menlo, monospace">inbox(replies_to: its sends)</text>
+
+  <rect x="376" y="110" width="296" height="92" rx="12" fill="#fbeee6" stroke="#d97757" stroke-width="2"/>
+  <use href="#i-chat" transform="translate(392 124) scale(1.25)" stroke="#d97757" stroke-width="1.6"/>
+  <text x="432" y="142" font-size="18" fill="#1a1613" font-weight="600">Chat 2</text>
+  <text x="392" y="172" font-size="14" fill="#4a423b">asked laptop/api to run the tests</text>
+  <text x="392" y="191" font-size="12.5" fill="#6b625a" font-family="'JetBrains Mono', ui-monospace, Menlo, monospace">inbox(replies_to: its sends)</text>
+
+  <!-- chats <-> cloud -->
+  <line x1="196" y1="230" x2="196" y2="258" stroke="#7c6fc4" stroke-width="2" stroke-linecap="round" marker-start="url(#ap)" marker-end="url(#ap)"/>
+  <line x1="524" y1="230" x2="524" y2="258" stroke="#d97757" stroke-width="2" stroke-linecap="round" marker-start="url(#ao)" marker-end="url(#ao)"/>
+
+  <!-- Anthropic's cloud -->
+  <rect x="24" y="266" width="672" height="48" rx="10" fill="#f1ede6" stroke="#c9bfb3" stroke-width="1.5"/>
+  <use href="#i-cloud" transform="translate(44 278) scale(1)" stroke="#6b625a" stroke-width="1.8"/>
+  <text x="78" y="295" font-size="15" fill="#4a423b"><tspan font-weight="600" fill="#1a1613">Anthropic's cloud:</tspan> calls Kampung with the connector's OAuth token</text>
+
+  <line x1="196" y1="322" x2="196" y2="350" stroke="#7c6fc4" stroke-width="2" stroke-linecap="round" marker-start="url(#ap)" marker-end="url(#ap)"/>
+  <line x1="524" y1="322" x2="524" y2="350" stroke="#d97757" stroke-width="2" stroke-linecap="round" marker-start="url(#ao)" marker-end="url(#ao)"/>
+
+  <!-- Kampung server with the shared mailbox -->
+  <rect x="24" y="358" width="672" height="168" rx="14" fill="#e2efe9" stroke="#1f6b57" stroke-width="2"/>
+  <use href="#i-inbox" transform="translate(44 372) scale(1.25)" stroke="#1f6b57" stroke-width="1.6"/>
+  <text x="84" y="391" font-size="18" fill="#1a1613" font-weight="600">Kampung server</text>
+  <text x="236" y="391" font-size="14" fill="#4a423b">mailbox <tspan font-family="'JetBrains Mono', ui-monospace, Menlo, monospace" fill="#1a1613">phone/claude</tspan>, shared by every chat</text>
+
+  <rect x="44" y="408" width="632" height="46" rx="8" fill="#ffffff" stroke="#7c6fc4" stroke-width="1.5"/>
+  <rect x="44" y="408" width="8" height="46" rx="3" fill="#7c6fc4"/>
+  <text x="66" y="436" font-size="14" fill="#1a1613"><tspan font-weight="600">Review from desktop/api:</tspan><tspan fill="#6b625a"> a reply to chat 1's message, so chat 1 reads it</tspan></text>
+
+  <rect x="44" y="464" width="632" height="46" rx="8" fill="#ffffff" stroke="#d97757" stroke-width="1.5"/>
+  <rect x="44" y="464" width="8" height="46" rx="3" fill="#d97757"/>
+  <text x="66" y="492" font-size="14" fill="#1a1613"><tspan font-weight="600">Tests from laptop/api:</tspan><tspan fill="#6b625a"> a reply to chat 2's message, waits for chat 2</tspan></text>
+
+  <!-- server <-> agents -->
+  <line x1="196" y1="534" x2="196" y2="562" stroke="#7c6fc4" stroke-width="2" stroke-linecap="round" marker-start="url(#ap)" marker-end="url(#ap)"/>
+  <line x1="524" y1="534" x2="524" y2="562" stroke="#d97757" stroke-width="2" stroke-linecap="round" marker-start="url(#ao)" marker-end="url(#ao)"/>
+
+  <!-- agents -->
+  <rect x="48" y="570" width="296" height="92" rx="12" fill="#efecf9" stroke="#7c6fc4" stroke-width="2"/>
+  <use href="#i-terminal" transform="translate(64 584) scale(1.25)" stroke="#7c6fc4" stroke-width="1.8"/>
+  <text x="104" y="603" font-size="18" fill="#1a1613" font-weight="600">Codex</text>
+  <text x="64" y="640" font-size="14" fill="#4a423b" font-family="'JetBrains Mono', ui-monospace, Menlo, monospace">desktop/api</text>
+
+  <rect x="376" y="570" width="296" height="92" rx="12" fill="#fbeee6" stroke="#d97757" stroke-width="2"/>
+  <use href="#i-terminal" transform="translate(392 584) scale(1.25)" stroke="#d97757" stroke-width="1.8"/>
+  <text x="432" y="603" font-size="18" fill="#1a1613" font-weight="600">Claude Code</text>
+  <text x="392" y="640" font-size="14" fill="#4a423b" font-family="'JetBrains Mono', ui-monospace, Menlo, monospace">laptop/api</text>
+</svg>

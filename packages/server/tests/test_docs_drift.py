@@ -47,6 +47,51 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _outside_fences(text: str) -> list[str]:
+    """The lines of a Markdown file that are not inside a ``` code fence."""
+    lines, fenced = [], False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced:
+            lines.append(line)
+    return lines
+
+
+def _github_slug(heading: str) -> str:
+    """The anchor GitHub gives a heading: lowercase, only letters, digits,
+    spaces, hyphens and underscores kept, spaces turned into hyphens."""
+    kept = re.sub(r"[^\w\- ]", "", heading.strip().lower())
+    return kept.replace(" ", "-")
+
+
+def _anchors(path: Path) -> set[str]:
+    """Every heading anchor in a Markdown file, numbered for repeats as on
+    GitHub (notes, notes-1, ...)."""
+    seen: dict[str, int] = {}
+    anchors = set()
+    for line in _outside_fences(_read(path)):
+        found = re.match(r"#{1,6}\s+(.*?)\s*#*\s*$", line)
+        if not found:
+            continue
+        slug = _github_slug(found.group(1))
+        count = seen.get(slug, 0)
+        seen[slug] = count + 1
+        anchors.add(slug if count == 0 else f"{slug}-{count}")
+    return anchors
+
+
+def _links(path: Path) -> list[str]:
+    """The targets of Markdown links and <img src> in a file, outside code
+    fences and inline code."""
+    targets = []
+    for line in _outside_fences(_read(path)):
+        line = re.sub(r"`[^`]*`", "", line)
+        for match in _LINK.finditer(line):
+            targets.append(match.group(1) or match.group(2))
+    return targets
+
+
 async def _tool_names(tmp_path: Path) -> list[str]:
     from datetime import datetime, timezone
 
@@ -209,3 +254,75 @@ def test_no_retired_terms_in_docs(path: Path) -> None:
             if re.search(rf"\b{term}\b", line, re.IGNORECASE):
                 hits.append(f"{path.name}:{n}: {term}")
     assert not hits, "retired terms in current docs: " + "; ".join(hits)
+
+
+# Markdown that links to other files by relative path; each link must land.
+LINKED = [
+    ROOT / "README.md",
+    ROOT / "SECURITY.md",
+    *sorted((ROOT / "docs").glob("*.md")),
+]
+_LINK = re.compile(r"\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)|<img[^>]*\ssrc=\"([^\"]+)\"")
+
+
+def test_github_slug_matches_github() -> None:
+    assert (
+        _github_slug("Owner instructions (off by default)")
+        == "owner-instructions-off-by-default"
+    )
+    assert _github_slug("10. Add machines and pair them") == (
+        "10-add-machines-and-pair-them"
+    )
+    assert _github_slug("Without `try`") == "without-try"
+    assert _github_slug("Why not just…?") == "why-not-just"
+
+
+def test_repeated_headings_get_numbered_anchors(tmp_path: Path) -> None:
+    page = tmp_path / "p.md"
+    page.write_text("# A\n\n## Notes\n\n```\n# not a heading\n```\n\n## Notes\n")
+    assert _anchors(page) == {"a", "notes", "notes-1"}
+
+
+def _broken_links(path: Path) -> list[str]:
+    broken = []
+    for target in _links(path):
+        if re.match(r"[a-z][a-z0-9+.-]*:", target, re.IGNORECASE):
+            continue  # http(s), mailto and the like
+        file_part, _, fragment = target.partition("#")
+        linked = (path.parent / file_part).resolve() if file_part else path
+        if not linked.exists():
+            broken.append(f"{target} (no such file)")
+        elif fragment and linked.suffix == ".md" and fragment not in _anchors(linked):
+            broken.append(f"{target} (no such heading)")
+    return broken
+
+
+def test_a_broken_link_or_anchor_is_caught(tmp_path: Path) -> None:
+    (tmp_path / "b.md").write_text("# Real heading\n")
+    page = tmp_path / "a.md"
+    page.write_text(
+        "[ok](b.md#real-heading) [gone](c.md) [bad](b.md#nope) [self](#top)\n"
+        "`[code](skipped.md)` [web](https://example.com/x.md)\n# Top\n"
+    )
+    assert _broken_links(page) == ["c.md (no such file)", "b.md#nope (no such heading)"]
+
+
+@pytest.mark.parametrize("path", LINKED, ids=lambda p: str(p.relative_to(ROOT)))
+def test_relative_links_resolve(path: Path) -> None:
+    broken = _broken_links(path)
+    assert not broken, f"broken links in {path.name}: " + "; ".join(broken)
+
+
+def test_readme_keeps_the_registry_line() -> None:
+    lines = _read(ROOT / "README.md").splitlines()
+    assert "**mcp-name: io.github.jztan/kampung-mcp**" in lines
+
+
+# README anchors that pages outside this repo link to (the blog posts, the
+# landing page, release notes): renaming the heading breaks them silently.
+LINKED_FROM_OUTSIDE = ["use-it-from-the-claude-app"]
+
+
+@pytest.mark.parametrize("anchor", LINKED_FROM_OUTSIDE)
+def test_readme_keeps_anchors_linked_from_outside(anchor: str) -> None:
+    assert anchor in _anchors(ROOT / "README.md")

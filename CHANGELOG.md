@@ -4,6 +4,15 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Changed
+
+#### Docs
+
+- A shorter README that starts with `kampung-mcp try` and links to the docs for the rest.
+- A new [Use it from the Claude app](docs/claude-app.md) page: connecting the app, how each chat reads only its own mail, keeping the connector out of Claude Code, and owner instructions.
+- Running the server gains a "How it works" section with the architecture diagram, and the dashboard picture.
+- The README on PyPI links `NOTICE` correctly (it was a relative link that went nowhere).
+
 ## [0.8.0] - 2026-11-15
 
 ### Added
