@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -999,9 +1000,33 @@ def step_from_tool(event: Event) -> str | None:
 
 
 _WRAPPERS = frozenset({"sudo", "env", "time", "nohup", "exec", "command", "xargs"})
+_BUILTINS = frozenset(
+    {
+        "cd", "echo", "export", "source", "set", "unset", "test", "read",
+        "pwd", "exit", "alias", "type", "printf", "eval", "trap", "wait",
+        "kill", "true", "false", "pushd", "popd", "ulimit", "umask", "shift",
+    }
+)  # fmt: skip
+# PowerShell cmdlets are not on PATH; accept the approved verbs' shape.
+_CMDLET = re.compile(
+    r"(Get|Set|New|Remove|Add|Clear|Copy|Move|Rename|Start|Stop|Restart|Wait"
+    r"|Invoke|Test|Select|Where|ForEach|Sort|Group|Measure|Format|Out|Write"
+    r"|Read|Import|Export|ConvertTo|ConvertFrom|Expand|Compress|Resolve|Join"
+    r"|Split|Push|Pop|Update|Install|Uninstall|Enable|Disable|Register"
+    r"|Unregister|Find|Show|Use|Enter|Exit)-[A-Z][A-Za-z]{1,30}"
+)
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _SEPARATORS = "();<>|&\n"
 _PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,39}")
+
+
+def is_program(name: str) -> bool:
+    """Whether a word names a program here: a shell builtin, a PowerShell
+    cmdlet, or something on PATH. A secret, a value or a folder name is none
+    of these, so it can never become a step."""
+    if name in _BUILTINS or _CMDLET.fullmatch(name):
+        return True
+    return shutil.which(name) is not None
 
 
 def programs_in(command: str, most: int = 3) -> list[str]:
@@ -1009,9 +1034,10 @@ def programs_in(command: str, most: int = 3) -> list[str]:
     repeats: never an argument, a value or a path, since those can carry a
     secret or a private folder name.
 
-    The command is split by shell rules, so a quoted argument stays one
-    argument even when it holds a `;` or `|`. A command that cannot be split
-    (an unclosed quote) reports nothing rather than a guess."""
+    The command is split by shell rules to find each command's first word,
+    and a word counts only if it names a program on this machine
+    (`is_program`); anything else, such as a value the splitter mistook for a
+    command, is skipped. A command that cannot be split reports nothing."""
     lexer = shlex.shlex(command, posix=True, punctuation_chars=_SEPARATORS)
     lexer.whitespace = " \t\r"  # a newline separates commands, like ;
     lexer.whitespace_split = True
@@ -1036,9 +1062,11 @@ def programs_in(command: str, most: int = 3) -> list[str]:
             continue
         if _ASSIGNMENT.match(word) or word in _WRAPPERS or word.startswith("-"):
             continue
-        expect_program = False
         name = re.split(r"[\\/]", word.strip("`$'\"{}"))[-1]
-        if _PROGRAM.fullmatch(name) and name not in found:
+        if not (_PROGRAM.fullmatch(name) and is_program(name)):
+            continue  # not a program: keep looking for this command's first
+        expect_program = False
+        if name not in found:
             found.append(name)
             if len(found) >= most:
                 break

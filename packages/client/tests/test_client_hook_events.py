@@ -1,6 +1,7 @@
 import io
 import subprocess
 import json
+import sys
 import os
 import threading
 import time
@@ -1094,6 +1095,25 @@ def _tool(name: str, given: object, **more: object) -> dict[str, object]:
             {"command": 'Write-Host "a;Hunter2Battery"; Get-Item C:\\w'},
             "running Write-Host, Get-Item",
         ),
+        ("Bash", {"command": 'printf "%s" ";" Hunter2Battery'}, "running printf"),
+        ("Bash", {"command": "printf %s \\| Hunter2Battery"}, "running printf"),
+        ("Bash", {"command": "cat <<'EOF'\n/p/Hunter2Battery\nEOF"}, "running cat"),
+        ("Bash", {"command": "echo ok # ; /p/Hunter2Battery"}, "running echo"),
+        ("Bash", {"command": "echo $(true) /p/Hunter2Battery"}, "running echo, true"),
+        ("Bash", {"command": "env -u Hunter2Battery echo ok"}, "running echo"),
+        ("Bash", {"command": "sudo -u Hunter2Battery git push"}, "running git"),
+        ("Bash", {"command": "2>/p/out echo ok"}, "running echo"),
+        (
+            "PowerShell",
+            {"command": "Write-Host a`;Hunter2Battery"},
+            "running Write-Host",
+        ),
+        (
+            "PowerShell",
+            {"command": '$Hunter2Battery = "v"; Get-Date'},
+            "running Get-Date",
+        ),
+        ("Bash", {"command": "Hunter2Battery"}, None),
         ("Grep", {"pattern": "secret"}, None),
         ("mcp__kampung__send", {"to": "x", "body": "y", "description": "z"}, None),
         (
@@ -1105,12 +1125,26 @@ def _tool(name: str, given: object, **more: object) -> dict[str, object]:
         ("Bash", {"description": "x" * 120}, "x" * 80),
     ],
 )
-def test_step_from_tool(name: str, given: object, step: str | None) -> None:
+def test_step_from_tool(
+    name: str, given: object, step: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PATH differs per machine; these stand in for the programs installed here.
+    here = {"pytest", "deploy", "release", "python3", "tool", "grep", "wc", "ls"}
+    here |= {"cat", "curl", "git", "id", "cd", "echo", "export", "printf", "true"}
+    here |= {"Write-Host", "Get-Item", "Get-Date"}
+    monkeypatch.setattr(hook, "is_program", lambda name: name in here)
     got = hook.step_from_tool(_tool(name, given))
     if name == "Write":
         assert got is not None and got.startswith("editing ")
     else:
         assert got == step
+
+
+def test_only_a_real_program_counts() -> None:
+    assert hook.is_program("cd") and hook.is_program("Get-ChildItem")
+    assert hook.is_program(Path(sys.executable).name)
+    assert not hook.is_program("Hunter2Battery")
+    assert not hook.is_program("Get-hunter2")
 
 
 def test_a_step_rides_on_the_next_peek_and_shows_to_peers(
