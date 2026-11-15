@@ -1199,3 +1199,37 @@ def test_a_step_waiting_for_the_nudge_interval_goes_with_the_stop_peek(
     assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
         ("editing app.py",)
     ]
+
+
+def test_a_woken_turn_sends_its_last_step_at_stop(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    # A turn started by idle wake reaches Stop with stop_hook_active true.
+    start(home, repo)
+    run_hook(home, _tool("Bash", {"description": "First step"}))  # peeks, sends
+    run_hook(home, _tool("Edit", {"file_path": str(repo / "app.py")}))  # too soon
+    r = run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=True))
+    assert r.returncode == 0 and r.stdout == "", r.stderr
+    sid = int(str(hook.read_session_file("cc-1")["session"]))  # type: ignore[index]
+    assert db_query(server, "SELECT activity FROM sessions WHERE id = ?", sid) == [
+        ("editing app.py",)
+    ]
+
+
+def test_a_woken_turn_sends_a_branch_change_at_stop(
+    home: Path, server: LiveServer, repo: Path
+) -> None:
+    _set_head(repo, "a")
+    start(home, repo)
+    _set_branch(server, "sentinel")
+    _set_head(repo, "fix/a&b#c")
+    r = run_hook(home, event("Stop", cwd=str(repo), stop_hook_active=True))
+    assert r.returncode == 0 and r.stdout == "", r.stderr
+    assert _branch(server) == "fix/a&b#c"
+
+
+def test_a_woken_stop_with_the_server_down_fails_open(home: Path) -> None:
+    write_config(home, "http://127.0.0.1:9", "kmp_x")
+    hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
+    r = run_hook(home, event("Stop", stop_hook_active=True))
+    assert r.returncode == 0 and r.stdout == ""
