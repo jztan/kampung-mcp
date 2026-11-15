@@ -98,6 +98,13 @@ def test_client_readme_links_and_images_become_absolute() -> None:
     assert f'<img src="{release.RAW_URL}docs/i.png">' in out
 
 
+def test_client_readme_makes_lowercase_and_bare_root_files_absolute() -> None:
+    out = release.render_client_readme("[r](./roadmap.md) [n](NOTICE) [c](CLA.md)")
+    assert f"[r]({release.BLOB_URL}roadmap.md)" in out
+    assert f"[n]({release.BLOB_URL}NOTICE)" in out
+    assert f"[c]({release.BLOB_URL}CLA.md)" in out
+
+
 def test_client_readme_leaves_anchors_and_full_urls_alone() -> None:
     text = "[a](#license) [b](https://example.com/docs/x.md)"
     assert release.render_client_readme(text) == text

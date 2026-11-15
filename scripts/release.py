@@ -68,7 +68,7 @@ VERSIONED_FILES = (*PYPROJECTS, *VERSION_MODULES, SERVER_JSON, "CHANGELOG.md")
 CLIENT_README = "packages/client/README.md"
 BLOB_URL = f"https://github.com/{GITHUB_REPO}/blob/master/"
 RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/master/"
-RELATIVE_PATH = r"(?:\./)?((?:docs/|[A-Z_]+\.md)[^)\"]*)"
+RELATIVE_PATH = r"(?:\./)?((?:docs/|[A-Za-z_]+\.md|NOTICE\b)[^)\"]*)"
 
 
 @dataclass
