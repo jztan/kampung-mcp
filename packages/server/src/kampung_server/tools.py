@@ -80,6 +80,15 @@ attachment is optional: {{"name": "notes.md", "text": "..."}}, up to
 refuses the send."""
 
 
+INBOX_DESCRIPTION = (
+    "Read your new messages (up to 20). Reading delivers them, so they will not "
+    "show up again anywhere. In the Claude app every chat shares one mailbox: "
+    "read only the mail meant for this chat, with sender (a mailbox, "
+    "machine/repo) or replies_to (the ids of messages this chat sent), and "
+    "leave the rest for the chat it belongs to. The result's waiting_by_sender "
+    "counts the mail still waiting; limit 0 reads nothing and only counts."
+)
+
 MODE_DESCRIPTION = (
     "instruct: the owner asked for this to be done (merge, push, release, "
     "deploy); ask, tell or fyi: your own messages."
@@ -288,15 +297,17 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
             )
         return ToolResult(content=blocks, structured_content=result)
 
-    @mcp.tool
-    def inbox(limit: int = 20) -> Result:
-        """Read your new messages (up to 20). Reading delivers them."""
-
+    @mcp.tool(description=INBOX_DESCRIPTION)
+    def inbox(
+        limit: int = 20,
+        sender: str | None = None,
+        replies_to: list[str] | None = None,
+    ) -> Result:
         def work(
             conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime
         ) -> Result:
             assert s is not None
-            result = mail.inbox(conn, s, limit, now).to_dict()
+            result = mail.inbox(conn, s, limit, now, sender, replies_to).to_dict()
             return _with_notice(conn, s, result)
 
         return call(work)

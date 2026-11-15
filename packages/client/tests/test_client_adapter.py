@@ -393,3 +393,46 @@ async def test_send_description_explains_the_budget_without_numbers(
     assert "They cannot be woken" not in flat
     budget = text[text.index("wake") :]
     assert not re.search(r"[0-9]", budget)
+
+
+async def test_inbox_forwards_filters_and_leaves_other_mail(
+    home: Path, server: LiveServer, tmp_path: Path
+) -> None:
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+    peer_send(server, "laptop/api", "hello")  # from desktop/blog
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        tool = {t.name: t for t in await c.list_tools()}["inbox"]
+        assert set(tool.inputSchema["properties"]) == {
+            "limit",
+            "sender",
+            "replies_to",
+        }
+        none = await c.call_tool("inbox", {"sender": "desktop/other"})
+        assert none.data["messages"] == []
+        assert none.data["waiting_by_sender"] == [{"from": "desktop/blog", "count": 1}]
+        mine = await c.call_tool("inbox", {"sender": "desktop/blog"})
+    assert [m["body"] for m in mine.data["messages"]] == ["hello"]
+
+
+async def test_inbox_filters_against_an_old_server_are_a_clear_error(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastmcp.exceptions import ToolError
+
+    repo = git_repo(tmp_path, "api")
+    hooked_session(repo, "cc-1")
+
+    class OldServer(Client):  # type: ignore[type-arg]
+        async def call_tool(  # type: ignore[no-untyped-def]
+            self, name, arguments=None, *a, **kw
+        ):
+            raise ToolError(
+                "1 validation error for call[inbox]\nsender\n  Unexpected keyword "
+                "argument [type=unexpected_keyword_argument, input_value='x/y']"
+            )
+
+    monkeypatch.setattr(adapter, "Client", OldServer)
+    async with Client(build_adapter("claude-code", str(repo))) as c:
+        r = await c.call_tool("inbox", {"sender": "x/y"})
+    assert r.data["error"] == "filter_unsupported" and "too old" in r.data["hint"]

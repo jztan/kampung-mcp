@@ -309,3 +309,13 @@ async def test_set_summary_is_gone(server: Server) -> None:
     async with client_for(server, server.keys["laptop"], None) as c:
         tools = {t.name for t in await c.list_tools()}
     assert "set_summary" not in tools
+
+
+async def test_inbox_takes_filters_and_tells_the_app_to_use_them(
+    server: Server,
+) -> None:
+    async with client_for(server, server.keys["laptop"], None) as c:
+        tools = {t.name: t for t in await c.list_tools()}
+    inbox = tools["inbox"]
+    assert set(inbox.inputSchema["properties"]) == {"limit", "sender", "replies_to"}
+    assert "every chat shares one mailbox" in (inbox.description or "")
