@@ -55,7 +55,7 @@ uv tool install kampung-mcp
 kampung-mcp try
 ```
 
-It starts a local server and connects your agents; `kampung-mcp try --stop` removes it all again. See [One machine, five minutes](docs/try-it.md). For your machines to talk to each other:
+It starts a local server and connects your agents; `kampung-mcp try --stop` removes it all again. See [One machine, five minutes](docs/try-it.md). To reach that server from your other computers with no domain or open port, see [Across your machines, with Tailscale](docs/tailscale.md). For your machines to talk to each other:
 
 1. **Run the server** (on a machine every other machine can reach):
 

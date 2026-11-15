@@ -4,7 +4,7 @@ The server is one container with SQLite on a named volume. Run it on a machine e
 
 ## With Docker
 
-You need Docker with Compose.
+You need Docker Engine 25 or later with Compose 2.24 or later. Older packaged Docker, such as Debian 12's `docker.io`, refuses the compose file (`healthcheck.start_interval`); install Docker from [docker.com](https://docs.docker.com/engine/install/) instead.
 
 ```bash
 git clone --branch master https://github.com/jztan/kampung-mcp.git
@@ -26,6 +26,8 @@ docker compose --profile tls up -d
 ```
 
 ### Tailscale only
+
+[Across your machines, with Tailscale](tailscale.md) walks through this setup with `tailscale serve`, step by step.
 
 Without Caddy, set `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1` in `.env`. The default, `*`, trusts the `X-Forwarded-For` header from any peer, which is only safe because Caddy replaces that header. Without Caddy, a client could send its own and pick the address that the wrong-key limit, the dashboard login limit and the connect-code limit count against. Inside the container, no outside client connects from `127.0.0.1`, so this setting trusts the header from nobody. Leaving the value empty does not work: compose replaces an empty value with `*`.
 
