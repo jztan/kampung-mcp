@@ -45,7 +45,8 @@ def test_inbox_limit_and_more(
     got = inbox(conn, pair[1], 50, clock.now())
     assert len(got.messages) == 20 and got.more == 5
     assert got.to_dict()["more"] == 5
-    assert len(inbox(conn, pair[1], 0, clock.now()).messages) == 1
+    counted = inbox(conn, pair[1], 0, clock.now())
+    assert counted.messages == [] and counted.more == 5  # limit 0 only counts
 
 
 def test_envelope_shape(
@@ -267,3 +268,114 @@ def test_sender_never_reads_its_own_mail(
     sender = load_session(conn, a.id)
     assert sender is not None and sender.max_depth_seen == -1
     assert inbox(conn, b, 20, clock.now()).messages[0]["body"] == "for my sibling"
+
+
+@pytest.fixture
+def three(make_session: MakeSession) -> tuple[Session, Session, Session]:
+    """Two senders on laptop (api, docs) and one receiver, desktop/blog."""
+    return (
+        make_session("laptop", "api"),
+        make_session("laptop", "docs"),
+        make_session("desktop", "blog"),
+    )
+
+
+def test_inbox_from_one_sender_leaves_the_rest_waiting(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, docs, blog = three
+    from_api = _send(conn, api, "desktop/blog", 2, clock.now())
+    from_docs = _send(conn, docs, "desktop/blog", 3, clock.now())
+    got = inbox(conn, blog, 20, clock.now(), sender="laptop/api")
+    assert {m["id"] for m in got.messages} == set(from_api) and got.more == 0
+    assert got.waiting_by_sender == [{"from": "laptop/docs", "count": 3}]
+    rest = inbox(conn, blog, 20, clock.now())
+    assert {m["id"] for m in rest.messages} == set(from_docs)
+    assert rest.waiting_by_sender == []
+
+
+def test_inbox_replies_to_reads_only_answers_to_this_chats_messages(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, docs, blog = three
+    asked = send(conn, blog, "laptop/api", "question", None, clock.now()).id
+    other = send(conn, blog, "laptop/docs", "other chat", None, clock.now()).id
+    answer = send(conn, api, "desktop/blog", "answer", asked, clock.now()).id
+    send(conn, docs, "desktop/blog", "not mine", other, clock.now())
+    send(conn, api, "desktop/blog", "unrelated", None, clock.now())
+    got = inbox(conn, blog, 20, clock.now(), replies_to=[asked])
+    assert [m["id"] for m in got.messages] == [answer]
+    assert got.waiting_by_sender == [
+        {"from": "laptop/api", "count": 1},
+        {"from": "laptop/docs", "count": 1},
+    ]
+
+
+def test_both_filters_must_match(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, docs, blog = three
+    asked = send(conn, blog, "laptop/api", "q", None, clock.now()).id
+    send(conn, docs, "desktop/blog", "a", asked, clock.now())
+    got = inbox(conn, blog, 20, clock.now(), sender="laptop/api", replies_to=[asked])
+    assert got.messages == [] and got.more == 0
+
+
+def test_limit_zero_counts_by_sender_and_delivers_nothing(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, docs, blog = three
+    _send(conn, api, "desktop/blog", 1, clock.now())
+    _send(conn, docs, "desktop/blog", 2, clock.now())
+    counted = inbox(conn, blog, 0, clock.now())
+    assert counted.messages == [] and counted.more == 3
+    assert counted.waiting_by_sender == [
+        {"from": "laptop/docs", "count": 2},
+        {"from": "laptop/api", "count": 1},
+    ]
+    assert len(inbox(conn, blog, 20, clock.now()).messages) == 3  # still there
+
+
+def test_an_unknown_sender_or_id_matches_nothing(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, _, blog = three
+    _send(conn, api, "desktop/blog", 1, clock.now())
+    assert inbox(conn, blog, 20, clock.now(), sender="nobody/here").messages == []
+    got = inbox(conn, blog, 20, clock.now(), replies_to=["msg_0000000000000aa"])
+    assert got.messages == [] and got.more == 0
+    assert inbox(conn, blog, 20, clock.now(), replies_to=[]).messages == []
+
+
+@pytest.mark.parametrize(
+    ("sender", "replies_to", "code"),
+    [
+        ("laptop/api#3f", None, "invalid_address"),
+        ("not an address", None, "invalid_address"),
+        (None, ["DROP TABLE"], "invalid_replies_to"),
+        (None, [f"msg_{n:013x}" for n in range(51)], "invalid_replies_to"),
+    ],
+)
+def test_bad_filters_are_refused(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+    sender: str | None,
+    replies_to: list[str] | None,
+    code: str,
+) -> None:
+    from kampung_server.errors import KampungError
+
+    with pytest.raises(KampungError) as e:
+        inbox(conn, three[2], 20, clock.now(), sender=sender, replies_to=replies_to)
+    assert e.value.code == code

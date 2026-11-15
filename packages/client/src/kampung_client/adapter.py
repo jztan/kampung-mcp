@@ -98,6 +98,12 @@ MODE_UNSUPPORTED = {
     "mode and say in the body that no reply is needed, or ask your user to "
     "update the server.",
 }
+FILTER_UNSUPPORTED = {
+    "error": "filter_unsupported",
+    "hint": "This Kampung server is too old for inbox filters (sender, "
+    "replies_to); call inbox without them, or ask your user to update the "
+    "server.",
+}
 UNAUTHORIZED = {
     "error": "unauthorized",
     "hint": "The Kampung server rejected this machine key; run kampung-mcp "
@@ -475,6 +481,11 @@ def build_adapter(
                     return FYI_UNSUPPORTED
                 if args.get("mode") and _unknown_argument(e, "mode"):
                     return MODE_UNSUPPORTED
+                if any(
+                    args.get(name) is not None and _unknown_argument(e, name)
+                    for name in ("sender", "replies_to")
+                ):
+                    return FILTER_UNSUPPORTED
                 return await asyncio.to_thread(_diagnose)
             data = result.data
             if not isinstance(data, dict):
@@ -637,9 +648,23 @@ def build_adapter(
         )
 
     @mcp.tool
-    async def inbox(ctx: Context, limit: int = 20) -> dict[str, Any]:
-        """Read your new messages (up to 20). Reading delivers them."""
-        return await forward("inbox", {"limit": limit}, ctx)
+    async def inbox(
+        ctx: Context,
+        limit: int = 20,
+        sender: str | None = None,
+        replies_to: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Read your new messages (up to 20). Reading delivers them. To read
+        only some, pass sender (a mailbox, machine/repo) or replies_to (ids of
+        messages you sent); the rest stay waiting. The result's
+        waiting_by_sender counts what is left; limit 0 reads nothing and only
+        counts."""
+        args: dict[str, Any] = {"limit": limit}
+        if sender is not None:
+            args["sender"] = sender
+        if replies_to is not None:
+            args["replies_to"] = replies_to
+        return await forward("inbox", args, ctx)
 
     return mcp
 
