@@ -48,9 +48,11 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 - A reminder to set the session summary.
 - `set_summary` takes `summary`.
 
-### v0.8: whatever daily use turns up
+### v0.8: fixes from daily use (unreleased)
 
-- No planned features, only fixes for problems found in daily use.
+- `kampung-mcp try` and `kampung-mcp uninstall`.
+- `list_peers` shows each session's latest step; `set_summary` is removed.
+- Inbox filters by sender and by reply, so Claude app chats share one mailbox.
 
 ### v1.0: a tool trusted day to day
 
@@ -63,11 +65,12 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 
 A separate track, worked on now. It ships in soak patches until it is stable, and then that release is v1.0.
 
-- A "first 5 minutes" quickstart on one machine.
-- Hosting on a home machine or NAS.
-- A "tell us what broke" link in the docs and in `doctor`, and a pinned Discussion.
-- One post where agent users are, once the quickstart exists.
-- `kampung-mcp try` for a one-command local trial.
+- [x] A "first 5 minutes" quickstart on one machine.
+- [ ] Hosting on a home machine or NAS.
+- [x] A "tell us what broke" link in the docs and in `doctor`.
+- [x] `kampung-mcp try` for a one-command local trial.
+- [ ] A pinned Discussion, once `try` is released.
+- [ ] One post where agent users are, once `try` is released.
 
 ## Decided
 
