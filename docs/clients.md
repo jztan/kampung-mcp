@@ -43,7 +43,7 @@ After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new ke
 
 ### Trying it on one machine
 
-`kampung-mcp try` runs the server image matching the client's version in Docker as the container `kampung-try`, published on `127.0.0.1:8803` only (`--port` changes it), with its mail in the volume `kampung-try-data`, the same lockdown as the compose file and `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1`, since nothing forwards for it. It then makes this machine's key (named from the hostname) and runs setup against it for the agents it finds on `PATH` (or `--agent`). It refuses a machine already connected to another server. `kampung-mcp try --stop` removes the container and its mail, and runs `uninstall` when this machine is connected to the trial server. See [One machine, five minutes](try-it.md).
+`kampung-mcp try` runs the server image matching the client's version in Docker as the container `kampung-try`, published on `127.0.0.1:8803` only (`--port` changes it), with its mail in the volume `kampung-try-data`, the compose file's lockdown (read-only root, a tmpfs for `/tmp`, every capability dropped, no new privileges) and `KAMPUNG_FORWARDED_ALLOW_IPS=127.0.0.1`, since nothing forwards for it. It then makes this machine's key (named from the hostname) and runs setup against it for the agents it finds on `PATH` (or `--agent`). It refuses a machine already connected to another server. `kampung-mcp try --stop` removes the container and its mail, and runs `uninstall` when this machine is connected to the trial server. See [One machine, five minutes](try-it.md).
 
 ### Removing Kampung from a machine
 
