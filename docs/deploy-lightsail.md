@@ -159,7 +159,7 @@ chmod 600 .env
 nano .env    # set KAMPUNG_DOMAIN=kampung.example.com
 ```
 
-Leave `KAMPUNG_IMAGE_TAG` at `latest` (or unset, which means the same), the release `master` holds, so the image matches the Compose file. To pin a release instead, check out its tag (`git checkout vX.Y.Z`) and set `KAMPUNG_IMAGE_TAG=X.Y.Z`. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
+Leave `KAMPUNG_IMAGE_TAG` at `latest`, the release `master` holds, so the image matches the Compose file (removing the line means the same). To pin a release instead, check out its tag (`git checkout vX.Y.Z`) and set `KAMPUNG_IMAGE_TAG=X.Y.Z`. Leave `KAMPUNG_ADMIN_TOKEN` unset unless you want the dashboard (step 11).
 
 ## 9. Start it
 
