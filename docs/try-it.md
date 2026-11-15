@@ -39,7 +39,7 @@ It removes the trial server and its mail, and undoes the setup `try` made: Kampu
 
 ## Without `try`
 
-The same steps by hand, in a clone of this repository:
+The same steps by hand, in a clone of this repository. Compose needs Docker Engine 25 or later (see [Running the server](server.md#with-docker)).
 
 ```bash
 git clone --branch master https://github.com/jztan/kampung-mcp.git

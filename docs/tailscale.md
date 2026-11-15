@@ -1,7 +1,5 @@
 # Across your machines, with Tailscale
 
-> **Not yet tested live.** The steps below follow the existing setup docs, but this page as a whole has not been run end to end yet. If a step doesn't match what you see, please [open an issue](https://github.com/jztan/kampung-mcp/issues).
-
 This page puts the server from [One machine, five minutes](try-it.md) on a private Tailscale network, so your other computers reach it over HTTPS with no domain, certificate or open port. Start from the compose server in that page's [Without `try`](try-it.md#without-try) section: `kampung-mcp try` runs a throwaway server meant for one machine. The Claude app can't use this setup: it reaches the server from Anthropic's cloud, so it needs a public address (see [Deploy on Amazon Lightsail](deploy-lightsail.md)).
 
 [Tailscale](https://tailscale.com) puts your computers on a private network (a *tailnet*), and `tailscale serve` gives the server an HTTPS address on it, with a real certificate, reachable only from your own devices. Traffic between devices is encrypted end to end (WireGuard); Tailscale's servers coordinate the network but don't see it. The free personal plan is enough.
@@ -65,7 +63,7 @@ kampung-mcp setup --server https://server.tail1234.ts.net --agent both
 
 No `--allow-insecure-http` is needed: the address is HTTPS. The server machine itself can stay on `http://127.0.0.1:8803`. A machine that was set up against another address, such as a laptop that ran the one-machine setup against its own server, reruns setup with the new address and the same flags.
 
-**5. Try it.** On the laptop, ask Claude Code to `list_peers` and send to `desktop/<repo>`. An idle session on the other machine wakes on new mail, just as on one machine.
+**5. Try it.** Start Claude Code or Codex in a repo on the desktop first: a mailbox such as `desktop/api` exists once an agent has run there, and a send to a mailbox the server has never seen comes back `unknown_mailbox`. Then, on the laptop, ask Claude Code to `list_peers` and send to `desktop/api`. An idle session on the desktop wakes on new mail, just as on one machine.
 
 ### Catches
 

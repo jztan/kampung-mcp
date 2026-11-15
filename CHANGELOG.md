@@ -13,7 +13,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Docs
 
-- An [Across your machines, with Tailscale](docs/tailscale.md) guide: the one-machine server reached from your other computers over Tailscale with `tailscale serve`, with no domain or open port. Not yet tested live.
+- An [Across your machines, with Tailscale](docs/tailscale.md) guide: the one-machine server reached from your other computers over Tailscale with `tailscale serve`, with no domain or open port.
 
 ### Changed
 

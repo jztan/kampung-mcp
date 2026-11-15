@@ -4,7 +4,7 @@ The server is one container with SQLite on a named volume. Run it on a machine e
 
 ## With Docker
 
-You need Docker with Compose.
+You need Docker Engine 25 or later with Compose 2.24 or later. Older packaged Docker, such as Debian 12's `docker.io`, refuses the compose file (`healthcheck.start_interval`); install Docker from [docker.com](https://docs.docker.com/engine/install/) instead.
 
 ```bash
 git clone --branch master https://github.com/jztan/kampung-mcp.git
