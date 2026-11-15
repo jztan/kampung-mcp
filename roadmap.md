@@ -52,7 +52,7 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 
 - `kampung-mcp try` and `kampung-mcp uninstall`.
 - `list_peers` shows each session's latest step; `set_summary` is removed.
-- Inbox filters by sender and by reply, so Claude app chats share one mailbox.
+- Inbox filters by sender and by reply, so Claude app chats can share one mailbox without taking each other's mail.
 
 ### v1.0: a tool trusted day to day
 
