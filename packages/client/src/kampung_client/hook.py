@@ -1007,14 +1007,23 @@ _BUILTINS = frozenset(
         "kill", "true", "false", "pushd", "popd", "ulimit", "umask", "shift",
     }
 )  # fmt: skip
-# PowerShell cmdlets are not on PATH; accept the approved verbs' shape.
-_CMDLET = re.compile(
-    r"(Get|Set|New|Remove|Add|Clear|Copy|Move|Rename|Start|Stop|Restart|Wait"
-    r"|Invoke|Test|Select|Where|ForEach|Sort|Group|Measure|Format|Out|Write"
-    r"|Read|Import|Export|ConvertTo|ConvertFrom|Expand|Compress|Resolve|Join"
-    r"|Split|Push|Pop|Update|Install|Uninstall|Enable|Disable|Register"
-    r"|Unregister|Find|Show|Use|Enter|Exit)-[A-Z][A-Za-z]{1,30}"
-)
+# PowerShell cmdlets are not on PATH: only these common ones count, by name.
+_CMDLETS = frozenset(
+    {
+        "Get-ChildItem", "Get-Content", "Set-Content", "Add-Content",
+        "Get-Item", "New-Item", "Remove-Item", "Copy-Item", "Move-Item",
+        "Rename-Item", "Test-Path", "Get-Location", "Set-Location",
+        "Select-String", "Select-Object", "Where-Object", "ForEach-Object",
+        "Sort-Object", "Measure-Object", "Format-Table", "Format-List",
+        "Out-File", "Out-Null", "Write-Host", "Write-Output", "Get-Process",
+        "Stop-Process", "Start-Process", "Get-Service", "Restart-Service",
+        "Invoke-WebRequest", "Invoke-RestMethod", "Expand-Archive",
+        "Compress-Archive", "Get-Date", "Start-Sleep", "Get-Command",
+        "Resolve-Path", "Join-Path", "Split-Path", "ConvertTo-Json",
+        "ConvertFrom-Json", "Get-ScheduledTask", "Start-ScheduledTask",
+    }
+)  # fmt: skip
+_MAX_LOOKUPS = 10  # PATH searches per command, so a long command stays fast
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _SEPARATORS = "();<>|&\n"
 _PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,39}")
@@ -1024,7 +1033,7 @@ def is_program(name: str) -> bool:
     """Whether a word names a program here: a shell builtin, a PowerShell
     cmdlet, or something on PATH. A secret, a value or a folder name is none
     of these, so it can never become a step."""
-    if name in _BUILTINS or _CMDLET.fullmatch(name):
+    if name in _BUILTINS or name in _CMDLETS:
         return True
     return shutil.which(name) is not None
 
@@ -1047,12 +1056,12 @@ def programs_in(command: str, most: int = 3) -> list[str]:
     except ValueError:
         return []
     found: list[str] = []
-    expect_program, skip_next = True, False
+    expect_program, skip_next, lookups = True, False, 0
     for word in words:
         if word and set(word) <= set(_SEPARATORS):
             if set(word) & set("<>"):
                 skip_next = True  # a redirection's target is a file name
-            else:
+            elif set(word) != {")"}:  # after `)`, the outer command's arguments
                 expect_program = True
             continue
         if skip_next:
@@ -1062,10 +1071,13 @@ def programs_in(command: str, most: int = 3) -> list[str]:
             continue
         if _ASSIGNMENT.match(word) or word in _WRAPPERS or word.startswith("-"):
             continue
-        name = re.split(r"[\\/]", word.strip("`$'\"{}"))[-1]
+        expect_program = False  # only a command's first word can name it
+        if word.startswith("$") or lookups >= _MAX_LOOKUPS:
+            continue  # a variable, or enough searching for one command
+        name = re.split(r"[\\/]", word.strip("`'\"{}"))[-1]
+        lookups += 1
         if not (_PROGRAM.fullmatch(name) and is_program(name)):
-            continue  # not a program: keep looking for this command's first
-        expect_program = False
+            continue
         if name not in found:
             found.append(name)
             if len(found) >= most:

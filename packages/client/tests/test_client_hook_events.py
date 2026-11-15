@@ -1100,9 +1100,8 @@ def _tool(name: str, given: object, **more: object) -> dict[str, object]:
         ("Bash", {"command": "cat <<'EOF'\n/p/Hunter2Battery\nEOF"}, "running cat"),
         ("Bash", {"command": "echo ok # ; /p/Hunter2Battery"}, "running echo"),
         ("Bash", {"command": "echo $(true) /p/Hunter2Battery"}, "running echo, true"),
-        ("Bash", {"command": "env -u Hunter2Battery echo ok"}, "running echo"),
-        ("Bash", {"command": "sudo -u Hunter2Battery git push"}, "running git"),
-        ("Bash", {"command": "2>/p/out echo ok"}, "running echo"),
+        ("Bash", {"command": "env -u Hunter2Battery echo ok"}, None),
+        ("Bash", {"command": "sudo -u Hunter2Battery git push"}, None),
         (
             "PowerShell",
             {"command": "Write-Host a`;Hunter2Battery"},
@@ -1114,6 +1113,15 @@ def _tool(name: str, given: object, **more: object) -> dict[str, object]:
             "running Get-Date",
         ),
         ("Bash", {"command": "Hunter2Battery"}, None),
+        ("Bash", {"command": "echo $(true) /p/git"}, "running echo, true"),
+        ("Bash", {"command": "./audit.sh /p/git"}, None),
+        (
+            "PowerShell",
+            {"command": "$password = 'Get-Coffee'; Get-Date"},
+            "running Get-Date",
+        ),
+        ("PowerShell", {"command": '$source = "v"; Get-Date'}, "running Get-Date"),
+        ("Bash", {"command": "printf '%s' ';' /p/New-Acquisition"}, "running printf"),
         ("Grep", {"pattern": "secret"}, None),
         ("mcp__kampung__send", {"to": "x", "body": "y", "description": "z"}, None),
         (
@@ -1144,7 +1152,16 @@ def test_only_a_real_program_counts() -> None:
     assert hook.is_program("cd") and hook.is_program("Get-ChildItem")
     assert hook.is_program(Path(sys.executable).name)
     assert not hook.is_program("Hunter2Battery")
-    assert not hook.is_program("Get-hunter2")
+    assert not hook.is_program("New-Acquisition")  # cmdlet-shaped, not a cmdlet
+
+
+def test_a_long_command_searches_path_only_a_few_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    looked: list[str] = []
+    monkeypatch.setattr(hook, "is_program", lambda n: looked.append(n) or False)
+    hook.programs_in("; ".join(f"Tok{i}" for i in range(5000)))
+    assert len(looked) == 10
 
 
 def test_a_step_rides_on_the_next_peek_and_shows_to_peers(
