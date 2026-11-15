@@ -173,6 +173,7 @@ The threat model, operator checklist and limits are in [SECURITY.md](./SECURITY.
 
 **The story behind the releases.** I write about building Kampung and the other tools I work on in [The Dispatch](https://blog.jztan.com/newsletter/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-newsletter). Come along if that's your kind of thing.
 
+- [I Asked My Phone to Coordinate Three AI Coding Agents](https://blog.jztan.com/run-coding-agents-from-your-phone/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-run-coding-agents-from-your-phone): One spoken request from the Claude app, and Claude Code and Codex on three operating systems checked a release and reported back, with no message carried by hand
 - [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-ai-coding-agents-on-different-machines): Why I stopped relaying questions between terminals, and how a self-hosted mailbox lets Claude Code and Codex on different machines message each other over MCP
 
 ## Contributing
