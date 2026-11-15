@@ -857,13 +857,25 @@ def _params(session: Session, now: datetime) -> dict[str, object]:
 _MESSAGE_ID = re.compile(r"msg_[0-9a-f]{13,40}")
 MAX_REPLIES_TO = 50
 
+# Mail this mailbox sent, from any of its sessions, so an answer to mail sent
+# before a reconnect still counts as one. Needs the :mailbox parameter.
+_SENT_FROM_HERE = (
+    "SELECT sm.id FROM messages sm JOIN sessions ss ON ss.id = sm.from_session_id "
+    "WHERE ss.mailbox_id = :mailbox"
+)
+_IS_ANSWER = f"msg.reply_to IN ({_SENT_FROM_HERE})"
+
 
 def _inbox_filter(
-    sender: str | None, replies_to: list[str] | None
+    session: Session, sender: str | None, replies_to: list[str] | None
 ) -> tuple[str, dict[str, object]]:
     """SQL that narrows readable mail to one sender mailbox and/or replies to
     the given message ids, with its parameters. An unknown sender or id just
-    matches nothing, so the filter tells a caller nothing it cannot see."""
+    matches nothing, so the filter tells a caller nothing it cannot see.
+
+    Every Claude app chat shares one session, so for it `sender` alone means
+    new mail: answers to mail this mailbox sent are left for `replies_to`, or
+    one chat would take another chat's answer."""
     clauses: list[str] = []
     params: dict[str, object] = {}
     if sender is not None:
@@ -880,6 +892,8 @@ def _inbox_filter(
             "WHERE fm.name = :f_machine AND fmb.repo = :f_repo)"
         )
         params.update(f_machine=address.machine, f_repo=address.repo)
+        if session.agent == CONNECTOR_AGENT and replies_to is None:
+            clauses.append(f"(msg.reply_to IS NULL OR NOT {_IS_ANSWER})")
     if replies_to is not None:
         if len(replies_to) > MAX_REPLIES_TO or not all(
             isinstance(i, str) and _MESSAGE_ID.fullmatch(i) for i in replies_to
@@ -909,7 +923,7 @@ def inbox(
     """Deliver up to `limit` readable messages, only those matching the
     filters when given; limit 0 delivers nothing and only counts."""
     limit = max(0, min(limit, INBOX_MAX))
-    narrow, extra = _inbox_filter(sender, replies_to)
+    narrow, extra = _inbox_filter(session, sender, replies_to)
     params = {**_params(session, now), **extra, "limit": limit}
     with db.transaction(conn):
         sweep(conn, now)
@@ -943,9 +957,10 @@ def inbox(
             f"SELECT count(*) FROM messages msg WHERE {_READABLE}{narrow}", params
         ).fetchone()[0]
         waiting = [
-            {"from": f"{r[0]}/{r[1]}", "count": r[2]}
+            {"from": f"{r[0]}/{r[1]}", "count": r[2], "replies": r[3]}
             for r in conn.execute(
-                "SELECT fm.name, fmb.repo, count(*) FROM messages msg "
+                "SELECT fm.name, fmb.repo, count(*), "
+                f"coalesce(sum({_IS_ANSWER}), 0) FROM messages msg "
                 "JOIN sessions fs ON fs.id = msg.from_session_id "
                 "JOIN mailboxes fmb ON fmb.id = fs.mailbox_id "
                 "JOIN machines fm ON fm.id = fmb.machine_id "

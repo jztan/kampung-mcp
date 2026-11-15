@@ -290,7 +290,7 @@ def test_inbox_from_one_sender_leaves_the_rest_waiting(
     from_docs = _send(conn, docs, "desktop/blog", 3, clock.now())
     got = inbox(conn, blog, 20, clock.now(), sender="laptop/api")
     assert {m["id"] for m in got.messages} == set(from_api) and got.more == 0
-    assert got.waiting_by_sender == [{"from": "laptop/docs", "count": 3}]
+    assert got.waiting_by_sender == [{"from": "laptop/docs", "count": 3, "replies": 0}]
     rest = inbox(conn, blog, 20, clock.now())
     assert {m["id"] for m in rest.messages} == set(from_docs)
     assert rest.waiting_by_sender == []
@@ -310,8 +310,8 @@ def test_inbox_replies_to_reads_only_answers_to_this_chats_messages(
     got = inbox(conn, blog, 20, clock.now(), replies_to=[asked])
     assert [m["id"] for m in got.messages] == [answer]
     assert got.waiting_by_sender == [
-        {"from": "laptop/api", "count": 1},
-        {"from": "laptop/docs", "count": 1},
+        {"from": "laptop/api", "count": 1, "replies": 0},
+        {"from": "laptop/docs", "count": 1, "replies": 1},
     ]
 
 
@@ -338,8 +338,8 @@ def test_limit_zero_counts_by_sender_and_delivers_nothing(
     counted = inbox(conn, blog, 0, clock.now())
     assert counted.messages == [] and counted.more == 3
     assert counted.waiting_by_sender == [
-        {"from": "laptop/docs", "count": 2},
-        {"from": "laptop/api", "count": 1},
+        {"from": "laptop/docs", "count": 2, "replies": 0},
+        {"from": "laptop/api", "count": 1, "replies": 0},
     ]
     assert len(inbox(conn, blog, 20, clock.now()).messages) == 3  # still there
 
@@ -379,3 +379,86 @@ def test_bad_filters_are_refused(
     with pytest.raises(KampungError) as e:
         inbox(conn, three[2], 20, clock.now(), sender=sender, replies_to=replies_to)
     assert e.value.code == code
+
+
+def _app(make_session: MakeSession) -> Session:
+    return make_session(
+        "laptop", repo="claude", agent="claude-app", hooks=False, cwd="Claude app"
+    )
+
+
+@pytest.fixture
+def app_and_peer(make_session: MakeSession) -> tuple[Session, Session]:
+    """The Claude app's session (laptop/claude) and a peer, desktop/api."""
+    return _app(make_session), make_session("desktop", "api")
+
+
+def test_app_sender_skips_replies_to_its_own_mail(
+    conn: sqlite3.Connection,
+    app_and_peer: tuple[Session, Session],
+    clock: FakeClock,
+) -> None:
+    app, peer = app_and_peer
+    now = clock.now()
+    asked = send(conn, app, "desktop/api", "q", None, now).id
+    answer = send(conn, peer, "laptop/claude", "a", asked, now).id
+    new = send(conn, peer, "laptop/claude", "new", None, now).id
+    got = inbox(conn, app, 20, now, sender="desktop/api")
+    assert [m["id"] for m in got.messages] == [new] and got.more == 0
+    assert got.waiting_by_sender == [{"from": "desktop/api", "count": 1, "replies": 1}]
+    answers = inbox(conn, app, 20, now, replies_to=[asked])
+    assert [m["id"] for m in answers.messages] == [answer]
+
+
+def test_app_sender_skips_replies_to_mail_sent_before_a_reconnect(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    old, peer = _app(make_session), make_session("desktop", "api")
+    asked = send(conn, old, "desktop/api", "q", None, clock.now()).id
+    end(conn, old.id, clock.now())
+    send(conn, peer, "laptop/claude", "a", asked, clock.now())
+    app = _app(make_session)
+    got = inbox(conn, app, 20, clock.now(), sender="desktop/api")
+    assert got.messages == []
+    assert got.waiting_by_sender == [{"from": "desktop/api", "count": 1, "replies": 1}]
+
+
+def test_app_sender_and_replies_to_together_read_the_answer(
+    conn: sqlite3.Connection,
+    app_and_peer: tuple[Session, Session],
+    clock: FakeClock,
+) -> None:
+    app, peer = app_and_peer
+    now = clock.now()
+    asked = send(conn, app, "desktop/api", "q", None, now).id
+    answer = send(conn, peer, "laptop/claude", "a", asked, now).id
+    got = inbox(conn, app, 20, now, sender="desktop/api", replies_to=[asked])
+    assert [m["id"] for m in got.messages] == [answer]
+
+
+def test_app_sender_reads_a_reply_to_another_mailboxs_message(
+    conn: sqlite3.Connection,
+    app_and_peer: tuple[Session, Session],
+    clock: FakeClock,
+) -> None:
+    app, peer = app_and_peer
+    now = clock.now()
+    first = send(conn, peer, "laptop/claude", "part 1", None, now).id
+    clock.advance(seconds=1)
+    second = send(conn, peer, "laptop/claude", "part 2", first, clock.now()).id
+    got = inbox(conn, app, 20, clock.now(), sender="desktop/api")
+    assert [m["id"] for m in got.messages] == [first, second]
+
+
+def test_sender_still_reads_replies_for_other_agents(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, _, blog = three
+    asked = send(conn, blog, "laptop/api", "q", None, clock.now()).id
+    answer = send(conn, api, "desktop/blog", "a", asked, clock.now()).id
+    got = inbox(conn, blog, 20, clock.now(), sender="laptop/api")
+    assert [m["id"] for m in got.messages] == [answer]

@@ -410,7 +410,9 @@ async def test_inbox_forwards_filters_and_leaves_other_mail(
         }
         none = await c.call_tool("inbox", {"sender": "desktop/other"})
         assert none.data["messages"] == []
-        assert none.data["waiting_by_sender"] == [{"from": "desktop/blog", "count": 1}]
+        assert none.data["waiting_by_sender"] == [
+            {"from": "desktop/blog", "count": 1, "replies": 0}
+        ]
         mine = await c.call_tool("inbox", {"sender": "desktop/blog"})
     assert [m["body"] for m in mine.data["messages"]] == ["hello"]
 
