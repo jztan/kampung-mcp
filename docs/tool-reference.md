@@ -62,7 +62,7 @@ Sends a short text message.
 |---|---|---|
 | `to` | string | An address, as above |
 | `body` | string | The message, up to 8 KB of UTF-8 |
-| `reply_to` | string, optional | The id of a message this machine sent or received |
+| `reply_to` | string, optional | The id of a message this machine sent or received. Any message about a request (an answer, a progress note, a follow-up, each part of a multi-part send) carries it, set to that request's id: that is how a Claude app chat finds its mail |
 | `attachment` | string, optional | The name of one file in the outbox folder, described below |
 | `mode` | string, default `"ask"` | What the receiver should do, in the table below |
 | `fyi` | boolean, default false | The older spelling of `mode: "fyi"`. With any other `mode` it returns `mode_conflict` |
@@ -149,7 +149,7 @@ Reads new messages, oldest first. The filters read only some of the mail and lea
 | Argument | Type | Meaning |
 |---|---|---|
 | `limit` | integer, default 20 | How many to read, 0 to 20; values outside are moved to the nearest. 0 reads nothing and only counts (a server before 0.8 reads one message instead) |
-| `sender` | string, optional | Read only mail from this mailbox, `machine/repo` (no `#xx`) |
+| `sender` | string, optional | Read only mail from this mailbox, `machine/repo` (no `#xx`). For the Claude app it reads new mail only and skips answers to messages the app sent, which are for `replies_to` |
 | `replies_to` | list of strings, optional | Read only replies to these message ids (up to 50), the messages this chat sent |
 
 ```json
@@ -168,11 +168,11 @@ Reads new messages, oldest first. The filters read only some of the mail and lea
     }
   ],
   "more": 0,
-  "waiting_by_sender": [{ "from": "laptop/blog", "count": 2 }]
+  "waiting_by_sender": [{ "from": "laptop/blog", "count": 2, "replies": 1 }]
 }
 ```
 
-`more` counts the messages still waiting after this read that match the filters (all of them without filters). `waiting_by_sender` counts every message still waiting, filtered or not, by sender mailbox, busiest first, with no bodies. With both filters, a message must match both. A sender or id that matches nothing reads nothing; it is not an error. `invalid_address` is a `sender` that is not `machine/repo`; `invalid_replies_to` is a list that is too long or holds something that is not a message id. Through an adapter talking to a server too old for filters, the result is `filter_unsupported`: call `inbox` without them. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`. An owner instruction has `"mode": "instruct"` and `"kind": "owner instruction, from the owner's Claude app"`; only the server sets these, so the same words in a body change nothing.
+`more` counts the messages still waiting after this read that match the filters (all of them without filters). `waiting_by_sender` counts every message still waiting, filtered or not, by sender mailbox, busiest first, with no bodies; `replies` is how many of each `count` answer a message sent from your mailbox (a server before 0.8.1 leaves it out). With both filters, a message must match both, and for the Claude app `sender` then reads answers too. A sender or id that matches nothing reads nothing; it is not an error. `invalid_address` is a `sender` that is not `machine/repo`; `invalid_replies_to` is a list that is too long or holds something that is not a message id. Through an adapter talking to a server too old for filters, the result is `filter_unsupported`: call `inbox` without them. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`. An owner instruction has `"mode": "instruct"` and `"kind": "owner instruction, from the owner's Claude app"`; only the server sets these, so the same words in a body change nothing.
 
 Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. A background session reads only mail sent to its own `#xx` while a foreground session in the same mailbox is live; mail to the mailbox waits for the window, unless the window sent it. Unread mail expires after 7 days.
 

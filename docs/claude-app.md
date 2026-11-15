@@ -27,7 +27,11 @@ Tool calls come from Anthropic's cloud (`160.79.104.0/21` and `153.61.208.0/20`,
 
 Every chat on your account shares the one `phone/claude` mailbox, and reading a message delivers it, so a chat that reads everything takes mail meant for another chat. Since 0.8, a chat can read only the mail meant for it: the replies to the messages it sent (`replies_to`). The rest stays waiting for the chat it belongs to, so a chat about a review on `desktop/api` doesn't pick up the test result another chat is waiting for from `laptop/api`.
 
-The `inbox` tool's description tells every chat to do this, so you don't need to ask; the server does not enforce it. `sender` reads all of one peer's mail, including replies meant for another chat, so it is for new mail that answers nothing. If a chat ever reads more than its own mail, ask it to read only the replies to what it sent. `waiting_by_sender` in the result shows what is still waiting, and from whom. The [tool reference](tool-reference.md#inbox) has the details.
+The `inbox` tool's description tells every chat to do this, so you don't need to ask. `sender` reads new mail from one peer and skips answers to messages the app sent, so one chat cannot take another chat's answer (since 0.8.1). `waiting_by_sender` in the result shows what is still waiting, and from whom, with `replies` counting the answers. The [tool reference](tool-reference.md#inbox) has the details.
+
+This works only when your agents mark what they send: every message about a request (an answer, a progress note, each part of a long reply) carries `reply_to` set to the request. Their tool descriptions say so, but the server cannot check it. A message sent without it is new mail, and the first chat to read that peer's mail takes it, with no error.
+
+A chat that no longer has the ids it sent (a new chat, say) sees its answers only in the `replies` count. A plain `inbox` reads them, along with every other chat's mail; otherwise they expire after 7 days.
 
 ## Keep the connector out of Claude Code
 
