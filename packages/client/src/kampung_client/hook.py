@@ -15,6 +15,8 @@ import math
 import os
 import re
 import secrets
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -699,6 +701,7 @@ def api(
     path: str,
     body: dict[str, object] | None = None,
     timeout: float = 2.0,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, object]]:
     """Call the Kampung server. 4xx comes back as (status, body); 5xx and
     network failures raise HookError."""
@@ -710,6 +713,7 @@ def api(
         headers={
             "Authorization": f"Bearer {config['key']}",
             "Content-Type": "application/json",
+            **(headers or {}),
         },
     )
     try:
@@ -851,6 +855,7 @@ def _call(
     revive: bool,
     body: dict[str, object] | None = None,
     query: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Call /v1/sessions/{id}/{action}; on 409 or 404 re-register and retry once.
 
@@ -869,7 +874,7 @@ def _call(
         path = f"/v1/sessions/{data['session']}/{action}"
         if query:
             path += "?" + urllib.parse.urlencode(query)
-        status, answer = api(method, path, body, clock.timeout())
+        status, answer = api(method, path, body, clock.timeout(), headers)
         if status == 200:
             return answer
         if status in (404, 409) and attempt == 0:
@@ -995,29 +1000,90 @@ def step_from_tool(event: Event) -> str | None:
 
 
 _WRAPPERS = frozenset({"sudo", "env", "time", "nohup", "exec", "command", "xargs"})
+_BUILTINS = frozenset(
+    {
+        "cd", "echo", "export", "source", "set", "unset", "test", "read",
+        "pwd", "exit", "alias", "type", "printf", "eval", "trap", "wait",
+        "kill", "true", "false", "pushd", "popd", "ulimit", "umask", "shift",
+    }
+)  # fmt: skip
+# PowerShell cmdlets are not on PATH: only these common ones count, by name.
+_CMDLETS = frozenset(
+    {
+        "Get-ChildItem", "Get-Content", "Set-Content", "Add-Content",
+        "Get-Item", "New-Item", "Remove-Item", "Copy-Item", "Move-Item",
+        "Rename-Item", "Test-Path", "Get-Location", "Set-Location",
+        "Select-String", "Select-Object", "Where-Object", "ForEach-Object",
+        "Sort-Object", "Measure-Object", "Format-Table", "Format-List",
+        "Out-File", "Out-Null", "Write-Host", "Write-Output", "Get-Process",
+        "Stop-Process", "Start-Process", "Get-Service", "Restart-Service",
+        "Invoke-WebRequest", "Invoke-RestMethod", "Expand-Archive",
+        "Compress-Archive", "Get-Date", "Start-Sleep", "Get-Command",
+        "Resolve-Path", "Join-Path", "Split-Path", "ConvertTo-Json",
+        "ConvertFrom-Json", "Get-ScheduledTask", "Start-ScheduledTask",
+    }
+)  # fmt: skip
+_CMDLET_NAMES = {name.lower(): name for name in _CMDLETS}  # case-blind
+_MAX_LOOKUPS = 10  # PATH searches per command, so a long command stays fast
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_SEGMENT = re.compile(r"&&|\|\||[;|\n]")
+_SEPARATORS = "();<>|&\n"
+_PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,39}")
+
+
+def is_program(name: str) -> bool:
+    """Whether a word names a program here: a shell builtin, a PowerShell
+    cmdlet, or something on PATH. A secret, a value or a folder name is none
+    of these, so it can never become a step."""
+    if name in _BUILTINS or name in _CMDLETS:
+        return True
+    return shutil.which(name) is not None
 
 
 def programs_in(command: str, most: int = 3) -> list[str]:
     """The programs a shell command runs, by bare name, in order and without
     repeats: never an argument, a value or a path, since those can carry a
-    secret or a private folder name."""
+    secret or a private folder name.
+
+    The command is split by shell rules to find each command's first word,
+    and a word counts only if it names a program on this machine
+    (`is_program`); anything else, such as a value the splitter mistook for a
+    command, is skipped. A command that cannot be split reports nothing."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=_SEPARATORS)
+    lexer.whitespace = " \t\r"  # a newline separates commands, like ;
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        words = list(lexer)
+    except ValueError:
+        return []
     found: list[str] = []
-    for segment in _SEGMENT.split(command):
-        for word in segment.split():
-            word = word.strip("()`$'\"{}")
-            if not word or _ASSIGNMENT.match(word) or word in _WRAPPERS:
-                continue
-            if word.startswith("-"):
-                continue
-            name = re.split(r"[\\/]", word)[-1]
-            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,39}", name):
-                if name not in found:
-                    found.append(name)
-            break  # only the first word of each segment is a program
-        if len(found) >= most:
-            break
+    expect_program, skip_next, lookups = True, False, 0
+    for word in words:
+        if word and set(word) <= set(_SEPARATORS):
+            if set(word) & set("<>"):
+                skip_next = True  # a redirection's target is a file name
+            elif set(word) != {")"}:  # after `)`, the outer command's arguments
+                expect_program = True
+            continue
+        if skip_next:
+            skip_next = False
+            continue
+        if not expect_program:
+            continue
+        if _ASSIGNMENT.match(word) or word in _WRAPPERS or word.startswith("-"):
+            continue
+        expect_program = False  # only a command's first word can name it
+        if word.startswith("$") or lookups >= _MAX_LOOKUPS:
+            continue  # a variable, or enough searching for one command
+        name = re.split(r"[\\/]", word.strip("`'\"{}"))[-1]
+        name = _CMDLET_NAMES.get(name.lower(), name)  # PowerShell ignores case
+        lookups += 1
+        if not (_PROGRAM.fullmatch(name) and is_program(name)):
+            continue
+        if name not in found:
+            found.append(name)
+            if len(found) >= most:
+                break
     return found
 
 
@@ -1036,13 +1102,19 @@ def _record_step(event: Event) -> None:
         pass  # a missed step; never fail a hook over this
 
 
-def _step_query(data: dict[str, object] | None) -> dict[str, str]:
-    """The step to send with a peek: only one not yet sent."""
+# The step rides in a header, never the URL: a URL reaches access logs and
+# error messages before the server's secret check can drop the step.
+STEP_HEADER = "X-Kampung-Now"
+
+
+def _step_header(data: dict[str, object] | None) -> dict[str, str]:
+    """The step to send with a peek: only one not yet sent, percent-encoded
+    so any text fits in a header."""
     if data is None:
         return {}
     step = data.get("now")
     if isinstance(step, str) and step and data.get("now_sent") != step:
-        return {"now": step}
+        return {STEP_HEADER: urllib.parse.quote(step, safe="")}
     return {}
 
 
@@ -1148,8 +1220,8 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
     # one check per NUDGE_INTERVAL instead of a timeout on every tool call.
     _save_nudge_state(path, {"checked": now, "notified": state["notified"]})
     sid = str(event["session_id"])
-    query = _step_query(read_session_file(sid))
-    body = _call(event, clock, "GET", "peek", revive=False, query=query or None)
+    step = _step_header(read_session_file(sid))
+    body = _call(event, clock, "GET", "peek", revive=False, headers=step or None)
     _mark_step_sent(sid, body)
     wakeable = int(str(body.get("wakeable", 0)))
     notify, seen = new_mail(body, state["notified"])
@@ -1173,8 +1245,16 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
             data, branch = _current_branch(event)
             changed = data is not None and data.get("branch_sent") != branch
             query = {"branch": branch} if changed else {}
-            query.update(_step_query(data))  # the turn's last step, if new
-            body = _call(event, clock, "GET", "peek", revive=False, query=query or None)
+            step = _step_header(data)  # the turn's last step, if new
+            body = _call(
+                event,
+                clock,
+                "GET",
+                "peek",
+                revive=False,
+                query=query or None,
+                headers=step or None,
+            )
             if changed and "branch" in body:  # an older server ignores it
                 _mark_branch_sent(str(event["session_id"]), branch)
             _mark_step_sent(str(event["session_id"]), body)

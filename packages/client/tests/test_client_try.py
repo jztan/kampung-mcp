@@ -19,6 +19,8 @@ class FakeDocker:
         self.machines: list[str] = []
         self.daemon_up = True
         self.run_fails = False
+        self.published: int | None = None  # host port of an existing container
+        self.remove_fails = False
 
     def __call__(self, args: list[str]) -> trial.Done:
         self.calls.append(args)
@@ -42,11 +44,17 @@ class FakeDocker:
         if args[:4] == ["exec", trial.CONTAINER, "kampung", "key"]:
             self.machines.append(args[5])
             return trial.Done(0, f"kpg_{args[4]}_key\n", "Machine created.")
+        if args[:2] == ["port", trial.CONTAINER]:
+            if self.published is None:
+                return trial.Done(1, "", "No such container")
+            return trial.Done(0, f"127.0.0.1:{self.published}\n", "")
         if args[:3] == ["rm", "-f", trial.CONTAINER]:
+            if self.remove_fails:
+                return trial.Done(1, "", "Cannot connect")
             self.running = None
             return trial.Done(0, "", "")
         if args[:3] == ["volume", "rm", "-f"]:
-            return trial.Done(0, "", "")
+            return trial.Done(1 if self.remove_fails else 0, "", "")
         raise AssertionError(f"unexpected docker call: {args}")
 
     def first(self, verb: str) -> list[str]:
@@ -193,6 +201,40 @@ def test_stop_leaves_a_machine_connected_elsewhere_alone(home: Path) -> None:
     assert undone == []
     assert ["rm", "-f", trial.CONTAINER] in docker.calls
     assert any("left alone" in line for line in lines)
+
+
+def test_stop_with_docker_down_changes_nothing(home: Path) -> None:
+    _connect(home, URL)
+    docker, undone = FakeDocker(), []
+    docker.daemon_up = False
+    with pytest.raises(trial.TryError, match="Nothing was changed"):
+        trial.stop(docker, lambda: undone.append(1) or [], 8803)
+    assert undone == []
+    assert not any(c[0] in ("rm", "volume") for c in docker.calls)
+
+
+def test_a_failed_removal_is_reported_not_claimed(home: Path) -> None:
+    _connect(home, URL)
+    docker = FakeDocker()
+    docker.remove_fails = True
+    with pytest.raises(trial.TryError, match="Could not remove") as raised:
+        trial.stop(docker, lambda: ["Uninstalled."], 8803)
+    assert "Uninstalled." in str(raised.value)
+    assert "Removed the" not in str(raised.value)
+
+
+def test_stop_finds_a_trial_on_another_port(home: Path) -> None:
+    _connect(home, "http://127.0.0.1:9900")
+    docker, undone = FakeDocker(), []
+    docker.published = 9900
+    trial.stop(docker, lambda: undone.append(1) or [], 8803)  # --port left off
+    assert undone == [1]
+
+
+def test_next_steps_name_a_custom_port_in_the_stop_command() -> None:
+    assert trial.next_steps("box", URL, ["codex"])[-1].endswith("try --stop")
+    custom = trial.next_steps("box", "http://127.0.0.1:9900", ["codex"])
+    assert custom[-1].endswith("try --stop --port 9900")
 
 
 @pytest.mark.parametrize(

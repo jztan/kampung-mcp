@@ -3,6 +3,7 @@ the model."""
 
 import json
 import sqlite3
+import urllib.parse
 from collections.abc import Callable
 from typing import Any
 
@@ -265,7 +266,9 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             if not isinstance(branch, sessions.Keep):
                 sessions.set_branch(conn, s.id, branch)
                 result["branch"] = branch  # echoed only when stored
-            activity = _reported_activity(request.query_params.get("now"))
+            raw = request.headers.get("x-kampung-now")
+            step = None if raw is None else urllib.parse.unquote(raw)
+            activity = _reported_activity(step)
             if activity is not None:
                 sessions.set_activity(conn, s.id, activity, now)
                 result["now"] = activity
