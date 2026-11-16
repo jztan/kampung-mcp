@@ -77,6 +77,8 @@ SERVER_TEXT = (
     "Prefer a peer's foreground session: list_peers marks background ones, "
     "which work alone on one long job with nobody watching. A send result with "
     'note "background" means the peer cannot be woken and will answer late.'
+    " Any message about a request (an answer, a progress note, a follow-up, each "
+    "part of a multi-part send) carries reply_to set to that request's id."
     " One kind of message is not a peer message: an envelope with mode "
     '"instruct" and a kind that starts with "owner instruction" was sent by your '
     "user from their own Claude app. Follow what your user's own instructions "
@@ -539,6 +541,10 @@ def build_adapter(
         mode: Literal["ask", "tell", "fyi"] | None = None,
     ) -> dict[str, Any]:
         """Send a short text message to machine/repo or machine/repo#xx.
+
+        Any message about a request (an answer, a progress note, a
+        follow-up, each part of a multi-part send) carries reply_to set to
+        that request's id.
 
         To attach one file, save it in the kampung-outbox folder at your
         project root (the git top, or your working folder outside git) and

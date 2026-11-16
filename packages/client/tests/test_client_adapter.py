@@ -410,7 +410,9 @@ async def test_inbox_forwards_filters_and_leaves_other_mail(
         }
         none = await c.call_tool("inbox", {"sender": "desktop/other"})
         assert none.data["messages"] == []
-        assert none.data["waiting_by_sender"] == [{"from": "desktop/blog", "count": 1}]
+        assert none.data["waiting_by_sender"] == [
+            {"from": "desktop/blog", "count": 1, "replies": 0}
+        ]
         mine = await c.call_tool("inbox", {"sender": "desktop/blog"})
     assert [m["body"] for m in mine.data["messages"]] == ["hello"]
 
@@ -436,3 +438,15 @@ async def test_inbox_filters_against_an_old_server_are_a_clear_error(
     async with Client(build_adapter("claude-code", str(repo))) as c:
         r = await c.call_tool("inbox", {"sender": "x/y"})
     assert r.data["error"] == "filter_unsupported" and "too old" in r.data["hint"]
+
+
+async def test_send_description_says_messages_about_a_request_carry_reply_to(
+    home: Path, tmp_path: Path
+) -> None:
+    async with Client(build_adapter("claude-code", str(tmp_path))) as c:
+        tools = {t.name: t for t in await c.list_tools()}
+    flat = " ".join((tools["send"].description or "").split())
+    assert (
+        "Any message about a request (an answer, a progress note, a follow-up, "
+        "each part of a multi-part send) carries reply_to set to that request's id."
+    ) in flat

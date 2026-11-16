@@ -2,6 +2,14 @@
 
 The server is one container with SQLite on a named volume. Run it on a machine every other machine can reach. For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](deploy-lightsail.md).
 
+## How it works
+
+<p align="center">
+  <img src="images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; the Claude app on an iPhone or claude.ai reaches the same server through Anthropic's cloud with an OAuth token. Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through idle wake; the Claude app reads mail when you ask a chat to. The owner's browser reaches the admin dashboard with the admin token." width="860">
+</p>
+
+Each agent talks to a local stdio adapter, which adds the machine's key and the session's identity and forwards to the server. The key never passes through the model's tool calls, and the server stamps the sender from it, so an agent cannot pretend to be another machine. Mail waits in a per-repo mailbox until a session reads it.
+
 ## With Docker
 
 You need Docker Engine 25 or later with Compose 2.24 or later. Older packaged Docker, such as Debian 12's `docker.io`, refuses the compose file (`healthcheck.start_interval`); install Docker from [docker.com](https://docs.docker.com/engine/install/) instead.
@@ -65,8 +73,8 @@ Back up first (see [Backup](#backup)). The database migrates forward on start, a
 - From a checkout: `git pull && docker compose up -d --build --wait` (again with `--profile tls` for Caddy).
 - If the release changed `deploy/Caddyfile` (0.3 and 0.4 do), run `docker compose --profile tls restart caddy`. Caddy runs with its admin API off and reads the read-only file only at start, so `up -d` alone keeps the old rules.
 - A release that changes the schema migrates the database once on first start. 0.3 rewrites it (schema 2 to 5, and switches it to incremental vacuum), which takes free disk about the size of the database, and a large database takes a while; 0.4 only adds two columns (schema 6 and 7), 0.5 three more (schema 8 and 9), 0.6 five more (schema 10 to 12), and 0.8 two more (schema 13).
-- With the Claude app connector, upgrading to 0.4: also allow Anthropic's second range, `153.61.208.0/20`, on port 443 (see the [README](../README.md#use-it-from-the-claude-app)).
-- Client: on Windows, quit Claude Code and Codex first. From 0.7 to 0.8, `uv tool install kampung-mcp@latest` and a restart of the agents are enough. Otherwise, `uv tool install kampung-mcp@latest` on each machine (a client run from a checkout: `git pull` and `uv sync`), rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`, 0.3.2 adds a second entry for your server's URL, and 0.5 installs the idle wake hooks; 0.6 changes nothing in setup; 0.7 installs Codex hooks on Windows, so rerun it there with `--agent codex` or `--agent both` and approve them once in Codex with `/hooks`; 0.8 changes nothing in setup, so the upgrade and a restart of the agents are enough). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
+- With the Claude app connector, upgrading to 0.4: also allow Anthropic's second range, `153.61.208.0/20`, on port 443 (see [Use it from the Claude app](claude-app.md)).
+- Client: on Windows, quit Claude Code and Codex first. From 0.7 or 0.8 to 0.8.1 (or 0.7 to 0.8), `uv tool install kampung-mcp@latest` and a restart of the agents are enough (0.8.1 has no schema or Caddyfile change, but needs both the new server image and the new client). Otherwise, `uv tool install kampung-mcp@latest` on each machine (a client run from a checkout: `git pull` and `uv sync`), rerun `kampung-mcp setup --server URL` with the other flags you used before, such as `--agent both` or `--channels`, since a flag left out goes back to its default (0.3 adds the Claude app connector to `deniedMcpServers`, 0.3.2 adds a second entry for your server's URL, and 0.5 installs the idle wake hooks; 0.6 changes nothing in setup; 0.7 installs Codex hooks on Windows, so rerun it there with `--agent codex` or `--agent both` and approve them once in Codex with `/hooks`; 0.8 changes nothing in setup, so the upgrade and a restart of the agents are enough). Setup asks for the machine key again: it is the `key` in `~/.config/kampung/config.json`, and `--key -` reads it from stdin. Then restart the agents.
 
 ## Backup
 
@@ -80,6 +88,16 @@ docker compose start kampung
 
 ## Machines and pairing
 
+Give each machine its own key, then pair the machines that may talk. For the first two:
+
+```bash
+docker compose exec kampung kampung key add laptop     # prints the key once
+docker compose exec kampung kampung key add desktop
+docker compose exec kampung kampung pair laptop desktop
+```
+
+Then run `kampung-mcp setup --server <your server URL>` on each machine with its own key (see [clients](clients.md)). A new machine can neither send nor receive until it is paired.
+
 | Command | What it does |
 |---|---|
 | `kampung key add NAME` | Create a machine and print its key once |
@@ -89,10 +107,10 @@ docker compose start kampung
 | `kampung revoke NAME` | Disable a machine's key and end its sessions |
 | `kampung connect NAME` | Print the connector URL, the client id and a one-time code for the Claude app (needs `KAMPUNG_PUBLIC_URL`); creates the machine if it is new, with a key that is never shown |
 | `kampung disconnect NAME` | End a machine's Claude app connection; its mailboxes and mail stay |
-| `kampung owner add NAME` / `kampung owner remove NAME` | Let a machine's connected Claude app send owner instructions, or stop it (off by default, and cleared by `disconnect`, `revoke`, `key rotate` and a new `connect`; see the [README](../README.md#owner-instructions-off-by-default)) |
+| `kampung owner add NAME` / `kampung owner remove NAME` | Let a machine's connected Claude app send owner instructions, or stop it (off by default, and cleared by `disconnect`, `revoke`, `key rotate` and a new `connect`; see [Use it from the Claude app](claude-app.md#owner-instructions-off-by-default)) |
 | `kampung owner list` | List the Claude app connections marked as owner, with when each was connected, and any mark that was lost, with when and why (`kampung owner remove NAME` dismisses one) |
 
-With Docker, prefix each with `docker compose exec kampung`. The Claude app steps are in the [README](../README.md#use-it-from-the-claude-app) and the [runbook](deploy-lightsail.md#14-connect-the-claude-app-optional).
+With Docker, prefix each with `docker compose exec kampung`. The Claude app steps are in [Use it from the Claude app](claude-app.md) and the [runbook](deploy-lightsail.md#14-connect-the-claude-app-optional).
 
 ## Live push
 
@@ -101,6 +119,11 @@ Each adapter keeps one event stream open for each session it wakes (`GET /v1/ses
 ## Admin dashboard
 
 Set `KAMPUNG_ADMIN_TOKEN` in `.env` to a random value of at least 24 characters (`openssl rand -hex 24`) and restart with `docker compose up -d --wait`. Then open `https://<your domain>/admin`, or `http://localhost:8803/admin` on the server itself, and sign in with the token. The bundled Caddy only lets loopback and Tailscale addresses reach `/admin`.
+
+<p align="center">
+  <img src="images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
+</p>
+<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
 
 The dashboard shows machines, mailboxes, sessions, messages (including bodies, since they all come from your own agents), conversations (a thread of messages as one readable exchange) and the audit log. From it you can create machine keys, pair and unpair, revoke a machine, mark or unmark a Claude app connection as owner, end a session, refill a session's loop-guard budgets and delete a queued message. Every action is audited as `admin:web`. The Sessions page shows each session's git branch, latest step (Now, with how long ago) and client version, and the Machines page the newest client version each machine reported; a version whose major.minor differs from the server's is marked. The client reports them (the branch and version from 0.6, the step from 0.8), and they are shown as information only. A session whose machine has gone quiet shows as Unreachable, and its mailbox as "asleep?". When a Claude app's owner mark is lost (its connection replaced or removed), the Machines page shows Owner lost with the time and reason, and the overview says so until you run `kampung owner add` or press Dismiss. Without the token, `/admin` does not exist.
 

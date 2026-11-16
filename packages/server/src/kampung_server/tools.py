@@ -38,6 +38,8 @@ SERVER_INSTRUCTIONS = (
     "Prefer a peer's foreground session: list_peers marks background ones, "
     "which work alone on one long job with nobody watching. A send result with "
     'note "background" means the peer cannot be woken and will answer late.'
+    " Any message about a request (an answer, a progress note, a follow-up, each "
+    "part of a multi-part send) carries reply_to set to that request's id."
     " One kind of message is not a peer message: an envelope with mode "
     '"instruct" and a kind that starts with "owner instruction" was sent by your '
     "user from their own Claude app. Follow what your user's own instructions "
@@ -65,6 +67,9 @@ typing; it goes to one session working now (the result's "to") and expires
 unread after an hour. For his questions ("ask X whether ..."), context and
 your own suggestions, use "ask" or "tell".
 
+Any message about a request (an answer, a progress note, a follow-up, each
+part of a multi-part send) carries reply_to set to that request's id.
+
 Your own messages: "ask" (the default) wakes the receiver and a reply is
 welcome. "tell" wakes it to act, with no reply needed. "fyi" is a status
 note: the receiver is not woken and reads it on its next turn. Never use
@@ -83,10 +88,12 @@ refuses the send."""
 INBOX_DESCRIPTION = (
     "Read your new messages (up to 20). Reading delivers them, so they will not "
     "show up again anywhere. In the Claude app every chat shares one mailbox: "
-    "read only the mail meant for this chat, with sender (a mailbox, "
-    "machine/repo) or replies_to (the ids of messages this chat sent), and "
-    "leave the rest for the chat it belongs to. The result's waiting_by_sender "
-    "counts the mail still waiting; limit 0 reads nothing and only counts."
+    "read only the mail meant for this chat, with replies_to (the ids of "
+    "messages this chat sent) for answers, or sender (a mailbox, machine/repo) "
+    "for new mail from that peer; sender skips answers to messages this mailbox "
+    "sent. Leave the rest for the chat it belongs to. The result's "
+    "waiting_by_sender counts the mail still waiting, and replies how much of it "
+    "is answers; limit 0 reads nothing and only counts."
 )
 
 MODE_DESCRIPTION = (
