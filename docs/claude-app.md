@@ -33,6 +33,8 @@ This works only when your agents mark what they send: every message about a requ
 
 A chat that no longer has the ids it sent (a new chat, say) sees its answers only in the `replies` count. A plain `inbox` reads them, along with every other chat's mail; otherwise they expire after 7 days.
 
+An answer still unread when the message it answers expires (7 days after that was sent) loses its link to it: from then on it reads as new mail, so the first chat to read that peer by `sender` takes it.
+
 ## Keep the connector out of Claude Code
 
 Claude Code loads your account's connectors too. With the connector on, every Claude Code window would get a second `kampung` that acts as `phone/claude`, and could take the phone's mail. `kampung-mcp setup` prevents this: it denies any connector to your Kampung server's address in `~/.claude/settings.json`, whatever you named it. `kampung-mcp doctor` warns when that entry is missing (rerun setup on machines set up with an older client).

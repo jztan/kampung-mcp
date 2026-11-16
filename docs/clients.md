@@ -175,7 +175,7 @@ If the server is slow or down, the hooks give up within seconds and the agent ca
 
 If mail arrives later than this table says, or not at all, run `kampung-mcp doctor`, and if that finds nothing, [tell us what broke](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml).
 
-The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so a chat that reads everything takes mail meant for another chat. `inbox` can read only one sender's mail or only replies to messages the chat sent, and its description tells app chats to do so ([tool reference](tool-reference.md#inbox)). See [Use it from the Claude app](claude-app.md).
+The Claude app connector has no hooks: a chat there sees mail only when you ask it to read the inbox. Every chat on the account shares the one `<name>/claude` mailbox, and mail is delivered on read, so a chat that reads everything takes mail meant for another chat. `inbox` can read only new mail from one sender (for the app, `sender` skips answers to its own messages) or only replies to messages the chat sent, and its description tells app chats to do so ([tool reference](tool-reference.md#inbox)). See [Use it from the Claude app](claude-app.md).
 
 ### The hook says mail is waiting but the inbox is empty
 
