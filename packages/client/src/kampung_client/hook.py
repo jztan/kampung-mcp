@@ -1239,25 +1239,28 @@ def on_post_tool_use(event: Event, clock: _Clock) -> dict[str, object] | None:
 def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
     result: dict[str, object] | None = None
     try:
+        # The peek runs even when stop_hook_active is set (a turn started by
+        # idle wake, or one a block kept going), so that turn's last step and
+        # branch still reach peers. Only the block is skipped then: never
+        # block twice in a row. The branch rides on this peek only when it
+        # changed, so an agent's own `git switch` shows by the end of its turn.
+        data, branch = _current_branch(event)
+        changed = data is not None and data.get("branch_sent") != branch
+        query = {"branch": branch} if changed else {}
+        step = _step_header(data)  # the turn's last step, if new
+        body = _call(
+            event,
+            clock,
+            "GET",
+            "peek",
+            revive=False,
+            query=query or None,
+            headers=step or None,
+        )
+        if changed and "branch" in body:  # an older server ignores it
+            _mark_branch_sent(str(event["session_id"]), branch)
+        _mark_step_sent(str(event["session_id"]), body)
         if not event.get("stop_hook_active"):
-            # The branch rides on this peek only when it changed, so an agent's
-            # own `git switch` shows by the end of its turn.
-            data, branch = _current_branch(event)
-            changed = data is not None and data.get("branch_sent") != branch
-            query = {"branch": branch} if changed else {}
-            step = _step_header(data)  # the turn's last step, if new
-            body = _call(
-                event,
-                clock,
-                "GET",
-                "peek",
-                revive=False,
-                query=query or None,
-                headers=step or None,
-            )
-            if changed and "branch" in body:  # an older server ignores it
-                _mark_branch_sent(str(event["session_id"]), branch)
-            _mark_step_sent(str(event["session_id"]), body)
             wakeable = int(str(body.get("wakeable", 0)))
             if wakeable > 0:
                 reason = STOP_BLOCK_REASON.format(n=wakeable)
