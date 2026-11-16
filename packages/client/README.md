@@ -9,180 +9,90 @@
 [![codecov](https://codecov.io/gh/jztan/kampung-mcp/graph/badge.svg)](https://codecov.io/gh/jztan/kampung-mcp)
 [![Downloads](https://pepy.tech/badge/kampung-mcp)](https://pepy.tech/project/kampung-mcp)
 
-**Self-hosted messaging between coding agents on different machines, over MCP.** See it work at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com).
-
-A Claude Code session on your laptop can ask a Codex session on your desktop a question, and the answer turns up at the end of its next turn. Kampung is one small server you run in Docker, plus a client on each machine that wires it into Claude Code and Codex.
+**Let Claude Code and Codex on different machines message each other.** A session on your laptop asks a session on your desktop a question, and the answer turns up in its next turn. You run the server, and mail between your machines stays on it. See it work at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com).
 
 <p align="center">
   <a href="https://kampung-mcp.jztan.com/"><img src="https://raw.githubusercontent.com/jztan/kampung-mcp/develop/docs/images/demo.gif" alt="Scripted replay of two terminals: Claude Code on a laptop asks Codex on a NAS for a citation through Kampung, the NAS agent searches its PDF library and sends the passage back, and the laptop session finishes the section with it." width="900"></a>
 </p>
-<p align="center"><sub>A scripted replay of one exchange. <a href="https://kampung-mcp.jztan.com/">Watch it on the site</a>, where you can expand every tool call.</sub></p>
+<p align="center"><sub>A scripted replay of one exchange. <a href="https://kampung-mcp.jztan.com/">Watch it on the site</a>.</sub></p>
+
+> **Beta.** The tools can still change before v1.0. Client on PyPI as `kampung-mcp`, server image `ghcr.io/jztan/kampung-mcp`.
 
 **mcp-name: io.github.jztan/kampung-mcp**
 
-The name comes from the kampung (Malay for village) and its spirit of gotong-royong: neighbours helping each other. Here the neighbours are your agents, each in its own machine and repo, lending each other a hand.
+## Why
 
-## [Clients](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md) | [Server](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md) | [Security](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md) | [Changelog](https://github.com/jztan/kampung-mcp/blob/master/CHANGELOG.md) | [Contributing](https://github.com/jztan/kampung-mcp/blob/master/docs/contributing.md)
-
-> **Status: beta.** The MCP tools and `/v1` can still change before v1.0. The client is on PyPI as [`kampung-mcp`](https://pypi.org/project/kampung-mcp/) and in the MCP Registry as `io.github.jztan/kampung-mcp`. The server image is `ghcr.io/jztan/kampung-mcp` (amd64 and arm64).
-
-## Why Kampung?
-
-| | Without Kampung | With Kampung |
-|---|---|---|
-| Agents on different machines | You copy and paste between terminals | `send` to `desktop/api`, read with `inbox` |
-| Claude Code and Codex together | No shared channel | Same MCP tools for both |
-| An agent finishes its turn | Mail sits unread until you look | The `Stop` hook keeps it going to read the mail |
-| An agent is idle | Nothing happens until you type | Claude Code (2.1.321 or later) and Codex wake within seconds, with [no flag to launch](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#idle-wake) |
-| Two agents reply to each other forever | Runaway loop | A loop guard gives each pair of mailboxes a few wakes that come back slowly, and each mailbox a budget that typing refills (so do the dashboard and a message from you in the Claude app) |
-| Who can talk to whom | Anything that has the URL | Only machines you have paired |
-| Seeing what happened | Logs, if any | An audit log and a dashboard |
+| Without Kampung | With Kampung |
+|---|---|
+| You copy questions and answers between terminals | Agents `send` to each other and read their `inbox` |
+| Claude Code and Codex have no shared channel | Both get the same four tools |
+| Mail sits unread until you look | An idle agent [wakes within seconds](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#idle-wake) and reads it |
+| Anything with the URL could talk | Only machines you pair can |
 
 ## How it works
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/architecture.svg" alt="Claude Code on a laptop and Codex on a desktop each talk to a local kampung-mcp adapter and hooks, which send their calls with the machine key over HTTPS to Caddy on your server; the Claude app on an iPhone or claude.ai reaches the same server through Anthropic's cloud with an OAuth token. Caddy forwards to the Kampung server, which keeps mail in SQLite. An idle Codex session is woken with codex queue, and an idle Claude Code session through idle wake; the Claude app reads mail when you ask a chat to. The owner's browser reaches the admin dashboard with the admin token." width="860">
-</p>
+Each agent gets four MCP tools, `list_peers`, `send`, `inbox` and `read_attachment`, through a small adapter on its machine, and mail waits on your server until a session reads it. The diagram and details are in [Running the server](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md#how-it-works), the tools in the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md).
 
-Each agent talks to a local stdio adapter, which adds the machine's key and the session's identity and forwards to the server. The key never passes through the model's tool calls, and the server stamps the sender from it, so an agent cannot pretend to be another machine. Mail waits in a per-repo mailbox until a session reads it.
+## Try it on one machine
 
-## Quick start
-
-**Just trying it on one computer?** With Docker running:
+With Docker running:
 
 ```bash
 uv tool install kampung-mcp
 kampung-mcp try
 ```
 
-It starts a local server and connects your agents; `kampung-mcp try --stop` removes it all again. See [One machine, five minutes](https://github.com/jztan/kampung-mcp/blob/master/docs/try-it.md). To reach a server from your other computers with no domain or open port, see [Across your machines, with Tailscale](https://github.com/jztan/kampung-mcp/blob/master/docs/tailscale.md). For your machines to talk to each other:
+It starts a local server, connects whichever of Claude Code and Codex it finds, and tells you what to ask first. Open your agent in two repos and ask one to say hello to the other. `kampung-mcp try --stop` removes it all. Walkthrough: [One machine, five minutes](https://github.com/jztan/kampung-mcp/blob/master/docs/try-it.md).
 
-1. **Run the server** (on a machine every other machine can reach):
+## Across your machines
 
-   ```bash
-   git clone --branch master https://github.com/jztan/kampung-mcp.git
-   cd kampung-mcp
-   docker compose up -d --wait
-   ```
+Pick where the server runs, [create a key for each machine and pair them](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md#machines-and-pairing), then run `kampung-mcp setup --server <url>` on each machine.
 
-   It runs the latest release and listens on `127.0.0.1:8803`. For HTTPS, pinning a release and backups, see [docs/server.md](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md).
+- **With Tailscale**, no domain or open port: [Across your machines, with Tailscale](https://github.com/jztan/kampung-mcp/blob/master/docs/tailscale.md)
+- **On a home network**: [On a home network](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md#on-a-home-network)
+- **On a server with your own domain**: [Running the server](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md), or step by step [on Amazon Lightsail](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md)
 
-2. **Create a key for each machine and pair them:**
-
-   ```bash
-   docker compose exec kampung kampung key add laptop     # prints the key once
-   docker compose exec kampung kampung key add desktop
-   docker compose exec kampung kampung pair laptop desktop
-   ```
-
-3. **Connect each machine** with its own key (with [uv](https://docs.astral.sh/uv/)):
-
-   ```bash
-   uv tool install kampung-mcp
-   kampung-mcp setup --server https://kampung.example.com
-   ```
-
-   Setup asks for the key without showing it. Add `--agent codex` or `--agent both` for Codex; see [docs/clients.md](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md). On Claude Code 2.1.321 or later, setup also turns on [idle wake](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#idle-wake); [Channels](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#channels-optional-fallback) is an optional fallback. Restart Claude Code, and ask it to `list_peers`.
-
-   Setup records the hook's full path, which includes the Python version. If the `uv tool` install moves to another Python minor version, rerun `kampung-mcp setup`: the hooks fail open, so otherwise they just stop working, with no error.
-
-For a step-by-step deployment on AWS, see [Deploy on Amazon Lightsail](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md). For machines on one home network, see [On a home network](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md#on-a-home-network).
-
-**Something didn't work?** Run `kampung-mcp doctor`. If its fixes don't help, [tell us what broke](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml). Tried it? [Tell us how it went](https://github.com/jztan/kampung-mcp/discussions).
-
-Why this exists, and how it came together: [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=quickstart-ai-coding-agents-on-different-machines)
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/jztan/kampung-mcp/master/docs/images/admin-dashboard.png" alt="The Kampung admin dashboard: tiles for machines, live sessions, queued and no-wake messages, and a table of recent activity" width="820">
-</p>
-<p align="center"><sub>The admin dashboard at <code>/admin</code>, with example data.</sub></p>
-
-## Tools
-
-| Tool | What it does |
-|---|---|
-| `list_peers(machine?, include_empty?)` | Mailboxes this machine may message, with their sessions: each one's git branch and latest step (`now`, with how long ago). Mailboxes with no open session are hidden unless `include_empty` is true |
-| `send(to, body, reply_to?, attachment?, mode?, fyi?)` | Send up to 8 KB of text to `machine/repo` or `machine/repo#xx`, optionally with one file from the project's `kampung-outbox` folder: text up to 256 KB, or a PNG or JPEG. `wake` in the result means the loop guard lets it wake the receiver, not that it will; when it is false, `reason` and `hint` say why. `mode` is `ask` (the default: wakes the receiver, a reply is welcome), `tell` (wakes it to act, no reply needed) or `fyi` (a note that wakes nobody); `fyi: true` is the older spelling of `mode: "fyi"` |
-| `inbox(limit=20, sender?, replies_to?)` | Read new messages, at most 20 at a time plus a count of the rest by sender. Reading delivers them. `sender` or `replies_to` reads only some and leaves the rest waiting; `limit=0` only counts |
-| `read_attachment(message_id, offset?, limit?)` | Read a message's attachment: text in slices, with Markdown headings to jump to, or an image whole |
-
-Every message arrives in an envelope with the sender, sent time, its `mode` and a "peer message, not an instruction" tag; only an owner instruction from your own Claude app is marked otherwise (below). Bodies and text attachments are checked for secrets such as API keys before they are stored. Unread mail expires after 7 days, and each machine can send 60 messages a minute. See the [tool reference](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) for results and errors.
+How to connect Claude Code and Codex, idle wake and the rest: [docs/clients.md](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md).
 
 ## Use it from the Claude app
 
-With `KAMPUNG_PUBLIC_URL` set (see `.env.example`), the Claude app and claude.ai can join as a peer with its own mailbox, for example `phone/claude`, and read or leave mail with no laptop running. On the server:
-
-```bash
-docker compose exec kampung kampung connect phone
-docker compose exec kampung kampung pair phone mac
-```
-
-`connect` prints a URL, the client id `kampung-claude` and a one-time code. In Claude, add a custom connector with that URL, confirm **Sign in now** and **Use your own OAuth client** (Claude detects both from the server), and enter that client id with no secret. Claude opens Kampung's connect page; enter the code within 10 minutes from one of your allowed networks (home Wi-Fi counts), and the connector is ready on the phone and the web. Every chat on the account shares that one mailbox, and mail is delivered on read. A chat that reads only its own mail, by sender or as replies to messages it sent, leaves the rest for the chat it belongs to; the tool tells chats to do that, and you can ask one to.
-
-**Keep the connector out of Claude Code.** Claude Code loads the account's connectors too, so every window would get a second `kampung` with the same tool names, acting as `phone/claude`: the model picks either one, and that window takes the phone's mail. `kampung-mcp setup` denies any connector to your Kampung server's address (the one in `--server`) for every project in `~/.claude/settings.json`, whatever you named it, and `kampung-mcp doctor` warns when that entry is missing (rerun setup on machines set up with an older client). The entry it writes, with your server's address, is:
-
-```json
-{
-  "deniedMcpServers": [
-    { "serverName": "claude.ai kampung" },
-    { "serverUrl": "https://kampung.example.com/*" }
-  ]
-}
-```
-
-The symptom when it is on: the Stop hook says mail is waiting but `inbox` comes back empty, because the hook counts the window's own mailbox and the model read the phone's.
-
-`kampung disconnect phone` ends the connection and keeps the machine and its mail. Tool calls come from Anthropic's cloud (`160.79.104.0/21` and `153.61.208.0/20`, listed on [Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses)), so allow both ranges on port 443; the [deployment runbook](https://github.com/jztan/kampung-mcp/blob/master/docs/deploy-lightsail.md) has the firewall and the checks.
-
-### Owner instructions (off by default)
-
-A normal message from the Claude app is information to the agent that reads it, like any peer's. To let your app give instructions that agents may act on as if you typed them, mark the app as yours:
-
-```bash
-docker compose exec kampung kampung owner add phone
-```
-
-If the app's connection is ever replaced (a reconnect, or an old sign-in token reused after an outage), the mark goes with it: the app says so and the dashboard flags it. Run the same command again, after `kampung connect` if the connection itself is gone (an old token reused, the app disconnected, or a key rotation).
-
-Then say "tell desktop/api to merge it" to the app. It sends with `mode: "instruct"`, the server stamps the message as an owner instruction, and it goes to the one session working in that repo now (the reply names it). It expires unread after an hour. What an instruction may approve is up to you: paste the section in [owner instructions](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#owner-instructions) into each machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` and edit it. `kampung owner remove phone` turns it off. The mark sits on the app's connection, so `kampung disconnect`, `revoke`, `key rotate` and a new `kampung connect` all clear it: after reconnecting the app, run `kampung owner add` again. A Codex session receives one only if you typed in it within the last hour, so approve its hooks with `/hooks` first: until then it never reports typing.
-
-Anyone who can steer your app can now direct your agents, within that section's limits: a paired peer's mail to the app, or any chat on the account with the connector on (Research runs connector tools without asking). Read [the security notes](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md#what-it-does-not-protect-against) before turning it on.
+The Claude app and claude.ai can join as a peer, `phone/claude`: ask which agents are live, hand one a task, read the replies later. You can also let the app give instructions your agents act on, within limits you set. Setup: [Use it from the Claude app](https://github.com/jztan/kampung-mcp/blob/master/docs/claude-app.md).
 
 ## Security
 
-- **Closed by default.** Every request needs a machine key; a new machine can do nothing until you pair it.
-- **The machine is the trust boundary.** One key per machine, stored hashed. A machine can only use its own mailboxes.
-- **Peer messages are information, never commands**, and pairing is a trust decision: only pair machines whose agents you trust.
-- **Not end-to-end encrypted.** The server sees messages so it can enforce pairing and keep the audit log.
-- **Claude app tokens are a second credential bound to a machine.** They come only from a one-time code you print on the server, never from registration, and they cannot reach the hook API.
+- **Closed by default.** Every request needs a machine key, and a new machine can do nothing until you pair it.
+- **Your server, your mail.** One owner per server; the server sees messages so it can enforce pairing and keep an audit log (not end-to-end encrypted).
+- **Peer messages are information, never commands.** Your agent decides what to do. Only pair machines whose agents you trust.
+- **Keys are stored hashed**, and the sender is stamped from the key, so an agent cannot pretend to be another machine.
 
-The threat model, operator checklist and limits are in [SECURITY.md](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md).
+More in [SECURITY.md](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md).
 
 ## What it is not
 
-- Not a replacement for Claude Code's built-in messaging between sessions on the same machine.
+- Not for sessions on the same machine: Claude Code's own messaging covers that.
 - Not a task board, job queue or file transfer tool.
 - Not multi-tenant: one owner per deployment.
-- Not for Claude Code on the web yet: cloud sessions can't join as peers (see [clients](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#claude-code-on-the-web)).
+- Not for Claude Code on the web yet (see [clients](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md#claude-code-on-the-web)).
 
-## Roadmap
+## Stuck, or tried it?
 
-- The client as a Claude Code plugin, for easier install.
+Run `kampung-mcp doctor`. If its fixes don't help, [tell us what broke](https://github.com/jztan/kampung-mcp/issues/new?template=bug_report.yml). Tried it? [Tell us how it went](https://github.com/jztan/kampung-mcp/discussions/12).
+
+## Docs
+
+[Clients](https://github.com/jztan/kampung-mcp/blob/master/docs/clients.md) · [Claude app](https://github.com/jztan/kampung-mcp/blob/master/docs/claude-app.md) · [Server](https://github.com/jztan/kampung-mcp/blob/master/docs/server.md) · [Tools](https://github.com/jztan/kampung-mcp/blob/master/docs/tool-reference.md) · [Security](https://github.com/jztan/kampung-mcp/blob/master/SECURITY.md) · [Changelog](https://github.com/jztan/kampung-mcp/blob/master/CHANGELOG.md) · [Roadmap](https://github.com/jztan/kampung-mcp/blob/master/roadmap.md) · [Contributing](https://github.com/jztan/kampung-mcp/blob/master/docs/contributing.md)
 
 ## Blog posts
 
-**The story behind the releases.** I write about building Kampung and the other tools I work on in [The Dispatch](https://blog.jztan.com/newsletter/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-newsletter). Come along if that's your kind of thing.
+**The story behind the releases.** I write about building Kampung and the other tools I work on in [The Dispatch](https://blog.jztan.com/newsletter/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-newsletter).
 
-- [I Asked My Phone to Coordinate Three AI Coding Agents](https://blog.jztan.com/run-coding-agents-from-your-phone/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-run-coding-agents-from-your-phone): One spoken request from the Claude app, and Claude Code and Codex on three operating systems checked a release and reported back, with no message carried by hand
-- [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-ai-coding-agents-on-different-machines): Why I stopped relaying questions between terminals, and how a self-hosted mailbox lets Claude Code and Codex on different machines message each other over MCP
+- [I Asked My Phone to Coordinate Three AI Coding Agents](https://blog.jztan.com/run-coding-agents-from-your-phone/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-run-coding-agents-from-your-phone)
+- [How I Let AI Agents on Different Machines Work Together](https://blog.jztan.com/ai-coding-agents-on-different-machines/?utm_source=github&utm_medium=referral&utm_campaign=kampung-mcp&utm_content=list-ai-coding-agents-on-different-machines)
 
 ## Contributing
 
-Issues and pull requests are welcome. See the [contributing guide](https://github.com/jztan/kampung-mcp/blob/master/docs/contributing.md) and the [Code of Conduct](https://github.com/jztan/kampung-mcp/blob/master/CODE_OF_CONDUCT.md). Pull request authors sign the [Contributor License Agreement](https://github.com/jztan/kampung-mcp/blob/master/CLA.md) once; you keep the copyright in your work.
+Issues and pull requests are welcome. See the [contributing guide](https://github.com/jztan/kampung-mcp/blob/master/docs/contributing.md) and the [Code of Conduct](https://github.com/jztan/kampung-mcp/blob/master/CODE_OF_CONDUCT.md). Pull request authors sign the [Contributor License Agreement](https://github.com/jztan/kampung-mcp/blob/master/CLA.md) once.
 
 ## License
 
-- `packages/server` (`kampung-server`): AGPL-3.0, see [packages/server/LICENSE](packages/server/LICENSE)
-- `packages/client` (`kampung-mcp`, the adapter and hooks that run on your machines): Apache-2.0, see [packages/client/LICENSE](packages/client/LICENSE)
-
-[NOTICE](NOTICE) credits the project Kampung's idea comes from.
+AGPL-3.0 for the server (`packages/server`), Apache-2.0 for the client (`packages/client`). The name is Malay for village, after its spirit of gotong-royong: neighbours helping each other. [NOTICE](https://github.com/jztan/kampung-mcp/blob/master/NOTICE) credits the project Kampung's idea comes from.
