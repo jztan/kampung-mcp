@@ -6,7 +6,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ### Fixed
 
-- In the Claude app, `inbox` with `sender` reads new mail only and leaves answers to messages the app sent for `replies_to`, so one chat no longer takes another chat's answer. `waiting_by_sender` counts the answers waiting in a new `replies` field.
+- In the Claude app, `inbox` with `sender` reads new mail only and leaves answers to messages sent from the app's mailbox for `replies_to`, so one chat no longer takes another chat's answer. `waiting_by_sender` counts the answers waiting in a new `replies` field.
 - The tool descriptions tell agents that every message about a request (an answer, a progress note, a follow-up, each part of a multi-part send) carries `reply_to`, so the Claude app chat that asked finds it.
 - A turn woken by idle wake now reports its last step and branch when it ends, so `list_peers` no longer shows a step from an earlier turn.
 

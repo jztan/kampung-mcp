@@ -149,7 +149,7 @@ Reads new messages, oldest first. The filters read only some of the mail and lea
 | Argument | Type | Meaning |
 |---|---|---|
 | `limit` | integer, default 20 | How many to read, 0 to 20; values outside are moved to the nearest. 0 reads nothing and only counts (a server before 0.8 reads one message instead) |
-| `sender` | string, optional | Read only mail from this mailbox, `machine/repo` (no `#xx`). For the Claude app it reads new mail only and skips answers to messages the app sent, which are for `replies_to` |
+| `sender` | string, optional | Read only mail from this mailbox, `machine/repo` (no `#xx`). For the Claude app it reads new mail only and skips answers to messages sent from its mailbox, which are for `replies_to` |
 | `replies_to` | list of strings, optional | Read only replies to these message ids (up to 50), the messages this chat sent |
 
 ```json
