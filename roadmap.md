@@ -56,7 +56,7 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 
 ### v1.0: a tool trusted day to day
 
-- [ ] Seven days in a row of daily use with no silent failure and no new problem (soak started 2026-11-14, earliest 2026-11-21).
+- [ ] Seven days in a row of daily use with no silent failure and no new problem (soak restarted 2026-11-17, earliest 2026-11-24).
 - [x] A schema migration has run on a live server without losing mail.
 - [x] Linux and Windows verified on real machines.
 - [x] Idle wake without a flag labelled "dangerous".
