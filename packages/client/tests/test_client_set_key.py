@@ -19,13 +19,22 @@ def _config(home: Path) -> dict[str, object]:
 
 def test_set_key_swaps_only_the_key(home: Path, server: LiveServer) -> None:
     cfg = home / ".config" / "kampung" / "config.json"
-    cfg.write_text(json.dumps({**_config(home), "allow_insecure_http": True}))
+    cfg.write_text(
+        json.dumps(
+            {
+                **_config(home),
+                "allow_insecure_http": True,
+                "connector_names": ["work"],
+            }
+        )
+    )
     new = server.admin.rotate_key("laptop", "admin:cli")
     set_key(new)
     assert _config(home) == {
         "server": server.url,
         "key": new,
         "allow_insecure_http": True,
+        "connector_names": ["work"],  # uninstall still needs them
     }
     if sys.platform != "win32":  # chmod only sets the read-only bit there
         assert stat.S_IMODE(cfg.stat().st_mode) == 0o600

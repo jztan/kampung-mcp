@@ -450,7 +450,7 @@ def set_key(key: str) -> list[str]:
     server = str(config["server"]).rstrip("/")
     allow = config.get("allow_insecure_http") is True
     _check_key(server, key, allow)
-    _write_config(server, key, allow)
+    _write_config(server, key, allow, _saved_connector_names())
     return [
         f"Saved the new key to {hook.config_dir() / 'config.json'}.",
         "Restart Claude Code (and Codex) so running sessions use it.",

@@ -965,11 +965,8 @@ def _sent_status(
                 read_at=row["delivered_at"],
                 read_by=row["reader"],
             )
-        elif row["owner"] and (
-            row["sent_at"] <= owner_cutoff or row["bound_ended"] is not None
-        ):
-            # Only its bound session may read an owner instruction, with no
-            # fallback, so one past its deadline or whose session ended is dead.
+        elif row["owner"] and row["sent_at"] <= owner_cutoff:
+            # Unread past its deadline, an owner instruction can never be read.
             item.update(status="expired", to=row["recipient"], sent_at=row["sent_at"])
         else:
             item.update(
@@ -982,6 +979,10 @@ def _sent_status(
             # (no_session, unreachable, background) when it was allowed to wake.
             if row["wake_reason"]:
                 item["reason" if not row["wake"] else "note"] = row["wake_reason"]
+            if row["owner"] and row["bound_ended"] is not None:
+                # Only its bound session may read it: nobody can until that
+                # session resumes, within the deadline.
+                item["note"] = "session_ended"
         out.append(item)
     return out
 
