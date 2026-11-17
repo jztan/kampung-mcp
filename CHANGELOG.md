@@ -20,6 +20,13 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - `replies_to` takes up to 20 message ids (was 50).
 
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp uninstall` also removes the deny entry for a Claude app connector named with `setup --connector-name`. Setup now records that name in its config; a name set by an older client is not recorded, so remove that entry by hand.
+- On Windows, a hook whose session file is held for a moment (by a virus scanner, the indexer or another hook) tries again instead of losing that update.
+
 ## [0.8.1] - 2026-11-16
 
 ### Fixed

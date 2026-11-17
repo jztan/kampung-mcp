@@ -163,8 +163,9 @@ async def test_an_older_server_is_polled_for_good(
     async with _pumping(source, sid, []):
         await _until(lambda: source.old_server)
         before = len(peeks)
-        await asyncio.sleep(0.3)
-        assert len(peeks) > before
+        # It keeps polling: wait for the next peek rather than a fixed time,
+        # which a slow Windows runner can miss.
+        await _until(lambda: len(peeks) > before)
         assert source.task is None or source.task.done()
 
 

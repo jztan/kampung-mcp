@@ -716,3 +716,30 @@ def test_register_with_an_old_server_records_no_branch_sent(
     data = hook.register("claude-code", str(plain), True, "cc-1")
     httpd.shutdown()
     assert "branch_sent" not in data
+
+
+def test_a_briefly_locked_session_file_is_still_written_and_read(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # On Windows a scanner or another reader can hold the file for a moment:
+    # replacing or opening it then raises PermissionError. A retry gets through.
+    real_replace, real_read = os.replace, Path.read_text
+    fails = {"replace": 1, "read": 1}
+
+    def replace(src: Any, dst: Any) -> None:
+        if fails["replace"]:
+            fails["replace"] -= 1
+            raise PermissionError(13, "locked")
+        real_replace(src, dst)
+
+    def read_text(self: Path, *a: Any, **kw: Any) -> str:
+        if self.name == "cc-9.json" and fails["read"]:
+            fails["read"] -= 1
+            raise PermissionError(13, "locked")
+        return real_read(self, *a, **kw)
+
+    monkeypatch.setattr(hook.os, "replace", replace)
+    monkeypatch.setattr(Path, "read_text", read_text)
+    hook.write_session_file("cc-9", {"session": "7"})
+    assert hook.read_session_file("cc-9") == {"session": "7"}
+    assert fails == {"replace": 0, "read": 0}

@@ -47,7 +47,7 @@ After `kampung key rotate` on the server, `kampung-mcp set-key` saves the new ke
 
 ### Removing Kampung from a machine
 
-`kampung-mcp uninstall` removes Kampung's hooks and the connector deny entries for `claude.ai kampung` and your server's URL (your own entries in those files stay; one written with `setup --connector-name` stays too), Codex's approvals of those hooks in its `config.toml`, the Claude Code and Codex MCP registrations, the saved server and key, and Kampung's cache folder (`~/.cache/kampung`: session files, saved mailbox names and `hooks.log`). It checks the Claude Code and Codex settings files first and changes nothing if one is broken; a Codex `config.toml` it cannot read keeps its approvals. Restart open sessions afterwards; `uv tool uninstall kampung-mcp` removes the client itself.
+`kampung-mcp uninstall` removes Kampung's hooks and the connector deny entries for `claude.ai kampung`, any name given with `setup --connector-name` (since 0.9; a name set by an older client stays), and your server's URL (your own entries in those files stay), Codex's approvals of those hooks in its `config.toml`, the Claude Code and Codex MCP registrations, the saved server and key, and Kampung's cache folder (`~/.cache/kampung`: session files, saved mailbox names and `hooks.log`). It checks the Claude Code and Codex settings files first and changes nothing if one is broken; a Codex `config.toml` it cannot read keeps its approvals. Restart open sessions afterwards; `uv tool uninstall kampung-mcp` removes the client itself.
 
 ### HTTPS only
 

@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, TextIO, TypedDict
+from typing import Any, Callable, TextIO, TypedDict, TypeVar
 
 Ancestor = tuple[int, str]
 
@@ -506,18 +506,39 @@ def _session_path(agent_session_id: str) -> Path:
     return sessions_dir() / f"{safe}.json"
 
 
+T = TypeVar("T")
+
+_LOCK_TRIES = 5
+_LOCK_PAUSE = 0.04
+
+
+def _past_locks(action: Callable[[], T]) -> T:
+    """Run a file action, trying again for a moment on PermissionError: on
+    Windows a virus scanner, the indexer or another hook's read can hold a
+    file just written, and replacing or opening it fails until they let go."""
+    for attempt in range(_LOCK_TRIES):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == _LOCK_TRIES - 1:
+                raise
+            time.sleep(_LOCK_PAUSE)
+    raise AssertionError("unreachable")
+
+
 def write_session_file(agent_session_id: str, data: dict[str, object]) -> Path:
     path = _session_path(agent_session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f".tmp{os.getpid()}")
     tmp.write_text(json.dumps(data))
-    os.replace(tmp, path)
+    _past_locks(lambda: os.replace(tmp, path))
     return path
 
 
 def read_session_file(agent_session_id: str) -> dict[str, object] | None:
+    path = _session_path(agent_session_id)
     try:
-        data = json.loads(_session_path(agent_session_id).read_text())
+        data = json.loads(_past_locks(path.read_text))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
