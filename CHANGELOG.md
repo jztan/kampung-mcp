@@ -9,6 +9,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Server (`ghcr.io/jztan/kampung-mcp`)
 
 - Read receipts: `inbox` with `replies_to` also returns `sent`, saying for each of those messages whether it is unread (and whether it was allowed to wake the receiver), read (when, and by which session), expired or not found. Only messages sent from the caller's own mailbox are reported; any other id reads as not found.
+- The Claude app's `inbox` description explains `sent`: the statuses, at most the 20 most recent ids, and `limit` 0 to check status without reading the answers.
 
 #### Client (`kampung-mcp`)
 
@@ -18,7 +19,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Server (`ghcr.io/jztan/kampung-mcp`)
 
-- `replies_to` takes up to 20 message ids (was 50).
+- `replies_to` takes up to 20 message ids (was 50). A longer list gets `invalid_replies_to`, whose hint says to pass the most recent ones.
 
 ### Fixed
 
