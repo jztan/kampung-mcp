@@ -177,3 +177,26 @@ def test_uninstall_leaves_an_unreadable_codex_config_alone(
     lines = setup.uninstall(Recorder())
     assert _codex_config(home).read_text() == before
     assert any("config.toml" in line for line in lines)
+
+
+def test_uninstall_removes_the_deny_entry_of_a_custom_connector_name(
+    home: Path, server: LiveServer
+) -> None:
+    before = {"deniedMcpServers": [{"serverName": "other"}]}
+    path = _claude_settings(home)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(before))
+    for name in ("work", "home"):  # rerun setup with another name: both recorded
+        setup.run_setup(
+            server.url,
+            server.keys["laptop"],
+            ["claude-code"],
+            Recorder(),
+            connector_name=name,
+        )
+    denied = json.loads(path.read_text())["deniedMcpServers"]
+    assert {"serverName": "claude.ai work"} in denied
+    assert {"serverName": "claude.ai home"} in denied
+
+    setup.uninstall(Recorder())
+    assert json.loads(path.read_text()) == before

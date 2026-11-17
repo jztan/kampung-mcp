@@ -4,6 +4,32 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-18
+
+### Added
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- Read receipts: `inbox` with `replies_to` also returns `sent`, saying for each of those messages whether it is unread (and whether it was allowed to wake the receiver), read (when, and by which session), expired or not found. Only messages sent from the caller's own mailbox are reported; any other id reads as not found.
+- The Claude app's `inbox` description explains `sent`: the statuses, at most the 20 most recent ids, and `limit` 0 to check status without reading the answers.
+
+#### Client (`kampung-mcp`)
+
+- The `inbox` description Claude Code and Codex see mentions `sent`.
+
+### Changed
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- `replies_to` takes up to 20 message ids (was 50). A longer list gets `invalid_replies_to`, whose hint says to pass the most recent ones.
+
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp uninstall` also removes the deny entry for a Claude app connector named with `setup --connector-name`. Setup now records that name in its config; a name set by an older client is not recorded, so rerun setup once on 0.9 with the same flags, or remove that entry by hand. `kampung-mcp set-key` keeps the recorded names.
+- On Windows, a hook whose session file is held for a moment (by a virus scanner, the indexer or another hook) tries again instead of losing that update.
+
 ## [0.8.1] - 2026-11-16
 
 ### Fixed
@@ -337,6 +363,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.9.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.9.0
 [0.8.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.8.1
 [0.8.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.8.0
 [0.7.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.7.0

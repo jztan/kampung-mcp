@@ -66,7 +66,24 @@ def _adapter_cmd(agent: str) -> list[str]:
     return [sys.executable, "-m", "kampung_client", "adapter", "--agent", agent]
 
 
-def _write_config(server: str, key: str, allow_insecure_http: bool) -> None:
+def _saved_connector_names() -> list[str]:
+    """Connector names other than the default that setup denied before, as
+    config.json records them, so uninstall can take their entries out."""
+    try:
+        names = json.loads((hook.config_dir() / "config.json").read_text())[
+            "connector_names"
+        ]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    return [n for n in names if isinstance(n, str)] if isinstance(names, list) else []
+
+
+def _write_config(
+    server: str,
+    key: str,
+    allow_insecure_http: bool,
+    connector_names: list[str] | None = None,
+) -> None:
     d = hook.config_dir()
     d.mkdir(parents=True, exist_ok=True)
     os.chmod(d, 0o700)
@@ -74,6 +91,8 @@ def _write_config(server: str, key: str, allow_insecure_http: bool) -> None:
     data: dict[str, object] = {"server": server, "key": key}
     if allow_insecure_http:
         data["allow_insecure_http"] = True
+    if connector_names:
+        data["connector_names"] = connector_names
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(data, f)
@@ -431,7 +450,7 @@ def set_key(key: str) -> list[str]:
     server = str(config["server"]).rstrip("/")
     allow = config.get("allow_insecure_http") is True
     _check_key(server, key, allow)
-    _write_config(server, key, allow)
+    _write_config(server, key, allow, _saved_connector_names())
     return [
         f"Saved the new key to {hook.config_dir() / 'config.json'}.",
         "Restart Claude Code (and Codex) so running sessions use it.",
@@ -480,7 +499,10 @@ def run_setup(
     claude_settings = _load_claude_settings() if "claude-code" in agents else None
     codex_hooks = _load_hooks_file(_codex_hooks_path()) if "codex" in agents else None
 
-    _write_config(server, key, allow_insecure_http)
+    names = _saved_connector_names()
+    if "claude-code" in agents and connector_name != CONNECTOR_NAME:
+        names = list(dict.fromkeys([*names, connector_name]))
+    _write_config(server, key, allow_insecure_http, names)
     # Older setups copied the hook here; it now runs from the install.
     (hook.config_dir() / "kampung_hook.py").unlink(missing_ok=True)
     lines = [f"Saved server and key to {hook.config_dir() / 'config.json'}."]
@@ -569,7 +591,9 @@ def run_setup(
     return lines
 
 
-def _strip_file(path: Path, server: str | None) -> bool:
+def _strip_file(
+    path: Path, server: str | None, connector_names: list[str] | None = None
+) -> bool:
     """Take our hooks (and, for Claude Code, our connector deny entries) out of
     a hooks file; True if it changed. A file left empty that held nothing but
     ours is removed, unless it is Claude Code's settings.json."""
@@ -592,7 +616,10 @@ def _strip_file(path: Path, server: str | None) -> bool:
             data.pop("hooks")
     denied = data.get("deniedMcpServers")
     if isinstance(denied, list):
-        ours: list[dict[str, str]] = [{"serverName": f"claude.ai {CONNECTOR_NAME}"}]
+        ours: list[dict[str, str]] = [
+            {"serverName": f"claude.ai {name}"}
+            for name in [CONNECTOR_NAME, *(connector_names or [])]
+        ]
         if server is not None:
             ours.append({"serverUrl": connector_url_pattern(server)})
         data["deniedMcpServers"] = [e for e in denied if e not in ours]
@@ -680,6 +707,7 @@ def uninstall(runner: Runner) -> list[str]:
         server: str | None = str(json.loads(config.read_text())["server"])
     except (OSError, ValueError, KeyError, TypeError):
         server = None
+    names = _saved_connector_names()
     files = [_claude_settings_path(), _codex_hooks_path()]
     for path in files:
         if path.exists():
@@ -691,7 +719,7 @@ def uninstall(runner: Runner) -> list[str]:
     )
     lines = []
     for path in files:
-        if _strip_file(path, server):
+        if _strip_file(path, server, names):
             lines.append(f"Removed Kampung's hooks from {path}.")
     approvals = _forget_codex_approvals(codex_keys)
     if approvals is not None:
