@@ -24,7 +24,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Client (`kampung-mcp`)
 
-- `kampung-mcp uninstall` also removes the deny entry for a Claude app connector named with `setup --connector-name`. Setup now records that name in its config; a name set by an older client is not recorded, so remove that entry by hand.
+- `kampung-mcp uninstall` also removes the deny entry for a Claude app connector named with `setup --connector-name`. Setup now records that name in its config; a name set by an older client is not recorded, so rerun setup once on 0.9 with the same flags, or remove that entry by hand. `kampung-mcp set-key` keeps the recorded names.
 - On Windows, a hook whose session file is held for a moment (by a virus scanner, the indexer or another hook) tries again instead of losing that update.
 
 ## [0.8.1] - 2026-11-16

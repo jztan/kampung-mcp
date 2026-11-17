@@ -648,7 +648,7 @@ def test_read_receipt_of_an_owner_instruction(
     assert status[0]["status"] == "read" and status[0]["read_by"] == target.address
 
 
-def test_an_owner_instruction_whose_session_ended_reads_expired(
+def test_an_owner_instruction_whose_session_ended_reads_unread_until_resumed(
     conn: sqlite3.Connection,
     phone: Session,
     make_session: MakeSession,
@@ -658,5 +658,11 @@ def test_an_owner_instruction_whose_session_ended_reads_expired(
     order = _instruct(conn, phone, clock).id
     clock.advance(minutes=1)
     sessions.end(conn, target.id, clock.now())
+    # Only that session may read it, and a resume within the deadline still
+    # can, so it is not expired: the note says nobody can read it right now.
+    status = mail.inbox(conn, phone, 0, clock.now(), replies_to=[order]).sent
+    assert status is not None
+    assert status[0]["status"] == "unread" and status[0]["note"] == "session_ended"
+    clock.advance(minutes=60)
     status = mail.inbox(conn, phone, 0, clock.now(), replies_to=[order]).sent
     assert status is not None and status[0]["status"] == "expired"
