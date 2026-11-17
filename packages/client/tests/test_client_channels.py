@@ -264,14 +264,30 @@ def test_an_outage_is_logged_once_however_its_error_reads(
         else adapter.CodexWaker(resolver, "codex").poll()
     )
 
+    log = hook.cache_dir() / "hooks.log"
+
+    def logged() -> list[str]:
+        try:
+            text = log.read_text()
+        except OSError:
+            return []
+        return [x for x in text.splitlines() if f" {poller}:" in x]
+
     async def run() -> None:
-        with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(loop, 0.2)
+        # Wait for the first line rather than a fixed time (a refused connect
+        # can take seconds on Windows), then let it fail many more times.
+        task = asyncio.ensure_future(loop)
+        end = time.monotonic() + 10
+        while not logged():
+            assert time.monotonic() < end, "nothing logged"
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.2)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     asyncio.run(run())
-    log = hook.cache_dir() / "hooks.log"
-    lines = [x for x in log.read_text().splitlines() if f" {poller}:" in x]
-    assert len(lines) == 1
+    assert len(logged()) == 1
 
 
 async def test_push_when_one_message_replaces_another(
