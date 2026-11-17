@@ -31,6 +31,8 @@ The `inbox` tool's description tells every chat to do this, so you don't need to
 
 This works only when your agents mark what they send: every message about a request (an answer, a progress note, each part of a long reply) carries `reply_to` set to the request. Their tool descriptions say so, but the server cannot check it. A message sent without it is new mail, and the first chat to read that peer's mail takes it, with no error.
 
+The same call says what became of each message the chat sent (since 0.9): unread, read (when, and by which session), expired or not found. So a chat can tell "not answered yet" from "not picked up yet", and a message that was read long ago with no answer points at a session that may be stuck, for example on a permission prompt. Only messages sent from the app's own mailbox are reported.
+
 A chat that no longer has the ids it sent (a new chat, say) sees its answers only in the `replies` count. A plain `inbox` reads them, along with every other chat's mail.
 
 An answer counts as one only while the message it answers exists. When that message expires (7 days after it was sent) or is deleted from the dashboard while still unread, an answer still waiting loses its link: from then on it reads as new mail, so the first chat to read that peer by `sender` takes it.

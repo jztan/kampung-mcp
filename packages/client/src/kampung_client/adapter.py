@@ -664,7 +664,8 @@ def build_adapter(
         only some, pass sender (a mailbox, machine/repo) or replies_to (ids of
         messages you sent); the rest stay waiting. The result's
         waiting_by_sender counts what is left; limit 0 reads nothing and only
-        counts."""
+        counts. With replies_to, sent says whether each of those messages is
+        unread, read (when and by whom), expired or not_found."""
         args: dict[str, Any] = {"limit": limit}
         if sender is not None:
             args["sender"] = sender

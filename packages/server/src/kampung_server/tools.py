@@ -93,7 +93,12 @@ INBOX_DESCRIPTION = (
     "for new mail from that peer; sender skips answers to messages this mailbox "
     "sent. Leave the rest for the chat it belongs to. The result's "
     "waiting_by_sender counts the mail still waiting, and replies how much of it "
-    "is answers; limit 0 reads nothing and only counts."
+    "is answers; limit 0 reads nothing and only counts. With replies_to, the "
+    "result's sent says what became of each of those messages: unread (and "
+    "whether it woke the receiver), read (when, and by which session), expired "
+    "or not_found. A message read long ago with no answer, or unread long "
+    "after a wake, may mean the receiver is stuck; list_peers shows its latest "
+    "step."
 )
 
 MODE_DESCRIPTION = (
