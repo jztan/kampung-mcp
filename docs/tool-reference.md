@@ -191,7 +191,7 @@ With `replies_to`, the result also has `sent` (since 0.9), one entry per distinc
 | `unread` | Still waiting. `wake` says whether it was allowed to wake the receiver, not that it did. When it was held, `reason` says why; when it was allowed, `note` is any note `send` reported (`no_session`, `unreachable`, `background`), true when it was sent and maybe not now. An owner instruction whose session has ended has `note: "session_ended"`: nobody can read it unless that session resumes before the deadline |
 | `read` | A session's `inbox` took it: `read_at` and `read_by` (`machine/repo#xx`). Read means delivered to that session, not that it acted on it |
 | `expired` | An owner instruction left unread past its 60 minute deadline; it can no longer be read |
-| `not_found` | Not a message your mailbox sent, never existed, or expired (7 days after sending) and was removed. All of these look the same, so nobody learns about messages that aren't theirs |
+| `not_found` | Not a message your mailbox sent, never existed, expired (7 days after sending) and was removed, or deleted from the dashboard. All of these look the same, so nobody learns about messages that aren't theirs |
 
 Only messages sent from your own mailbox are reported. Read long ago with no answer, or unread long after a wake, can mean the receiver is stuck (on a permission prompt, say); `list_peers` shows its latest step. The status lookup itself delivers nothing and spends no wake budget; the same call still reads the answers, so pass `limit` 0 to check status only. A chat that sent more than 20 messages passes the 20 most recent.
 
