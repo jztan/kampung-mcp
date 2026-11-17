@@ -557,3 +557,35 @@ def test_no_sent_list_without_replies_to(
     got = inbox(conn, blog, 20, clock.now())
     assert got.sent is None and "sent" not in got.to_dict()
     assert inbox(conn, blog, 20, clock.now(), replies_to=[]).to_dict()["sent"] == []
+
+
+def test_status_survives_a_reconnect_and_limit_zero_reads_nothing(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    old, peer = _app(make_session), make_session("desktop", "api")
+    asked = send(conn, old, "desktop/api", "q", None, clock.now()).id
+    send(conn, peer, "laptop/claude", "a", asked, clock.now())
+    end(conn, old.id, clock.now())
+    app = _app(make_session)
+    got = inbox(conn, app, 0, clock.now(), replies_to=[asked])
+    assert got.messages == [] and got.more == 1
+    assert got.sent is not None and got.sent[0]["status"] == "unread"
+    delivered = conn.execute(
+        "SELECT count(*) FROM messages WHERE delivered_at IS NOT NULL"
+    ).fetchone()[0]
+    assert delivered == 0
+
+
+def test_status_of_mail_sent_while_nobody_was_there_carries_the_note(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    from kampung_server.sessions import end as end_session
+
+    gone = make_session("desktop", "api")
+    end_session(conn, gone.id, clock.now())
+    me = make_session("laptop", "blog")
+    sent = send(conn, me, "desktop/api", "q", None, clock.now())
+    got = inbox(conn, me, 0, clock.now(), replies_to=[sent.id])
+    assert got.sent is not None
+    assert got.sent[0]["wake"] is True and got.sent[0]["note"] == sent.note
+    assert "reason" not in got.sent[0]

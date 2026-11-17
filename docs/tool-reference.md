@@ -174,11 +174,11 @@ Reads new messages, oldest first. The filters read only some of the mail and lea
 
 `more` counts the messages still waiting after this read that match the filters (all of them without filters). `waiting_by_sender` counts every message still waiting, filtered or not, by sender mailbox, busiest first, with no bodies; `replies` is how many of each `count` answer a message sent from your mailbox (a server before 0.8.1 leaves it out). With both filters, a message must match both, and for the Claude app `sender` then reads answers too. When a message expires, or is deleted from the dashboard while unread, answers to it that are still waiting lose their `reply_to`: `replies_to` no longer finds them and they count as new mail. A sender or id that matches nothing reads nothing; it is not an error. `invalid_address` is a `sender` that is not `machine/repo`; `invalid_replies_to` is a list that is too long or holds something that is not a message id. Through an adapter talking to a server too old for filters, the result is `filter_unsupported`: call `inbox` without them. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`. An owner instruction has `"mode": "instruct"` and `"kind": "owner instruction, from the owner's Claude app"`; only the server sets these, so the same words in a body change nothing.
 
-With `replies_to`, the result also has `sent` (since 0.9), one entry per id, in the order given:
+With `replies_to`, the result also has `sent` (since 0.9), one entry per distinct id, in the order first given:
 
 ```json
 "sent": [
-  { "id": "msg_0195f3a1c2d4e8b7a6f5c3d", "status": "read", "to": "desktop/web",
+  { "id": "msg_0195f3a1c2d4e8b7a6f5c3d", "status": "read", "to": "desktop/web#a1",
     "sent_at": "2026-11-01T09:10:02.507911Z", "read_at": "2026-11-01T09:10:09.114020Z",
     "read_by": "desktop/web#a1" },
   { "id": "msg_0195f3a1c2d4e8b7a6f5c3e", "status": "unread", "to": "laptop/api",
@@ -188,12 +188,12 @@ With `replies_to`, the result also has `sent` (since 0.9), one entry per id, in 
 
 | `status` | Meaning |
 |---|---|
-| `unread` | Still waiting. `wake` says whether it was allowed to wake the receiver; when it was held, `reason` says why (as `send` reported) |
+| `unread` | Still waiting. `wake` says whether it was allowed to wake the receiver, not that it did. When it was held, `reason` says why; when it was allowed, `note` is any note `send` reported (`no_session`, `unreachable`, `background`), true when it was sent and maybe not now |
 | `read` | A session's `inbox` took it: `read_at` and `read_by` (`machine/repo#xx`). Read means delivered to that session, not that it acted on it |
-| `expired` | An owner instruction left unread past its 60 minute deadline; it can no longer be read |
+| `expired` | An owner instruction left unread past its 60 minute deadline, or whose session ended first; it can no longer be read |
 | `not_found` | Not a message your mailbox sent, never existed, or expired (7 days after sending) and was removed. All of these look the same, so nobody learns about messages that aren't theirs |
 
-Only messages sent from your own mailbox are reported. Read long ago with no answer, or unread long after a wake, can mean the receiver is stuck (on a permission prompt, say); `list_peers` shows its latest step. The lookup is read only: it delivers nothing and spends no wake budget.
+Only messages sent from your own mailbox are reported. Read long ago with no answer, or unread long after a wake, can mean the receiver is stuck (on a permission prompt, say); `list_peers` shows its latest step. The status lookup itself delivers nothing and spends no wake budget; the same call still reads the answers, so pass `limit` 0 to check status only. A chat that sent more than 20 messages passes the 20 most recent.
 
 Reading delivers a message, and a delivered message can't be read again by any session. A session never receives mail it sent itself. A background session reads only mail sent to its own `#xx` while a foreground session in the same mailbox is live; mail to the mailbox waits for the window, unless the window sent it. Unread mail expires after 7 days.
 

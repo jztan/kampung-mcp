@@ -94,11 +94,12 @@ INBOX_DESCRIPTION = (
     "sent. Leave the rest for the chat it belongs to. The result's "
     "waiting_by_sender counts the mail still waiting, and replies how much of it "
     "is answers; limit 0 reads nothing and only counts. With replies_to, the "
-    "result's sent says what became of each of those messages: unread (and "
-    "whether it woke the receiver), read (when, and by which session), expired "
-    "or not_found. A message read long ago with no answer, or unread long "
-    "after a wake, may mean the receiver is stuck; list_peers shows its latest "
-    "step."
+    "result's sent says what became of each of those messages: unread (wake "
+    "says whether it was allowed to wake the receiver, and note or reason what "
+    "send reported then, such as no_session), read (when, and by which "
+    "session), expired or not_found. Read long ago with no answer may mean the "
+    "receiver is stuck; list_peers shows its latest step. Pass at most the 20 "
+    "most recent ids; limit 0 checks status without reading answers."
 )
 
 MODE_DESCRIPTION = (

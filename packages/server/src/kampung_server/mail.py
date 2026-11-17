@@ -907,7 +907,7 @@ def _inbox_filter(
             raise KampungError(
                 "invalid_replies_to",
                 f"replies_to is a list of up to {MAX_REPLIES_TO} message ids "
-                "(msg_...) that this chat sent.",
+                "(msg_...) that this chat sent; pass the most recent ones.",
             )
         marks = []
         for n, message_id in enumerate(replies_to):
@@ -933,12 +933,15 @@ def _sent_status(
         for r in conn.execute(
             "SELECT msg.id, msg.sent_at, msg.wake, msg.wake_reason, msg.owner, "
             "msg.delivered_at, "
-            "tm.name || '/' || tmb.repo AS recipient, "
+            "tm.name || '/' || tmb.repo "
+            "|| COALESCE('#' || ts.suffix, '') AS recipient, "
+            "ts.ended_at AS bound_ended, "
             "rm.name || '/' || rmb.repo || '#' || rs.suffix AS reader "
             "FROM messages msg "
             "JOIN sessions fs ON fs.id = msg.from_session_id "
             "JOIN mailboxes tmb ON tmb.id = msg.to_mailbox_id "
             "JOIN machines tm ON tm.id = tmb.machine_id "
+            "LEFT JOIN sessions ts ON ts.id = msg.to_session_id "
             "LEFT JOIN sessions rs ON rs.id = msg.delivered_to "
             "LEFT JOIN mailboxes rmb ON rmb.id = rs.mailbox_id "
             "LEFT JOIN machines rm ON rm.id = rmb.machine_id "
@@ -962,7 +965,11 @@ def _sent_status(
                 read_at=row["delivered_at"],
                 read_by=row["reader"],
             )
-        elif row["owner"] and row["sent_at"] <= owner_cutoff:
+        elif row["owner"] and (
+            row["sent_at"] <= owner_cutoff or row["bound_ended"] is not None
+        ):
+            # Only its bound session may read an owner instruction, with no
+            # fallback, so one past its deadline or whose session ended is dead.
             item.update(status="expired", to=row["recipient"], sent_at=row["sent_at"])
         else:
             item.update(
@@ -971,8 +978,10 @@ def _sent_status(
                 sent_at=row["sent_at"],
                 wake=bool(row["wake"]),
             )
+            # As send reported it: why it was held, or a note from that moment
+            # (no_session, unreachable, background) when it was allowed to wake.
             if row["wake_reason"]:
-                item["reason"] = row["wake_reason"]
+                item["reason" if not row["wake"] else "note"] = row["wake_reason"]
         out.append(item)
     return out
 
