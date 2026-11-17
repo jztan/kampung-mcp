@@ -822,13 +822,19 @@ class InboxResult:
     # Every message still waiting after this call, counted by sender mailbox
     # (no bodies), so a chat can see what is there without taking it.
     waiting_by_sender: list[dict[str, object]] = field(default_factory=list)
+    # With replies_to only: what became of each of those messages (read
+    # receipts), so a chat can tell "not answered yet" from "not read yet".
+    sent: list[dict[str, object]] | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "messages": self.messages,
             "more": self.more,
             "waiting_by_sender": self.waiting_by_sender,
         }
+        if self.sent is not None:
+            result["sent"] = self.sent
+        return result
 
 
 @dataclass(frozen=True)
@@ -855,7 +861,7 @@ def _params(session: Session, now: datetime) -> dict[str, object]:
 
 
 _MESSAGE_ID = re.compile(r"msg_[0-9a-f]{13,40}")
-MAX_REPLIES_TO = 50
+MAX_REPLIES_TO = 20
 
 # Mail this mailbox sent, from any of its sessions, so an answer to mail sent
 # before a reconnect still counts as one. Needs the :mailbox parameter.
@@ -901,7 +907,7 @@ def _inbox_filter(
             raise KampungError(
                 "invalid_replies_to",
                 f"replies_to is a list of up to {MAX_REPLIES_TO} message ids "
-                "(msg_...) that this chat sent.",
+                "(msg_...) that this chat sent; pass the most recent ones.",
             )
         marks = []
         for n, message_id in enumerate(replies_to):
@@ -909,6 +915,75 @@ def _inbox_filter(
             marks.append(f":r{n}")
         clauses.append(f"msg.reply_to IN ({', '.join(marks) or 'NULL'})")
     return "".join(f" AND {c}" for c in clauses), params
+
+
+def _sent_status(
+    conn: sqlite3.Connection, session: Session, ids: list[str], now: datetime
+) -> list[dict[str, object]]:
+    """Read receipts for messages this mailbox sent, one per id in the order
+    given. Mail from any other mailbox, mail that never existed and mail
+    already swept all read the same "not_found", so the lookup tells a caller
+    nothing about messages that are not its own."""
+    unique = list(dict.fromkeys(ids))
+    if not unique:
+        return []
+    marks = ",".join("?" * len(unique))
+    rows = {
+        r["id"]: r
+        for r in conn.execute(
+            "SELECT msg.id, msg.sent_at, msg.wake, msg.wake_reason, msg.owner, "
+            "msg.delivered_at, "
+            "tm.name || '/' || tmb.repo "
+            "|| COALESCE('#' || ts.suffix, '') AS recipient, "
+            "ts.ended_at AS bound_ended, "
+            "rm.name || '/' || rmb.repo || '#' || rs.suffix AS reader "
+            "FROM messages msg "
+            "JOIN sessions fs ON fs.id = msg.from_session_id "
+            "JOIN mailboxes tmb ON tmb.id = msg.to_mailbox_id "
+            "JOIN machines tm ON tm.id = tmb.machine_id "
+            "LEFT JOIN sessions ts ON ts.id = msg.to_session_id "
+            "LEFT JOIN sessions rs ON rs.id = msg.delivered_to "
+            "LEFT JOIN mailboxes rmb ON rmb.id = rs.mailbox_id "
+            "LEFT JOIN machines rm ON rm.id = rmb.machine_id "
+            f"WHERE fs.mailbox_id = ? AND msg.id IN ({marks})",
+            (session.mailbox_id, *unique),
+        )
+    }
+    owner_cutoff = ts(now - OWNER_INSTRUCTION_TTL)
+    out: list[dict[str, object]] = []
+    for message_id in unique:
+        row = rows.get(message_id)
+        if row is None:
+            out.append({"id": message_id, "status": "not_found"})
+            continue
+        item: dict[str, object] = {"id": message_id}
+        if row["delivered_at"] is not None:
+            item.update(
+                status="read",
+                to=row["recipient"],
+                sent_at=row["sent_at"],
+                read_at=row["delivered_at"],
+                read_by=row["reader"],
+            )
+        elif row["owner"] and (
+            row["sent_at"] <= owner_cutoff or row["bound_ended"] is not None
+        ):
+            # Only its bound session may read an owner instruction, with no
+            # fallback, so one past its deadline or whose session ended is dead.
+            item.update(status="expired", to=row["recipient"], sent_at=row["sent_at"])
+        else:
+            item.update(
+                status="unread",
+                to=row["recipient"],
+                sent_at=row["sent_at"],
+                wake=bool(row["wake"]),
+            )
+            # As send reported it: why it was held, or a note from that moment
+            # (no_session, unreachable, background) when it was allowed to wake.
+            if row["wake_reason"]:
+                item["reason" if not row["wake"] else "note"] = row["wake_reason"]
+        out.append(item)
+    return out
 
 
 @bumps
@@ -977,7 +1052,10 @@ def inbox(
                 "inbox",
                 {"session": session.id, "count": len(ids), "ids": ids},
             )
-    return InboxResult([envelope(r) for r in rows], more, waiting)
+        sent = (
+            None if replies_to is None else _sent_status(conn, session, replies_to, now)
+        )
+    return InboxResult([envelope(r) for r in rows], more, waiting, sent)
 
 
 def peek(conn: sqlite3.Connection, session: Session, now: datetime) -> PeekResult:

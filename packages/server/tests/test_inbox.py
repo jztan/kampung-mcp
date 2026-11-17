@@ -8,6 +8,7 @@ import pytest
 from server_testlib import FakeClock, MakeSession
 from kampung_server import db
 from kampung_server.admin import AdminService
+from kampung_server.clock import ts
 from kampung_server.mail import PeekResult, inbox, list_peers, peek, send
 from kampung_server.models import Machine, Session, load_machine, load_session
 from kampung_server.sessions import end, register
@@ -363,7 +364,7 @@ def test_an_unknown_sender_or_id_matches_nothing(
         ("laptop/api#3f", None, "invalid_address"),
         ("not an address", None, "invalid_address"),
         (None, ["DROP TABLE"], "invalid_replies_to"),
-        (None, [f"msg_{n:013x}" for n in range(51)], "invalid_replies_to"),
+        (None, [f"msg_{n:013x}" for n in range(21)], "invalid_replies_to"),
     ],
 )
 def test_bad_filters_are_refused(
@@ -462,3 +463,129 @@ def test_sender_still_reads_replies_for_other_agents(
     answer = send(conn, api, "desktop/blog", "a", asked, clock.now()).id
     got = inbox(conn, blog, 20, clock.now(), sender="laptop/api")
     assert [m["id"] for m in got.messages] == [answer]
+
+
+def test_replies_to_reports_the_status_of_each_sent_message(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, docs, blog = three
+    sent_at = clock.now()
+    unread = send(conn, blog, "laptop/api", "q1", None, sent_at).id
+    held = send(conn, blog, "laptop/api", "q2", None, sent_at, mode="fyi").id
+    read = send(conn, blog, "laptop/docs", "q3", None, sent_at).id
+    clock.advance(seconds=5)
+    inbox(conn, docs, 20, clock.now())
+    read_at = clock.now()
+    clock.advance(seconds=5)
+    got = inbox(conn, blog, 20, clock.now(), replies_to=[unread, held, read, unread])
+    assert got.sent == [
+        {
+            "id": unread,
+            "status": "unread",
+            "to": "laptop/api",
+            "sent_at": ts(sent_at),
+            "wake": True,
+        },
+        {
+            "id": held,
+            "status": "unread",
+            "to": "laptop/api",
+            "sent_at": ts(sent_at),
+            "wake": False,
+            "reason": "fyi",
+        },
+        {
+            "id": read,
+            "status": "read",
+            "to": "laptop/docs",
+            "sent_at": ts(sent_at),
+            "read_at": ts(read_at),
+            "read_by": docs.address,
+        },
+    ]
+    assert got.to_dict()["sent"] == got.sent
+
+
+def test_status_of_a_foreign_or_missing_id_is_the_same_not_found(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, docs, blog = three
+    # Sent by laptop/api: blog received it, docs shares its machine. Neither
+    # sent it, so neither may learn anything about it.
+    theirs = send(conn, api, "desktop/blog", "hi", None, clock.now()).id
+    missing = "msg_0000000000000aa"
+    for caller in (blog, docs):
+        got = inbox(conn, caller, 0, clock.now(), replies_to=[theirs, missing])
+        assert got.sent == [
+            {"id": theirs, "status": "not_found"},
+            {"id": missing, "status": "not_found"},
+        ]
+
+
+def test_status_after_expiry_and_of_an_expired_owner_instruction(
+    conn: sqlite3.Connection,
+    app_and_peer: tuple[Session, Session],
+    clock: FakeClock,
+) -> None:
+    app, peer = app_and_peer
+    order = send(conn, app, "desktop/api", "do it", None, clock.now()).id
+    note = send(conn, app, "desktop/api", "later", None, clock.now()).id
+    # Stand in for an owner instruction: the server sets owner=1 on send.
+    conn.execute("UPDATE messages SET owner = 1 WHERE id = ?", (order,))
+    clock.advance(minutes=61)
+    got = inbox(conn, app, 0, clock.now(), replies_to=[order])
+    assert [(s["id"], s["status"]) for s in got.sent] == [(order, "expired")]
+    clock.advance(days=8)
+    got = inbox(conn, app, 0, clock.now(), replies_to=[order, note])
+    assert got.sent == [
+        {"id": order, "status": "not_found"},
+        {"id": note, "status": "not_found"},
+    ]
+
+
+def test_no_sent_list_without_replies_to(
+    conn: sqlite3.Connection,
+    three: tuple[Session, Session, Session],
+    clock: FakeClock,
+) -> None:
+    api, _, blog = three
+    send(conn, blog, "laptop/api", "q", None, clock.now())
+    got = inbox(conn, blog, 20, clock.now())
+    assert got.sent is None and "sent" not in got.to_dict()
+    assert inbox(conn, blog, 20, clock.now(), replies_to=[]).to_dict()["sent"] == []
+
+
+def test_status_survives_a_reconnect_and_limit_zero_reads_nothing(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    old, peer = _app(make_session), make_session("desktop", "api")
+    asked = send(conn, old, "desktop/api", "q", None, clock.now()).id
+    send(conn, peer, "laptop/claude", "a", asked, clock.now())
+    end(conn, old.id, clock.now())
+    app = _app(make_session)
+    got = inbox(conn, app, 0, clock.now(), replies_to=[asked])
+    assert got.messages == [] and got.more == 1
+    assert got.sent is not None and got.sent[0]["status"] == "unread"
+    delivered = conn.execute(
+        "SELECT count(*) FROM messages WHERE delivered_at IS NOT NULL"
+    ).fetchone()[0]
+    assert delivered == 0
+
+
+def test_status_of_mail_sent_while_nobody_was_there_carries_the_note(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    from kampung_server.sessions import end as end_session
+
+    gone = make_session("desktop", "api")
+    end_session(conn, gone.id, clock.now())
+    me = make_session("laptop", "blog")
+    sent = send(conn, me, "desktop/api", "q", None, clock.now())
+    got = inbox(conn, me, 0, clock.now(), replies_to=[sent.id])
+    assert got.sent is not None
+    assert got.sent[0]["wake"] is True and got.sent[0]["note"] == sent.note
+    assert "reason" not in got.sent[0]
