@@ -68,8 +68,16 @@ The FastMCP server, Streamable HTTP at `/mcp`, the hook API at `/v1`, SQLite sto
 | `bodylimit.py` | Request body caps on the OAuth routes and `/mcp`, which FastMCP serves |
 | `sessions.py` | Session registration, revival, resolution and liveness |
 | `addressing.py` | Machine and repo names, and mailbox addresses |
+| `ids.py` | Message ids, session ids and session suffixes |
+| `models.py` | Row types loaded from the store: machines and sessions |
+| `identity.py` | Who is calling, and whether two machines are paired |
 | `auth.py`, `keys.py`, `keyindex.py` | Machine keys and request authentication |
 | `limits.py`, `ratelimit.py`, `throttle.py` | Size and rate limits |
+| `config.py` | Server settings, read from the environment |
+| `deps.py` | What the HTTP layer shares: the store, the clock, the rate limiters and the key index |
+| `errors.py` | `KampungError`, the one error type, reported as `{"error", "hint"}` |
+| `clock.py` | Time helpers; stored timestamps sort in time order |
+| `audit.py` | The append-only audit log, which never holds message bodies |
 | `admin.py` | The one service module behind every admin write, shared by the CLI and dashboard |
 | `admin_web/` | The dashboard: views, actions, templates and `admin.css` under `static/` |
 | `cli.py` | The `kampung` admin CLI |
@@ -106,7 +114,7 @@ git checkout -b feature/short-description
 
 ### 2. Make changes and add tests
 
-Tests live in `packages/server/tests` and `packages/client/tests`.
+Tests live in `packages/server/tests`, `packages/client/tests` and `scripts/tests` (the release scripts).
 
 ```bash
 uv run pytest                                      # everything except Docker tests
