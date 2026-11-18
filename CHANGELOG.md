@@ -13,6 +13,7 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Client (`kampung-mcp`)
 
 - A Codex window that stays open while Codex restarts its background service (as it does when it updates) is listed and wakeable again right away. This needs idle wake (`codex` on your `PATH` at setup) and is not on Windows, and it works when the window is the only used Codex window in its folder; several come back with their next tool call or prompt. Before, the restart ended its session, and nothing registered it again until you typed in it.
+- When the session an adapter watches changes (after `/clear`, for example), it no longer waits for good on an old event stream that does not close. Such a stream could stop idle wake for that window until the agent was restarted; the adapter now gives up on it after 2 seconds.
 
 ## [0.9.0] - 2026-11-18
 
