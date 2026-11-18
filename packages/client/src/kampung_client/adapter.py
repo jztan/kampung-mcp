@@ -1054,8 +1054,11 @@ def _add_launch_binding(
     handlers = mcp._mcp_server.notification_handlers
     previous = handlers.get(InitializedNotification)
     started: list[asyncio.Task[None]] = []
-    # Threads created before this adapter belong to other windows.
-    not_before = time.time() - codex_launch.CREATED_SLACK
+    # Threads created before this adapter belong to other windows, unless the
+    # daemon has just restarted: then they are windows that stayed open, and
+    # their old adapters (and sessions) ended with the old daemon.
+    began = time.time()
+    not_before = began - codex_launch.CREATED_SLACK
 
     async def bind_now() -> None:
         """Look once a second until the window's thread appears, a tool call
@@ -1063,9 +1066,13 @@ def _add_launch_binding(
         worker call, so shutting the adapter down never waits long."""
         end = time.monotonic() + codex_launch.LAUNCH_WINDOW
         try:
+            restarted = await asyncio.to_thread(codex_launch.daemon_started_near, began)
             while resolver.bound is None and time.monotonic() < end:
                 found = await asyncio.to_thread(
-                    codex_launch.launch_thread_once, resolver.cwd, not_before
+                    codex_launch.launch_thread_once,
+                    resolver.cwd,
+                    not_before,
+                    restarted,
                 )
                 if found is not None:
                     if await asyncio.to_thread(

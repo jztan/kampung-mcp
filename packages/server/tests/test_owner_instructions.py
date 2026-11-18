@@ -341,6 +341,70 @@ def test_codex_needs_recent_typing(
         assert _error(_instruct, conn, phone, clock).code == "no_session"
 
 
+def _codex_untyped(make_session: MakeSession) -> Session:
+    """A Codex session seen just now that nobody has typed in."""
+    return make_session("desktop", "api", agent="codex", agent_session_id="t1")
+
+
+UNTYPED_HINT = (
+    "desktop/api#{s} is a Codex session nobody has typed in for an hour, so "
+    "Kampung cannot tell that you are at it. Type anything in that window, "
+    "then send again."
+)
+
+
+def test_untyped_codex_by_suffix_says_why(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    codex = _codex_untyped(make_session)
+    e = _error(_instruct, conn, phone, clock, to=f"desktop/api#{codex.suffix}")
+    assert e.code == "no_session"
+    assert e.hint == UNTYPED_HINT.format(s=codex.suffix)
+
+
+def test_untyped_codex_by_mailbox_says_why(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    codex = _codex_untyped(make_session)
+    e = _error(_instruct, conn, phone, clock)
+    assert e.code == "no_session"
+    assert e.hint == UNTYPED_HINT.format(s=codex.suffix)
+
+
+def test_several_untyped_codex_are_all_named(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    a = make_session("desktop", "api", agent="codex", agent_session_id="t1")
+    b = make_session("desktop", "api", agent="codex", agent_session_id="t2")
+    e = _error(_instruct, conn, phone, clock)
+    assert e.hint == (
+        f"desktop/api#{a.suffix}, desktop/api#{b.suffix} are Codex sessions "
+        "nobody has typed in for an hour, so Kampung cannot tell that you are "
+        "at them. Type anything in the one you mean, then send again."
+    )
+
+
+def test_stale_codex_keeps_nobody_hint(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    _codex_untyped(make_session)
+    clock.advance(minutes=3)
+    e = _error(_instruct, conn, phone, clock)
+    assert e.hint is not None and e.hint.startswith("Nobody is working")
+
+
 def test_suffix_must_be_bindable(
     conn: sqlite3.Connection,
     make_session: MakeSession,

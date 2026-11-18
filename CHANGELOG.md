@@ -4,6 +4,16 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Fixed
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- An owner instruction to a live Codex session nobody has typed in for an hour no longer says "Nobody is working" there. The `no_session` hint names the session and says to type anything in that window, then send again.
+
+#### Client (`kampung-mcp`)
+
+- A Codex window that stays open while Codex restarts its background service (as it does when it updates) is listed and wakeable again right away. Before, the restart ended its session, and nothing registered it again until you typed in it.
+
 ## [0.9.0] - 2026-11-18
 
 ### Added
