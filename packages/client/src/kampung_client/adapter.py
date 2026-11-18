@@ -122,6 +122,7 @@ CHANNEL_MAX_BACKOFF = 30.0  # seconds between peeks while the server is failing
 EVENTS_PATH = "/v1/sessions/{sid}/events"  # the server's event stream
 HEARTBEAT = 30.0  # seconds between peeks while streaming: keeps last_seen fresh
 STREAM_RETRY = 2.0  # first wait before reconnecting a dropped stream
+STREAM_CLOSE_WAIT = 2.0  # how long a session switch waits for the old stream
 STREAM_RETRY_MAX = 30.0
 CHANNEL_METHOD = "notifications/claude/channel"
 ACK_WAIT = 5.0  # seconds the wake hook has to ack a token, per write
@@ -816,6 +817,12 @@ def older_server_404(body: bytes) -> bool:
     return not (isinstance(data, dict) and "error" in data)
 
 
+def _ignore_result(task: "asyncio.Task[None]") -> None:
+    """Mark an abandoned task's outcome as seen, so asyncio does not log it."""
+    if not task.cancelled():
+        task.exception()
+
+
 class PeekSource:
     """The mail counts for the session being watched: from the server's event
     stream when it has one, else by polling peek as before.
@@ -864,13 +871,20 @@ class PeekSource:
         return dict(self.latest), True
 
     async def close(self) -> None:
-        if self.task is not None:
-            self.task.cancel()
-            try:
-                await self.task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-            self.task = None
+        """Cancel the stream and wait a little for it. httpx can swallow a
+        cancel and go back to reading the socket; waiting on that for good
+        would stop the wake loop, so a stream that outlives the wait is left
+        to its read timeout, and _apply_event ignores it from then on."""
+        task, self.task = self.task, None
+        if task is None:
+            return
+        task.cancel()
+        await asyncio.wait({task}, timeout=STREAM_CLOSE_WAIT)
+        if not task.done():
+            hook.log_from_adapter("events", TimeoutError("old stream ignored cancel"))
+            task.add_done_callback(_ignore_result)
+        elif not task.cancelled():
+            task.exception()  # retrieved, so asyncio does not log it
 
     async def _switch(self, sid: object) -> None:
         await self.close()
@@ -893,11 +907,15 @@ class PeekSource:
     async def _run(self, sid: str) -> None:
         try:
             await self._read(sid)
+            if str(self.sid) != sid:
+                return
             if self.state not in ("ended",) and not self.old_server:
                 raise ConnectionError("event stream closed")
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001 - polling covers it; retry later
+            if str(self.sid) != sid:
+                return  # abandoned by close(): the new stream owns the state
             if not self._logged:
                 hook.log_from_adapter("events", e)
                 self._logged = True
@@ -929,20 +947,31 @@ class PeekSource:
                 # us waiting on a stream that never speaks.
                 name = ""
                 async for line in r.aiter_lines():
+                    if str(self.sid) != sid:
+                        return  # abandoned by close(): not ours any more
                     if line.startswith("event: "):
                         name = line[len("event: ") :]
                     elif line.startswith("data: "):
                         data = json.loads(line[len("data: ") :])
-                        if name == "ended":
-                            self.state = "ended"
+                        if self._apply_event(sid, name, data):
                             return
-                        if name == "peek" and isinstance(data, dict):
-                            self.latest = data
-                            if self.state != "streaming":
-                                self.state, self.retry = "streaming", STREAM_RETRY
-                                self._logged = False
-                                self.last_peek = time.monotonic()
-                            self.fresh.set()
+
+    def _apply_event(self, sid: str, name: str, data: object) -> bool:
+        """Take one stream event; True when the stream is done. Events from a
+        stream for another session (one close() gave up on) change nothing."""
+        if str(self.sid) != sid:
+            return True
+        if name == "ended":
+            self.state = "ended"
+            return True
+        if name == "peek" and isinstance(data, dict):
+            self.latest = data
+            if self.state != "streaming":
+                self.state, self.retry = "streaming", STREAM_RETRY
+                self._logged = False
+                self.last_peek = time.monotonic()
+            self.fresh.set()
+        return False
 
 
 class _QueueError(Exception):

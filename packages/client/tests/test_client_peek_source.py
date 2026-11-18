@@ -144,6 +144,47 @@ async def test_a_new_target_session_gets_a_new_stream(
     await source.close()
 
 
+async def test_close_does_not_wait_forever_on_a_stream_that_ignores_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # httpx can swallow a cancel and go back to reading the socket; a session
+    # switch must not hang on that, or the wake loop stops for good.
+    monkeypatch.setattr(adapter, "STREAM_CLOSE_WAIT", 0.2)
+    source = adapter.PeekSource()
+    forever = asyncio.Event()
+
+    async def stubborn(s: str) -> None:
+        source.state = "streaming"
+        try:
+            await forever.wait()
+        except asyncio.CancelledError:
+            pass
+        await forever.wait()
+
+    monkeypatch.setattr(source, "_read", stubborn)
+    source.sid = SID
+    source._start()
+    await _until(lambda: source.state == "streaming")
+    stuck = source.task
+    assert stuck is not None
+    closing = asyncio.get_running_loop().create_task(source.close())
+    done, _ = await asyncio.wait({closing}, timeout=2)
+    forever.set()  # free the stub either way, so a failure cannot hang the run
+    await asyncio.wait({closing, stuck}, timeout=1)
+    assert closing in done, "close() waited on a stream that ignored its cancel"
+    assert source.task is None
+
+
+async def test_an_abandoned_stream_cannot_change_the_new_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = adapter.PeekSource()
+    source.sid = "cc-new"
+    source._apply_event("cc-old", "peek", {"wakeable": 3})
+    source._apply_event("cc-old", "ended", {})
+    assert source.latest == {} and source.state == "down"
+
+
 def test_a_bare_404_means_an_older_server() -> None:
     assert adapter.older_server_404(b"Not Found")
     assert adapter.older_server_404(b"")
