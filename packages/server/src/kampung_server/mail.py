@@ -305,6 +305,23 @@ def send(
     )
 
 
+def _untyped(names: list[str]) -> KampungError:
+    """A live Codex session that fails only the typing check: say so, since
+    "nobody is working" is wrong for a session seen just now."""
+    who = (
+        f"{names[0]} is a Codex session"
+        if len(names) == 1
+        else f"{', '.join(names)} are Codex sessions"
+    )
+    one = len(names) == 1
+    return KampungError(
+        "no_session",
+        f"{who} nobody has typed in for an hour, so Kampung cannot tell that "
+        f"you are at {'it' if one else 'them'}. Type anything in "
+        f"{'that window' if one else 'the one you mean'}, then send again.",
+    )
+
+
 def _bind_owner(
     conn: sqlite3.Connection,
     mailbox_id: int,
@@ -316,12 +333,12 @@ def _bind_owner(
     open, not the Claude app, seen within the binding window (2 minutes for a
     session that polls, the live window otherwise), and for Codex typed in
     within the hour."""
-    bindable = (
+    seen = (
         "s.ended_at IS NULL AND s.agent != :app "
         "AND s.last_seen >= CASE WHEN s.idle_wake = 1 OR s.agent = 'codex' "
-        "THEN :bind ELSE :live END "
-        "AND (s.agent != 'codex' OR s.typed_at >= :typed)"
+        "THEN :bind ELSE :live END"
     )
+    bindable = f"{seen} AND (s.agent != 'codex' OR s.typed_at >= :typed)"
     p: dict[str, object] = {
         "box": mailbox_id,
         "app": CONNECTOR_AGENT,
@@ -341,7 +358,7 @@ def _bind_owner(
     )
     if suffix is not None:
         row = conn.execute(
-            f"SELECT s.id, s.agent, {bindable} AS ok FROM sessions s "
+            f"SELECT s.id, s.agent, {bindable} AS ok, {seen} AS seen FROM sessions s "
             "WHERE s.mailbox_id = :box AND s.suffix = :suffix AND s.ended_at IS NULL",
             p,
         ).fetchone()
@@ -353,7 +370,7 @@ def _bind_owner(
         if row["agent"] == CONNECTOR_AGENT:
             raise app
         if not row["ok"]:
-            raise nobody
+            raise _untyped([f"{peer}#{suffix}"]) if row["seen"] else nobody
         return int(row["id"]), f"{peer}#{suffix}"
     rows = conn.execute(
         f"SELECT s.id, s.suffix, s.background, s.branch, s.activity FROM sessions s "
@@ -365,6 +382,13 @@ def _bind_owner(
             "SELECT 1 FROM sessions WHERE mailbox_id = :box AND agent = :app", p
         ).fetchone():
             raise app
+        untyped = conn.execute(
+            f"SELECT s.suffix FROM sessions s WHERE s.mailbox_id = :box "
+            f"AND {seen} ORDER BY s.id",
+            p,
+        ).fetchall()
+        if untyped:  # live, but only Codex sessions nobody typed in
+            raise _untyped([f"{peer}#{r['suffix']}" for r in untyped])
         raise nobody
     if len(rows) > 1:
         front = [r for r in rows if not r["background"]]

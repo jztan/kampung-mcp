@@ -140,7 +140,7 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 | `machine/repo#xx` | That session, if it is working now. Ended: `unknown_session`. Open but quiet: `no_session` |
 | `machine/repo` | The one session working there; with several, the one in the foreground; otherwise `ambiguous_session`, whose hint lists them. None: `no_session` |
 
-"Working now" means not ended, not the Claude app, seen within 2 minutes if it keeps checking for mail (idle wake, Codex) or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
+"Working now" means not ended, not the Claude app, seen within 2 minutes if it keeps checking for mail (idle wake, Codex) or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. When a Codex session is live but nobody has typed in it for an hour, the `no_session` hint says so and names it; typing anything in that window lets the next send through. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
 
 ## `inbox`
 
