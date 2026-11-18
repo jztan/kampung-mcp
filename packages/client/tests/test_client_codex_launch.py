@@ -528,3 +528,21 @@ def test_an_open_window_is_listed_again_after_the_daemon_restarts(
         assert got == [["queue", "--thread", tid, "--message", wake(again)]]
     finally:
         mcp.close()
+
+
+def test_several_used_threads_after_a_restart_are_left_to_tool_calls(
+    home: Path, tmp_path: Path, daemon_for: Any
+) -> None:
+    # Two windows in one folder survive a restart. Each adapter cannot tell
+    # which thread is its own, so neither guesses: a wrong pick would leave
+    # one thread watched twice and the other not at all.
+    old = time.time() - 3600
+    a, b = uuid7(old), uuid7(old + 1)
+    daemon_for(
+        [
+            thread(a, tmp_path, 0, preview="task a", updatedAt=10),
+            thread(b, tmp_path, 0, preview="task b", updatedAt=20),
+        ]
+    )
+    look = codex_launch.launch_thread_once
+    assert look(str(tmp_path), not_before=time.time(), resumed=True) is None

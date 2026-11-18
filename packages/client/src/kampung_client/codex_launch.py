@@ -372,9 +372,9 @@ def launch_thread_once(
     cwd: str, not_before: float, resumed: bool = False
 ) -> str | None:
     """One look at the socket: this window's thread id, claimed, or None.
-    A new thread comes first; with `resumed` (the daemon just restarted), a
-    thread already in use may be taken too. Never raises for a socket or file
-    problem, and ends within TRY_BUDGET."""
+    A new thread comes first; with `resumed` (the daemon just restarted), the
+    one thread already in use in this folder may be taken too. Never raises
+    for a socket or file problem, and ends within TRY_BUDGET."""
     path = control_socket()
     if not path.exists():
         return None
@@ -382,7 +382,12 @@ def launch_thread_once(
         threads = loaded_threads(path)
         found = launch_candidates(threads, cwd, not_before)
         if resumed:
-            found += resumed_candidates(threads, cwd, not_before)
+            # Only a lone one: with several, this adapter cannot tell which
+            # is its window's, and a wrong pick leaves one thread watched
+            # twice and the other not at all. Those wait for a tool call.
+            old = resumed_candidates(threads, cwd, not_before)
+            if len(old) == 1:
+                found += old
         for tid in found:
             if claim_thread(tid):
                 return tid
