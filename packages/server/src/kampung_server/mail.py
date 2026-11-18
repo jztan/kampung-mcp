@@ -318,7 +318,9 @@ def _untyped(names: list[str]) -> KampungError:
         "no_session",
         f"{who} nobody has typed in for an hour, so Kampung cannot tell that "
         f"you are at {'it' if one else 'them'}. Type anything in "
-        f"{'that window' if one else 'the one you mean'}, then send again.",
+        f"{'that window' if one else 'the one you mean'}, then send again. "
+        "If it still fails, its hooks are not reporting typing: approve them "
+        "in Codex with /hooks.",
     )
 
 

@@ -349,7 +349,8 @@ def _codex_untyped(make_session: MakeSession) -> Session:
 UNTYPED_HINT = (
     "desktop/api#{s} is a Codex session nobody has typed in for an hour, so "
     "Kampung cannot tell that you are at it. Type anything in that window, "
-    "then send again."
+    "then send again. If it still fails, its hooks are not reporting typing: "
+    "approve them in Codex with /hooks."
 )
 
 
@@ -389,7 +390,9 @@ def test_several_untyped_codex_are_all_named(
     assert e.hint == (
         f"desktop/api#{a.suffix}, desktop/api#{b.suffix} are Codex sessions "
         "nobody has typed in for an hour, so Kampung cannot tell that you are "
-        "at them. Type anything in the one you mean, then send again."
+        "at them. Type anything in the one you mean, then send again. If it "
+        "still fails, its hooks are not reporting typing: approve them in Codex "
+        "with /hooks."
     )
 
 
