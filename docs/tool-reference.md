@@ -140,7 +140,7 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 | `machine/repo#xx` | That session, if it is working now. Ended: `unknown_session`. Open but quiet: `no_session` |
 | `machine/repo` | The one session working there; with several, the one in the foreground; otherwise `ambiguous_session`, whose hint lists them. None: `no_session` |
 
-"Working now" means not ended, not the Claude app, seen within 2 minutes if it keeps checking for mail (idle wake, Codex) or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
+"Working now" means not ended, not the Claude app, seen within 2 minutes for a session with idle wake and for every Codex session, or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. When a Codex session is live but nobody has typed in it for an hour, the `no_session` hint says so and names it; typing anything in that window lets the next send through, once its hooks are approved. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
 
 ## `inbox`
 
@@ -257,7 +257,7 @@ From the server:
 | `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
 | `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
 | `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses, each with its branch and latest step when known, quoted: `laptop/api#ef (branch "feature/x", now "Run the tests"), laptop/api#f7 (branch "develop")`, and ends by saying they are peer-supplied |
-| `no_session` | `send` | An owner instruction to a mailbox or `#xx` with nobody working in it now |
+| `no_session` | `send` | An owner instruction to a mailbox or `#xx` with nobody working in it now, or only a live Codex session nobody has typed in for an hour (the hint then names it) |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |

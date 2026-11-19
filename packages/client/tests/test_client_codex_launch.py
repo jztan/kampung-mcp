@@ -19,7 +19,14 @@ from typing import Any
 
 import pytest
 
-from client_testlib import LiveServer, RawMCP, git_repo, home_env, peer_send
+from client_testlib import (
+    LiveServer,
+    RawMCP,
+    git_repo,
+    home_env,
+    peer_send,
+    run_hook,
+)
 from kampung_client import codex_launch, hook
 from test_client_codex_wake import fake_codex, wait_for_calls, wake
 
@@ -448,3 +455,94 @@ def test_a_claim_still_being_written_is_not_taken(home: Path) -> None:
     finally:
         child.kill()
         child.wait()
+
+
+def test_resumed_candidates_are_used_threads_in_this_folder_newest_first(
+    tmp_path: Path,
+) -> None:
+    here, other = tmp_path / "api", tmp_path / "blog"
+    threads = [
+        thread("blank", here, 50),  # never prompted: a leftover, not a window
+        thread("older", here, 60, preview="fix it", updatedAt=70),
+        thread("newer", here, 40, preview="review", updatedAt=90),
+        thread("elsewhere", other, 60, preview="x", updatedAt=95),
+        thread("sub", here, 60, preview="x", parentThreadId="p"),
+        thread("eph", here, 60, preview="x", ephemeral=True),
+        thread("after-us", here, 200, preview="x", updatedAt=99),
+    ]
+    pick = codex_launch.resumed_candidates
+    assert pick(threads, str(here), not_before=100) == ["newer", "older"]
+
+
+def test_a_used_thread_is_taken_only_after_a_daemon_restart(
+    home: Path, tmp_path: Path, daemon_for: Any
+) -> None:
+    tid = uuid7(time.time() - 3600)
+    daemon_for([thread(tid, tmp_path, 0, preview="review the post")])
+    look = codex_launch.launch_thread_once
+    assert look(str(tmp_path), not_before=time.time()) is None
+    assert look(str(tmp_path), not_before=time.time(), resumed=True) == tid
+
+
+def test_daemon_restart_is_read_from_the_socket_age(
+    home: Path, tmp_path: Path, daemon_for: Any
+) -> None:
+    assert codex_launch.daemon_started_near(time.time()) is False  # no socket
+    daemon_for([])
+    now = time.time()
+    assert codex_launch.daemon_started_near(now) is True
+    later = now + codex_launch.RESTART_WINDOW + 5
+    assert codex_launch.daemon_started_near(later) is False
+
+
+def test_an_open_window_is_listed_again_after_the_daemon_restarts(
+    home: Path, server: LiveServer, tmp_path: Path, daemon_for: Any
+) -> None:
+    # Seen on a Mac (Codex 0.169.1 to 0.170.0): the daemon restarts, fires
+    # SessionEnd for the open window's thread, resumes the thread and starts
+    # a new adapter. Nothing re-registered the window until someone typed.
+    from test_client_codex_wake import codex_start
+
+    repo = git_repo(tmp_path, "api")
+    tid = uuid7(time.time() - 3600)
+    hooked = codex_start(home, repo, sid=tid)
+    run_hook(
+        home,
+        {"hook_event_name": "SessionEnd", "session_id": tid, "cwd": str(repo)},
+        "--agent",
+        "codex",
+    )
+    assert hook.read_session_file(tid) is None
+    daemon_for([thread(tid, repo, 0, preview="review the post")])
+    codex, log = fake_codex(tmp_path)
+    mcp = RawMCP(home, repo, "--codex-bin", str(codex), agent="codex")
+    try:
+        mcp.initialize()
+        end = time.monotonic() + 10
+        while time.monotonic() < end and hook.read_session_file(tid) is None:
+            time.sleep(0.2)
+        again = hook.read_session_file(tid)
+        assert again is not None and again["session"] == hooked["session"]
+        peer_send(server, f"laptop/api#{again['suffix']}", "review please")
+        got = wait_for_calls(log, 1, 8)
+        assert got == [["queue", "--thread", tid, "--message", wake(again)]]
+    finally:
+        mcp.close()
+
+
+def test_several_used_threads_after_a_restart_are_left_to_tool_calls(
+    home: Path, tmp_path: Path, daemon_for: Any
+) -> None:
+    # Two windows in one folder survive a restart. Each adapter cannot tell
+    # which thread is its own, so neither guesses: a wrong pick would leave
+    # one thread watched twice and the other not at all.
+    old = time.time() - 3600
+    a, b = uuid7(old), uuid7(old + 1)
+    daemon_for(
+        [
+            thread(a, tmp_path, 0, preview="task a", updatedAt=10),
+            thread(b, tmp_path, 0, preview="task b", updatedAt=20),
+        ]
+    )
+    look = codex_launch.launch_thread_once
+    assert look(str(tmp_path), not_before=time.time(), resumed=True) is None

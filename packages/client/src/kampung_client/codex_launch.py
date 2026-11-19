@@ -36,6 +36,9 @@ LAUNCH_DELAY = 1.0  # seconds between looks
 # A thread created before the adapter started belongs to another window or an
 # earlier run; this much slack allows for clocks rounding to the second.
 CREATED_SLACK = 5.0
+# An adapter that starts this soon after the daemon's control socket was made
+# was started by a daemon (re)start, not by a new window.
+RESTART_WINDOW = 30.0
 
 
 class ControlError(Exception):
@@ -279,6 +282,45 @@ def launch_candidates(
     return [str(t["id"]) for t in fresh]
 
 
+def _resumed(t: dict[str, Any], cwd: str, not_before: float) -> bool:
+    """A thread already prompted before this adapter started: after a daemon
+    restart, the thread of a window that stayed open. A thread never
+    prompted is a leftover, not a window someone is using."""
+    source = t.get("source")
+    created = _created(t)
+    return (
+        isinstance(t.get("id"), str)
+        and _same_folder(t.get("cwd"), cwd)
+        and bool(t.get("preview"))
+        and not t.get("ephemeral")
+        and not t.get("parentThreadId")
+        and not (isinstance(source, dict) and "subAgent" in source)
+        and created is not None
+        and created < not_before
+    )
+
+
+def resumed_candidates(
+    threads: list[dict[str, Any]], cwd: str, not_before: float
+) -> list[str]:
+    """Threads a restarted daemon resumed in this folder, most recently
+    updated first (see _resumed). Claims settle which adapter takes which."""
+    old = [t for t in threads if _resumed(t, cwd, not_before)]
+    old.sort(key=lambda t: float(t.get("updatedAt") or 0), reverse=True)
+    return [str(t["id"]) for t in old]
+
+
+def daemon_started_near(started: float) -> bool:
+    """Whether the daemon's control socket was made within RESTART_WINDOW
+    before `started` (this adapter's start): the daemon itself just started,
+    so the threads it holds were resumed by windows that stayed open."""
+    try:
+        made = os.lstat(control_socket()).st_mtime
+    except OSError:
+        return False
+    return started - RESTART_WINDOW <= made <= started + CREATED_SLACK
+
+
 def _claims_dir() -> Path:
     return hook.cache_dir() / "codex-claims"
 
@@ -326,14 +368,27 @@ def adopt(tid: str, bind: Callable[[str], bool]) -> bool:
     return False
 
 
-def launch_thread_once(cwd: str, not_before: float) -> str | None:
+def launch_thread_once(
+    cwd: str, not_before: float, resumed: bool = False
+) -> str | None:
     """One look at the socket: this window's thread id, claimed, or None.
-    Never raises for a socket or file problem, and ends within TRY_BUDGET."""
+    A new thread comes first; with `resumed` (the daemon just restarted), the
+    one thread already in use in this folder may be taken too. Never raises
+    for a socket or file problem, and ends within TRY_BUDGET."""
     path = control_socket()
     if not path.exists():
         return None
     try:
-        for tid in launch_candidates(loaded_threads(path), cwd, not_before):
+        threads = loaded_threads(path)
+        found = launch_candidates(threads, cwd, not_before)
+        if resumed:
+            # Only a lone one: with several, this adapter cannot tell which
+            # is its window's, and a wrong pick leaves one thread watched
+            # twice and the other not at all. Those wait for a tool call.
+            old = resumed_candidates(threads, cwd, not_before)
+            if len(old) == 1:
+                found += old
+        for tid in found:
             if claim_thread(tid):
                 return tid
     except (ControlError, OSError):
