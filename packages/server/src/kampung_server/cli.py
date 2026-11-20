@@ -52,6 +52,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     owner.add_parser("remove", help="clear the mark").add_argument("name")
     owner.add_parser("list", help="list owner grants")
+    mailbox = sub.add_parser("mailbox", help="manage mailboxes").add_subparsers(
+        dest="mailbox_command", required=True
+    )
+    mailbox.add_parser("rm", help="delete empty mailboxes").add_argument(
+        "addresses", nargs="+", metavar="machine/repo"
+    )
     sub.add_parser("serve", help="run the HTTP server")
     return p
 
@@ -157,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"{name}  owner mark lost {oauth_store.owner_lost_at_text(at)} "
                     f"UTC ({oauth_store.owner_lost_words(reason)})"
                 )
+        elif args.command == "mailbox":
+            return _mailbox_rm(admin, args.addresses)
         elif args.command == "serve":
             if not admin.list_machines():
                 print(NO_KEYS, file=sys.stderr)
@@ -178,3 +186,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e.code}: {e.hint}", file=sys.stderr)
         return 1
     return 0
+
+
+def _mailbox_rm(admin: AdminService, addresses: list[str]) -> int:
+    """Each address on its own, so one refusal does not stop the rest."""
+    failed = False
+    for address in addresses:
+        try:
+            ended, messages = admin.delete_mailbox(address, ACTOR)
+        except KampungError as e:
+            print(f"error: {address}: {e.code}: {e.hint}", file=sys.stderr)
+            failed = True
+            continue
+        print(f"Deleted {address} ({ended} sessions, {messages} messages).")
+    return 1 if failed else 0
