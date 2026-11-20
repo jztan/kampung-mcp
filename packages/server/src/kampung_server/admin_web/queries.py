@@ -86,6 +86,10 @@ class MailboxRow:
     oldest_queued_at: str | None
     # Live sessions that poll but have stopped: their machine is likely asleep.
     unreachable: int = 0
+    # Sessions not ended, live or not: a delete refuses while any remain.
+    open: int = 0
+    machine: str = ""
+    repo: str = ""
 
 
 @dataclass
@@ -324,9 +328,11 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
 
 def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
     rows = conn.execute(
-        "SELECT m.name || '/' || mb.repo AS address, "
+        "SELECT m.name || '/' || mb.repo AS address, m.name AS machine, mb.repo, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
         " AND s.ended_at IS NULL AND s.last_seen >= :live) AS live, "
+        "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
+        " AND s.ended_at IS NULL) AS open, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
         f" AND s.ended_at IS NULL AND s.last_seen >= :live AND {STALE_POLLER_SQL}) "
         "AS unreachable, "
@@ -347,6 +353,9 @@ def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
             r["queued"],
             r["oldest"],
             r["unreachable"],
+            r["open"],
+            r["machine"],
+            r["repo"],
         )
         for r in rows
     ]
@@ -647,3 +656,39 @@ def actors_and_actions(conn: sqlite3.Connection) -> tuple[list[str], list[str]]:
         r[0] for r in conn.execute("SELECT DISTINCT action FROM audit ORDER BY 1")
     ]
     return actors, actions
+
+
+@dataclass
+class MailboxDeletePreview:
+    address: str
+    ended_sessions: int
+    read_messages: int
+
+
+def mailbox_delete_preview(
+    conn: sqlite3.Connection, machine: str, repo: str
+) -> MailboxDeletePreview | None:
+    """What deleting a mailbox would remove, for the confirm page."""
+    row = conn.execute(
+        "SELECT mb.id FROM mailboxes mb JOIN machines m ON m.id = mb.machine_id "
+        "WHERE m.name = ? AND mb.repo = ?",
+        (machine, repo),
+    ).fetchone()
+    if row is None:
+        return None
+    box = row[0]
+    return MailboxDeletePreview(
+        f"{machine}/{repo}",
+        _count(
+            conn,
+            "SELECT COUNT(*) FROM sessions WHERE mailbox_id = :box "
+            "AND ended_at IS NOT NULL",
+            {"box": box},
+        ),
+        _count(
+            conn,
+            "SELECT COUNT(*) FROM messages WHERE to_mailbox_id = :box "
+            "AND delivered_at IS NOT NULL",
+            {"box": box},
+        ),
+    )

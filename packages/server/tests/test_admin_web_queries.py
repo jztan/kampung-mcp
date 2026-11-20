@@ -349,3 +349,15 @@ def test_session_rows_carry_branch_and_client_version(
     make_session("laptop", "api", branch="feature/x", client_version="0.6.0")
     row = queries.sessions(conn, clock.now()).rows[0]
     assert (row.branch, row.client_version) == ("feature/x", "0.6.0")
+
+
+def test_mailbox_open_sessions_count_asleep_ones(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    from kampung_server.limits import LIVE_WINDOW
+
+    make_session("laptop", "api")
+    clock.advance(seconds=LIVE_WINDOW.total_seconds() + 60)
+    box = {b.address: b for b in queries.mailboxes(conn, clock.now())}["laptop/api"]
+    assert box.live == 0 and box.open == 1
+    assert (box.machine, box.repo) == ("laptop", "api")
