@@ -6,10 +6,11 @@ from datetime import datetime
 
 from .mailsignal import bumps
 from . import audit, db, guard, oauth_store, sessions
-from .addressing import validate_name
+from .addressing import parse_address, validate_name
 from .clock import ts
 from .errors import KampungError
 from .keys import hash_key, new_key
+from .queued import QUEUED_SQL, time_params
 from .models import Machine, Session, load_machine, load_session, machine_from_row
 
 _DISMISSED = ""  # what _owner returns when it dismissed a lost mark
@@ -285,6 +286,38 @@ class AdminService:
         finally:
             conn.close()
 
+    def delete_mailbox(self, address: str, actor: str) -> tuple[int, int]:
+        """Delete a mailbox nobody uses, with its ended sessions and its old
+        mail. Returns (sessions deleted, messages deleted)."""
+        now = self._clock()
+        conn = self._connect()
+        try:
+            with db.transaction(conn):
+                box = _require_mailbox(conn, address)
+                _check_deletable(conn, box, now)
+                conn.execute(
+                    "UPDATE messages SET reply_to = NULL WHERE reply_to IN "
+                    "(SELECT id FROM messages WHERE to_mailbox_id = ?)",
+                    (box,),
+                )
+                messages = conn.execute(
+                    "DELETE FROM messages WHERE to_mailbox_id = ?", (box,)
+                ).rowcount
+                ended = conn.execute(
+                    "DELETE FROM sessions WHERE mailbox_id = ?", (box,)
+                ).rowcount
+                conn.execute("DELETE FROM mailboxes WHERE id = ?", (box,))
+                audit.record(
+                    conn,
+                    now,
+                    actor,
+                    "delete_mailbox",
+                    {"mailbox": address, "sessions": ended, "messages": messages},
+                )
+                return ended, messages
+        finally:
+            conn.close()
+
     def list_machines(self) -> list[Machine]:
         conn = self._connect()
         try:
@@ -336,3 +369,65 @@ def _require_open_session(conn: sqlite3.Connection, session_id: int) -> Session:
     if session.ended_at is not None:
         raise KampungError("session_ended", f"Session {session_id} already ended.")
     return session
+
+
+def _require_mailbox(conn: sqlite3.Connection, address: str) -> int:
+    missing = KampungError("unknown_mailbox", f"No mailbox {address}.")
+    try:
+        parsed = parse_address(address)
+    except KampungError:
+        raise missing from None
+    if parsed.suffix is not None:
+        raise missing
+    row = conn.execute(
+        "SELECT mb.id FROM mailboxes mb JOIN machines m ON m.id = mb.machine_id "
+        "WHERE m.name = ? AND mb.repo = ?",
+        (parsed.machine, parsed.repo),
+    ).fetchone()
+    if row is None:
+        raise missing
+    return int(row[0])
+
+
+def _check_deletable(conn: sqlite3.Connection, box: int, now: datetime) -> None:
+    """Refuse a delete that would end a session, lose waiting mail or leave a
+    dangling reference."""
+    if conn.execute(
+        "SELECT 1 FROM sessions WHERE mailbox_id = ? AND ended_at IS NULL", (box,)
+    ).fetchone():
+        raise KampungError(
+            "mailbox_in_use",
+            "A session is still open there. End it on the Sessions page, or wait "
+            "for the cleanup to end it.",
+        )
+    if conn.execute(
+        f"SELECT 1 FROM messages msg WHERE msg.to_mailbox_id = :box AND {QUEUED_SQL}",
+        {"box": box, **time_params(now)},
+    ).fetchone():
+        raise KampungError(
+            "mailbox_has_mail",
+            "Mail is waiting there. Read it from a session there, or delete it on "
+            "the Messages page.",
+        )
+    held = conn.execute(
+        "SELECT max(msg.expires_at) FROM messages msg "
+        "JOIN sessions s ON s.id IN "
+        "(msg.from_session_id, msg.to_session_id, msg.delivered_to) "
+        "WHERE s.mailbox_id = ? AND msg.to_mailbox_id != ?",
+        (box, box),
+    ).fetchone()[0]
+    if held is not None:
+        raise KampungError(
+            "mailbox_referenced",
+            f"Mail it sent is still held elsewhere until {held}. Try again after "
+            "that.",
+        )
+    newest = conn.execute(
+        "SELECT mailbox_id FROM sessions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if newest is not None and newest[0] == box:
+        raise KampungError(
+            "mailbox_newest_session",
+            "It holds the newest session record, which is kept so ids never "
+            "repeat. Try again after any other session opens.",
+        )

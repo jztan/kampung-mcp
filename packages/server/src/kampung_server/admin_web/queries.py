@@ -8,8 +8,9 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 
 from ..clock import ts
-from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL, POLL_WINDOW
+from ..limits import LIVE_WINDOW, POLL_WINDOW
 from ..oauth_store import lost_marks, owner_lost_at_text, owner_lost_words
+from ..queued import OWNER_EXPIRED_SQL, QUEUED_SQL, time_params
 from ..sessions import STALE_POLLER_SQL
 
 LIMIT = 100
@@ -167,13 +168,13 @@ def mode_of(r: sqlite3.Row) -> str:
 # held back. Expired mail stays in the table until the sweep removes it.
 # An owner instruction expires for reading after its own deadline, long
 # before its row does.
-_OWNER_EXPIRED = "(msg.owner = 1 AND msg.sent_at <= :owner_cutoff)"
+_OWNER_EXPIRED = OWNER_EXPIRED_SQL
 _MSG_STATE = (
     "CASE WHEN msg.delivered_at IS NOT NULL THEN 'delivered' "
     f"WHEN msg.expires_at <= :now OR {_OWNER_EXPIRED} THEN 'expired' "
     "WHEN msg.wake = 0 THEN 'no-wake' ELSE 'queued' END"
 )
-_QUEUED = f"msg.delivered_at IS NULL AND msg.expires_at > :now AND NOT {_OWNER_EXPIRED}"
+_QUEUED = QUEUED_SQL
 _SESSION_ADDRESS = "m.name || '/' || mb.repo || '#' || s.suffix"
 _MSG_FROM = (
     "FROM messages msg "
@@ -199,7 +200,7 @@ def _poll_since(now: datetime) -> str:
 
 def _at(now: datetime) -> dict[str, object]:
     """The time parameters every message query takes."""
-    return {"now": ts(now), "owner_cutoff": ts(now - OWNER_INSTRUCTION_TTL)}
+    return time_params(now)
 
 
 def _count(conn: sqlite3.Connection, sql: str, params: dict[str, object]) -> int:
