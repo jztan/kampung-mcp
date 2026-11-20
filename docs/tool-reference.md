@@ -250,7 +250,7 @@ From the server:
 | `unknown_machine` | `send` | No machine has that name |
 | `machine_revoked` | `send` | The target machine was revoked |
 | `not_paired` | `send` | The two machines aren't paired. The hint gives the `kampung pair` command for the owner |
-| `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo |
+| `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo; one with no sessions and no mail for about a month is removed and comes back when a session opens there |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
 | `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
