@@ -179,7 +179,12 @@ def send(
         (target.id, address.repo),
     ).fetchone()
     if mailbox is None:
-        raise KampungError("unknown_mailbox", "Call list_peers to see mailboxes.")
+        raise KampungError(
+            "unknown_mailbox",
+            "No such mailbox. A mailbox unused for about a month is removed and "
+            "comes back when a session opens there; call list_peers to see "
+            "current ones.",
+        )
     # Each sending machine gets its own share of a mailbox, so one runaway
     # sender cannot lock every other machine out of it.
     waiting, from_me = conn.execute(
