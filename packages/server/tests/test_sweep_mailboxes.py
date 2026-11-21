@@ -163,3 +163,35 @@ def test_the_per_read_sweep_leaves_mailboxes_alone(
     _bare_mailbox(conn, "laptop", "old", clock)
     sweep(conn, clock.now())
     assert "laptop/old" in _boxes(conn)
+
+
+def test_send_racing_a_mailbox_delete_gets_unknown_mailbox(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An image is re-encoded after the mailbox lookup and before the write
+    # transaction; the timer or `kampung mailbox rm` can delete it meanwhile.
+    from kampung_server import mail
+    from kampung_server.attachments import TEXT, Attachment
+
+    _bare_mailbox(conn, "laptop", "old", clock)
+    sender = make_session("desktop", "blog")
+
+    def finish_then_delete(attachment: Attachment) -> Attachment:
+        conn.execute("DELETE FROM mailboxes WHERE repo = 'old'")
+        return attachment
+
+    monkeypatch.setattr(mail.attachments, "finish", finish_then_delete)
+    with pytest.raises(KampungError) as e:
+        send(
+            conn,
+            sender,
+            "laptop/old",
+            "hi",
+            None,
+            clock.now(),
+            Attachment("notes.md", TEXT, b"x"),
+        )
+    assert e.value.code == "unknown_mailbox"
