@@ -866,6 +866,10 @@ class InboxResult:
     # With replies_to only: what became of each of those messages (read
     # receipts), so a chat can tell "not answered yet" from "not read yet".
     sent: list[dict[str, object]] | None = None
+    # With answers=true only: waiting answers grouped by the message from this
+    # mailbox they answer, newest first, and how many older groups are left.
+    answers: list[dict[str, object]] | None = None
+    answers_more: int = 0
 
     def to_dict(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -875,6 +879,9 @@ class InboxResult:
         }
         if self.sent is not None:
             result["sent"] = self.sent
+        if self.answers is not None:
+            result["answers"] = self.answers
+            result["answers_more"] = self.answers_more
         return result
 
 
@@ -1028,6 +1035,98 @@ def _sent_status(
     return out
 
 
+ANSWER_PREVIEW = 150
+_BEFORE_HINT = "before pages answers=true; pass the id of the last group listed."
+
+
+def _preview(body: str) -> str:
+    return body if len(body) <= ANSWER_PREVIEW else body[:ANSWER_PREVIEW] + "…"
+
+
+def _check_answers(
+    session: Session,
+    answers: bool,
+    before: str | None,
+    sender: str | None,
+    replies_to: list[str] | None,
+) -> None:
+    if before is not None and not answers:
+        raise KampungError("invalid_answers", _BEFORE_HINT)
+    if not answers:
+        return
+    if session.agent != CONNECTOR_AGENT:
+        raise KampungError(
+            "invalid_answers", "answers is for Claude app chats; call inbox without it."
+        )
+    if sender is not None or replies_to is not None:
+        raise KampungError(
+            "invalid_answers",
+            "answers lists waiting answers on its own; claim them afterwards "
+            "with replies_to.",
+        )
+    if before is not None and not (
+        isinstance(before, str) and _MESSAGE_ID.fullmatch(before)
+    ):
+        raise KampungError("invalid_answers", _BEFORE_HINT)
+
+
+def _waiting_answers(
+    conn: sqlite3.Connection, session: Session, now: datetime, before: str | None
+) -> tuple[list[dict[str, object]], int]:
+    """Waiting answers this session could read, grouped by the message from
+    its mailbox they answer, newest original first. Each group counts exactly
+    what replies_to=[id] would then read: both are _READABLE plus reply_to."""
+    params: dict[str, object] = _params(session, now)
+    cursor = ""
+    if before is not None:
+        row = conn.execute(
+            "SELECT bm.sent_at, bm.id FROM messages bm "
+            "JOIN sessions bs ON bs.id = bm.from_session_id "
+            "WHERE bm.id = ? AND bs.mailbox_id = ?",
+            (before, session.mailbox_id),
+        ).fetchone()
+        if row is None:
+            return [], 0
+        params.update(b_sent=row[0], b_id=row[1])
+        cursor = (
+            " AND (orig.sent_at < :b_sent "
+            "OR (orig.sent_at = :b_sent AND orig.id < :b_id))"
+        )
+    rows = conn.execute(
+        "SELECT orig.id, orig.sent_at, orig.body, orig.owner, "
+        "tm.name || '/' || tmb.repo "
+        "|| COALESCE('#' || ts.suffix, '') AS recipient, "
+        "count(*) AS n, "
+        "group_concat(DISTINCT fm.name || '/' || fmb.repo) AS senders "
+        "FROM messages msg "
+        "JOIN messages orig ON orig.id = msg.reply_to "
+        "JOIN sessions os ON os.id = orig.from_session_id "
+        "AND os.mailbox_id = :mailbox "
+        "JOIN mailboxes tmb ON tmb.id = orig.to_mailbox_id "
+        "JOIN machines tm ON tm.id = tmb.machine_id "
+        "LEFT JOIN sessions ts ON ts.id = orig.to_session_id "
+        "JOIN sessions fs ON fs.id = msg.from_session_id "
+        "JOIN mailboxes fmb ON fmb.id = fs.mailbox_id "
+        "JOIN machines fm ON fm.id = fmb.machine_id "
+        f"WHERE {_READABLE} AND msg.reply_to IS NOT NULL{cursor} "
+        "GROUP BY orig.id ORDER BY orig.sent_at DESC, orig.id DESC",
+        params,
+    ).fetchall()
+    groups: list[dict[str, object]] = [
+        {
+            "id": r["id"],
+            "to": r["recipient"],
+            "sent_at": r["sent_at"],
+            "preview": _preview(r["body"]),
+            "count": r["n"],
+            "from": sorted(str(r["senders"]).split(",")),
+            "owner": bool(r["owner"]),
+        }
+        for r in rows[:MAX_REPLIES_TO]
+    ]
+    return groups, max(0, len(rows) - MAX_REPLIES_TO)
+
+
 @bumps
 def inbox(
     conn: sqlite3.Connection,
@@ -1036,10 +1135,14 @@ def inbox(
     now: datetime,
     sender: str | None = None,
     replies_to: list[str] | None = None,
+    answers: bool = False,
+    before: str | None = None,
 ) -> InboxResult:
     """Deliver up to `limit` readable messages, only those matching the
-    filters when given; limit 0 delivers nothing and only counts."""
-    limit = max(0, min(limit, INBOX_MAX))
+    filters when given; limit 0 delivers nothing and only counts. With
+    answers, deliver nothing and list waiting answers by what they answer."""
+    _check_answers(session, answers, before, sender, replies_to)
+    limit = 0 if answers else max(0, min(limit, INBOX_MAX))
     narrow, extra = _inbox_filter(session, sender, replies_to)
     params = {**_params(session, now), **extra, "limit": limit}
     with db.transaction(conn):
@@ -1097,7 +1200,12 @@ def inbox(
         sent = (
             None if replies_to is None else _sent_status(conn, session, replies_to, now)
         )
-    return InboxResult([envelope(r) for r in rows], more, waiting, sent)
+        groups, groups_more = (
+            _waiting_answers(conn, session, now, before) if answers else (None, 0)
+        )
+    return InboxResult(
+        [envelope(r) for r in rows], more, waiting, sent, groups, groups_more
+    )
 
 
 def peek(conn: sqlite3.Connection, session: Session, now: datetime) -> PeekResult:
