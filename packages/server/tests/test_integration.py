@@ -317,5 +317,12 @@ async def test_inbox_takes_filters_and_tells_the_app_to_use_them(
     async with client_for(server, server.keys["laptop"], None) as c:
         tools = {t.name: t for t in await c.list_tools()}
     inbox = tools["inbox"]
-    assert set(inbox.inputSchema["properties"]) == {"limit", "sender", "replies_to"}
+    assert set(inbox.inputSchema["properties"]) == {
+        "limit",
+        "sender",
+        "replies_to",
+        "answers",
+        "before",
+    }
     assert "every chat shares one mailbox" in (inbox.description or "")
+    assert "answers=true lists waiting answers" in (inbox.description or "")
