@@ -38,3 +38,29 @@ def test_sweeper_survives_a_failed_pass(tmp_path: Path, clock: FakeClock) -> Non
     assert thread.is_alive()
     stop.set()
     thread.join(2)
+
+
+def test_sweeper_removes_empty_mailboxes(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    make_session("desktop", "blog")
+    conn.execute(
+        "INSERT INTO mailboxes (machine_id, repo, created_at) "
+        "SELECT id, 'old', '2026-01-01T00:00:00.000000Z' FROM machines "
+        "WHERE name = 'laptop'"
+    )
+    query = "SELECT count(*) FROM mailboxes WHERE repo = 'old'"
+    stop = threading.Event()
+    thread = start_sweeper(db_path, clock.now, interval=0.01, stop=stop)
+    try:
+        for _ in range(200):
+            if conn.execute(query).fetchone()[0] == 0:
+                break
+            stop.wait(0.01)
+        assert conn.execute(query).fetchone()[0] == 0
+    finally:
+        stop.set()
+        thread.join(2)

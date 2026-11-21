@@ -75,6 +75,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Session calls per machine | `peek` 7,680 per minute (256 windows polling every 2 seconds), `end` 600 per minute |
 | Wrong keys per client address (IPv6: per /64) | 20 within a minute, then 429 for wrong keys until they age out |
 | Ended sessions kept | 30 days, then deleted up to 1,000 per cleanup pass |
+| Empty mailboxes | deleted once they have no sessions and no mail, up to 20 per cleanup pass; the Claude app's mailbox stays while it is connected |
 | Audit log | 90 days and at most 500,000 rows, the oldest deleted up to 1,000 per cleanup pass |
 | Live sessions | 32 per mailbox, 256 per machine |
 | Mailboxes per machine | 1,000 |

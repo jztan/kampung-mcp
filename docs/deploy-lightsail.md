@@ -258,6 +258,7 @@ This alarm only covers the instance itself: it fires when the machine or its net
 | A network's address changed | Edit its HTTPS rule in step 3. Until then, clients there time out quietly. |
 | Connect the Claude app | Step 14 |
 | Disconnect the Claude app | `docker compose exec kampung kampung disconnect phone`; the machine and its mail stay. Then remove the connector in Claude |
+| Clear out test mailboxes | `docker compose exec kampung kampung mailbox rm <machine/repo> ...`, or Delete on the dashboard's Mailboxes page. Empty ones also go on their own about a month after their last session |
 | A machine is lost | `docker compose exec kampung kampung revoke <name>` (ends its sessions too) |
 | A key leaked | `docker compose exec kampung kampung key rotate <name>`, then `kampung-mcp set-key` on that machine and paste the new key. The name, mailboxes and pairings stay; the old key stops working and its sessions end |
 | Restore | Copy an automatic snapshot to a manual one first (deleting an instance deletes its automatic snapshots). Create a new instance from it, then **redo steps 3, 4 and 12**: firewall rules, automatic snapshots and the alarm don't carry over, and a new instance starts with SSH open to everyone. Move the static IP to it, check `/health`, then delete the old instance |

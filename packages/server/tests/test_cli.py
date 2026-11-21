@@ -288,3 +288,50 @@ def test_serve_ends_open_event_streams_on_shutdown(
     deps = SimpleNamespace(db_path=Path("unused.db"), clock=None)
     app.serve(deps, "0.0.0.0", 8000)  # type: ignore[arg-type]
     assert seen["timeout_graceful_shutdown"] == app.SHUTDOWN_GRACE == 3
+
+
+def _old_mailboxes(env: Path) -> None:
+    """laptop/old1 and laptop/old2 with one ended session each, plus a newer
+    session elsewhere so neither holds the newest session row."""
+    from datetime import datetime, timezone
+
+    from kampung_server import sessions
+    from kampung_server.models import load_machine
+
+    cli.main(["key", "add", "laptop"])
+    conn = db.connect(env)
+    now = datetime.now(timezone.utc)
+    machine = load_machine(conn, "laptop")
+    assert machine is not None
+    for repo in ("old1", "old2", "keep"):
+        s = sessions.register(
+            conn,
+            machine,
+            now,
+            agent="claude-code",
+            cwd=f"/u/{repo}",
+            repo=repo,
+            hooks=True,
+        )
+        if repo != "keep":
+            sessions.end(conn, s.id, now)
+    conn.close()
+
+
+def test_mailbox_rm_mixed_results(
+    env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _old_mailboxes(env)
+    capsys.readouterr()
+    assert cli.main(["mailbox", "rm", "laptop/old1", "laptop/nope"]) == 1
+    out, err = capsys.readouterr()
+    assert "Deleted laptop/old1 (1 sessions, 0 messages)." in out
+    assert "error: laptop/nope: unknown_mailbox:" in err
+
+
+def test_mailbox_rm_all_succeed(env: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _old_mailboxes(env)
+    assert cli.main(["mailbox", "rm", "laptop/old1", "laptop/old2"]) == 0
+    conn = sqlite3.connect(env)
+    repos = {r[0] for r in conn.execute("SELECT repo FROM mailboxes")}
+    assert repos == {"keep"}

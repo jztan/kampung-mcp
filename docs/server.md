@@ -108,6 +108,7 @@ Then run `kampung-mcp setup --server <your server URL>` on each machine with its
 | `kampung connect NAME` | Print the connector URL, the client id and a one-time code for the Claude app (needs `KAMPUNG_PUBLIC_URL`); creates the machine if it is new, with a key that is never shown |
 | `kampung disconnect NAME` | End a machine's Claude app connection; its mailboxes and mail stay |
 | `kampung owner add NAME` / `kampung owner remove NAME` | Let a machine's connected Claude app send owner instructions, or stop it (off by default, and cleared by `disconnect`, `revoke`, `key rotate` and a new `connect`; see [Use it from the Claude app](claude-app.md#owner-instructions-off-by-default)) |
+| `kampung mailbox rm MACHINE/REPO ...` | Delete mailboxes nobody uses, with their ended sessions and read mail. It refuses one with an open session or waiting mail. Empty mailboxes also go on their own about a month after their last session |
 | `kampung owner list` | List the Claude app connections marked as owner, with when each was connected, and any mark that was lost, with when and why (`kampung owner remove NAME` dismisses one) |
 
 With Docker, prefix each with `docker compose exec kampung`. The Claude app steps are in [Use it from the Claude app](claude-app.md) and the [runbook](deploy-lightsail.md#14-connect-the-claude-app-optional).

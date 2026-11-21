@@ -97,6 +97,12 @@ class _Decision:
     seen: str | None = None
 
 
+UNKNOWN_MAILBOX_HINT = (
+    "No such mailbox. A mailbox unused for about a month is removed and comes "
+    "back when a session opens there; call list_peers to see current ones."
+)
+
+
 @bumps
 def send(
     conn: sqlite3.Connection,
@@ -179,7 +185,7 @@ def send(
         (target.id, address.repo),
     ).fetchone()
     if mailbox is None:
-        raise KampungError("unknown_mailbox", "Call list_peers to see mailboxes.")
+        raise KampungError("unknown_mailbox", UNKNOWN_MAILBOX_HINT)
     # Each sending machine gets its own share of a mailbox, so one runaway
     # sender cannot lock every other machine out of it.
     waiting, from_me = conn.execute(
@@ -240,6 +246,15 @@ def send(
         attachment = attachments.finish(attachment)
     message_id = new_message_id(now)
     with db.transaction(conn):
+        # The lookup above ran outside the lock; housekeeping or an admin may
+        # have removed the mailbox since (an image re-encode takes a while).
+        if (
+            conn.execute(
+                "SELECT 1 FROM mailboxes WHERE id = ?", (mailbox["id"],)
+            ).fetchone()
+            is None
+        ):
+            raise KampungError("unknown_mailbox", UNKNOWN_MAILBOX_HINT)
         # Every wake decision is made under the write lock, so two racing
         # sends cannot both take the last wake.
         decision = _decide(

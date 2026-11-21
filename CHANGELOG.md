@@ -4,6 +4,13 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Added
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- Old mailboxes clean themselves up. A mailbox with no sessions and no mail, about a month after its last session ended, is removed, so test runs and one-off folders no longer pile up on the dashboard and in `list_peers`. The Claude app's mailbox stays while the app is connected. Mail sent to a removed mailbox gets `unknown_mailbox` with a hint saying why; the mailbox comes back when a session opens in that folder again.
+- Delete a mailbox by hand: `kampung mailbox rm machine/repo ...`, or Delete on the dashboard's Mailboxes page. It refuses while a session is open there or mail is waiting for it.
+
 ## [0.9.1] - 2026-11-19
 
 ### Fixed

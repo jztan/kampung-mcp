@@ -12,6 +12,7 @@ from starlette.responses import Response
 from ..admin import AdminService
 from ..errors import KampungError
 from ..models import Session, load_session
+from . import queries
 from .auth import AdminSession
 from .views import connection
 from .web import Web
@@ -198,6 +199,42 @@ def register_actions(mcp: FastMCP, web: Web) -> None:
     mcp.custom_route("/admin/messages/{id}/delete", methods=["GET"])(
         web.page(delete_confirm)
     )
+
+    async def mailbox_delete_confirm(request: Request, s: AdminSession) -> Response:
+        machine = request.path_params["machine"]
+        repo = request.path_params["repo"]
+        with connection(web) as conn:
+            preview = queries.mailbox_delete_preview(conn, machine, repo)
+        if preview is None:
+            return web.render(
+                request,
+                "error.html",
+                s,
+                status=404,
+                title="Delete mailbox",
+                message="No mailbox with that address. It may have been deleted "
+                "already.",
+            )
+        return web.render(
+            request,
+            "delete_mailbox.html",
+            s,
+            title="Delete mailbox",
+            machine=machine,
+            repo=repo,
+            preview=preview,
+        )
+
+    mcp.custom_route("/admin/mailboxes/{machine}/{repo}/delete", methods=["GET"])(
+        web.page(mailbox_delete_confirm)
+    )
+
+    @post("/admin/mailboxes/{machine}/{repo}/delete", back="/admin/mailboxes")
+    async def mailbox_delete(request: Request, s: AdminSession, form: FormData) -> str:
+        address = f"{request.path_params['machine']}/{request.path_params['repo']}"
+        admin.delete_mailbox(address, ACTOR)
+        s.flash = ("ok", f"Deleted {address}.")
+        return "/admin/mailboxes"
 
     @post("/admin/messages/{id}/delete", back="/admin/messages")
     async def delete(request: Request, s: AdminSession, form: FormData) -> str:

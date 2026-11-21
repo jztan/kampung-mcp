@@ -136,6 +136,7 @@ def test_action_without_csrf_is_refused(
         (f"/admin/sessions/{a.id}/end", {}),
         (f"/admin/sessions/{a.id}/refill", {}),
         (f"/admin/messages/{sent.id}/delete", {}),
+        ("/admin/mailboxes/laptop/api/delete", {}),
     ]
     for path, form in posts:
         for csrf in (None, "wrong"):
@@ -284,3 +285,49 @@ def test_lost_mark_without_a_connection_says_to_reconnect_first(
         in overview
     )
     assert 'then run <span class="mono">kampung owner add laptop</span>' in overview
+
+
+def _ended_box(
+    conn: sqlite3.Connection, make_session: MakeSession, clock: FakeClock
+) -> None:
+    from kampung_server.sessions import end
+
+    end(conn, make_session("laptop", "old").id, clock.now())
+    make_session("desktop", "api")  # newer, so laptop/old can go
+
+
+def test_delete_mailbox_confirm_flow(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    _ended_box(conn, make_session, clock)
+    csrf = login(web)
+    page = web.get("/admin/mailboxes").text
+    assert 'href="/admin/mailboxes/laptop/old/delete"' in page
+    assert 'href="/admin/mailboxes/desktop/api/delete"' not in page
+    confirm = web.get("/admin/mailboxes/laptop/old/delete").text
+    assert "Delete this mailbox?" in confirm and "not_found" in confirm
+    done = web.post("/admin/mailboxes/laptop/old/delete", data={"csrf": csrf}).text
+    assert "Deleted laptop/old." in done
+    assert conn.execute("SELECT 1 FROM mailboxes WHERE repo = 'old'").fetchone() is None
+    assert audit_rows(conn) == ["delete_mailbox"]
+
+
+def test_delete_mailbox_refusal_shows_hint(
+    web: TestClient,
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+) -> None:
+    make_session("laptop", "busy")
+    csrf = login(web)
+    r = web.post(
+        "/admin/mailboxes/laptop/busy/delete",
+        data={"csrf": csrf},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert "A session is still open there" in web.get(r.headers["location"]).text
+    assert web.get("/admin/mailboxes/laptop/nope/delete").status_code == 404
