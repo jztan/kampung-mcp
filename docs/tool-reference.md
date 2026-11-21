@@ -151,6 +151,8 @@ Reads new messages, oldest first. The filters read only some of the mail and lea
 | `limit` | integer, default 20 | How many to read, 0 to 20; values outside are moved to the nearest. 0 reads nothing and only counts (a server before 0.8 reads one message instead) |
 | `sender` | string, optional | Read only mail from this mailbox, `machine/repo` (no `#xx`). For the Claude app it reads new mail only and skips answers to messages sent from its mailbox, which are for `replies_to` |
 | `replies_to` | list of strings, optional | Read only replies to these message ids (up to 20), the messages this chat sent, and report what became of each in `sent` |
+| `answers` | boolean, default false | Claude app only. Reads nothing, whatever `limit` says: lists the waiting answers in `answers`, grouped by the message from this mailbox they answer, newest first, up to 20, with `answers_more` counting the older groups. For a chat that lost the ids it sent. Cannot be combined with `sender` or `replies_to` |
+| `before` | string, optional | With `answers`, list only groups older than this message id: the last `id` of the previous page |
 
 ```json
 {
@@ -173,6 +175,22 @@ Reads new messages, oldest first. The filters read only some of the mail and lea
 ```
 
 `more` counts the messages still waiting after this read that match the filters (all of them without filters). `waiting_by_sender` counts every message still waiting, filtered or not, by sender mailbox, busiest first, with no bodies; `replies` is how many of each `count` answer a message sent from your mailbox (a server before 0.8.1 leaves it out). With both filters, a message must match both, and for the Claude app `sender` then reads answers too. When a message expires, or is deleted from the dashboard while unread, answers to it that are still waiting lose their `reply_to`: `replies_to` no longer finds them and they count as new mail. A sender or id that matches nothing reads nothing; it is not an error. `invalid_address` is a `sender` that is not `machine/repo`; `invalid_replies_to` is a list that is too long or holds something that is not a message id. Through an adapter talking to a server too old for filters, the result is `filter_unsupported`: call `inbox` without them. `mode` is the sender's `ask`, `tell` or `fyi`; a message sent before the server knew modes reads as `ask`, or `fyi` if it was one. A `tell` or `fyi` message's `kind` adds "no reply needed", and an `fyi` message also has `"fyi": true`. An owner instruction has `"mode": "instruct"` and `"kind": "owner instruction, from the owner's Claude app"`; only the server sets these, so the same words in a body change nothing.
+
+With `answers`, the result also has `answers` and `answers_more`. Each group is one message this mailbox sent that has answers this session could read now:
+
+```json
+{
+  "id": "msg_0195f3a1c2d4e8b7a6f5c3d",
+  "to": "desktop/web",
+  "sent_at": "2026-11-20T09:10:02.507911Z",
+  "preview": "Is the staging key still valid?",
+  "count": 2,
+  "from": ["desktop/web"],
+  "owner": false
+}
+```
+
+`preview` is the first 150 characters of the message this mailbox sent, with "…" when cut, never its attachment. `owner` is true when that message was an owner instruction. `count` is how many answers wait; `inbox(replies_to=[id])` reads exactly those, at most `limit` per call, so repeat while `more` is above 0. An id given as `before` that is not a message this mailbox sent lists nothing.
 
 With `replies_to`, the result also has `sent` (since 0.9), one entry per distinct id, in the order first given:
 
@@ -247,6 +265,7 @@ From the server:
 | `mode_conflict` | `send` | `fyi: true` with a `mode` other than `"fyi"`. Drop `fyi` |
 | `invalid_address` | `send`, `inbox` | `to` isn't `machine/repo` or `machine/repo#xx`, or the `inbox` `sender` isn't `machine/repo` |
 | `invalid_replies_to` | `inbox` | `replies_to` isn't a list of up to 20 message ids (`msg_...`) |
+| `invalid_answers` | `inbox` | `answers` from a session that is not the Claude app, `answers` with `sender` or `replies_to`, or a `before` without `answers` or that is not a message id |
 | `unknown_machine` | `send` | No machine has that name |
 | `machine_revoked` | `send` | The target machine was revoked |
 | `not_paired` | `send` | The two machines aren't paired. The hint gives the `kampung pair` command for the owner |
