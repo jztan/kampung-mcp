@@ -195,3 +195,44 @@ def test_send_racing_a_mailbox_delete_gets_unknown_mailbox(
             Attachment("notes.md", TEXT, b"x"),
         )
     assert e.value.code == "unknown_mailbox"
+
+
+def test_send_racing_a_delete_never_lands_in_a_new_mailbox_with_the_same_id(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SQLite reuses the highest rowid once it is deleted, so a mailbox made
+    # while the send waits can get the removed mailbox's id. The send must
+    # not deliver to it: that mailbox may be on a machine the sender is not
+    # paired with.
+    from kampung_server import mail
+    from kampung_server.attachments import TEXT, Attachment
+
+    sender = make_session("desktop", "blog")
+    _bare_mailbox(conn, "laptop", "old", clock)  # the newest row
+    (old_id,) = conn.execute("SELECT id FROM mailboxes WHERE repo = 'old'").fetchone()
+
+    def finish_then_replace(attachment: Attachment) -> Attachment:
+        conn.execute("DELETE FROM mailboxes WHERE repo = 'old'")
+        _bare_mailbox(conn, "laptop", "private", clock)
+        return attachment
+
+    monkeypatch.setattr(mail.attachments, "finish", finish_then_replace)
+    with pytest.raises(KampungError) as e:
+        send(
+            conn,
+            sender,
+            "laptop/old",
+            "hi",
+            None,
+            clock.now(),
+            Attachment("notes.md", TEXT, b"x"),
+        )
+    assert e.value.code == "unknown_mailbox"
+    (new_id,) = conn.execute(
+        "SELECT id FROM mailboxes WHERE repo = 'private'"
+    ).fetchone()
+    assert new_id == old_id  # the reuse this test is about
+    assert conn.execute("SELECT count(*) FROM messages").fetchone()[0] == 0
