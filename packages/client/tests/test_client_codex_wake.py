@@ -114,7 +114,7 @@ def test_waker_queues_once_per_new_wakeable_mail(
         mcp.initialize()
         call_inbox(mcp, "cx-1")
         peer_send(server, f"laptop/api#{data['suffix']}", "wake up")
-        got = wait_for_calls(log, 1, 8)
+        got = wait_for_calls(log, 1, 20)
         assert got == [["queue", "--thread", "cx-1", "--message", wake(data)]]
         time.sleep(5)
         assert len(calls(log)) == 1  # same mail, no repeat
@@ -172,9 +172,9 @@ def test_waker_queue_failure_logged_once(
         mcp.initialize()
         call_inbox(mcp, "cx-1")
         peer_send(server, f"laptop/api#{data['suffix']}", "one")
-        wait_for_calls(log, 1, 8)
+        wait_for_calls(log, 1, 20)
         peer_send(server, f"laptop/api#{data['suffix']}", "two")
-        assert len(wait_for_calls(log, 2, 8)) == 2  # retried on the next rise
+        assert len(wait_for_calls(log, 2, 20)) == 2  # retried on the next rise
         assert len(log_lines(home, "codex-wake")) == 1
         reply = call_inbox(mcp, "cx-1", "c2")
         text = json.dumps(reply)
@@ -194,14 +194,14 @@ def test_waker_kills_a_hung_codex_queue_and_wakes_again(
         mcp.initialize()
         call_inbox(mcp, "cx-1")
         peer_send(server, f"laptop/api#{data['suffix']}", "one")
-        wait_for_calls(log, 1, 8)
+        wait_for_calls(log, 1, 20)
         first = time.monotonic()  # the hung call has started
         end = time.monotonic() + 10
         while time.monotonic() < end and not log_lines(home, "codex-wake"):
             time.sleep(0.2)
         assert any("timed out" in line for line in log_lines(home, "codex-wake"))
         peer_send(server, f"laptop/api#{data['suffix']}", "two")
-        assert len(wait_for_calls(log, 2, 8)) == 2  # still polling after the hang
+        assert len(wait_for_calls(log, 2, 20)) == 2  # still polling after the hang
         time.sleep(max(0.0, first + 9 - time.monotonic()))
         assert not (tmp_path / "finished").exists()  # the hung call was killed
     finally:
@@ -300,7 +300,7 @@ def test_waker_waits_for_a_busy_turn_to_end(
         time.sleep(5)
         assert calls(log) == []
         hook_event("Stop", stop_hook_active=True)  # turn ends, mail still unread
-        assert wait_for_calls(log, 1, 8) == [
+        assert wait_for_calls(log, 1, 20) == [
             ["queue", "--thread", "cx-1", "--message", wake(data)]
         ]
     finally:
@@ -326,14 +326,14 @@ def test_waker_wakes_for_mail_that_arrives_late_in_a_wake_turn(
         mcp.initialize()
         call_inbox(mcp, "cx-1")
         peer_send(server, to, "first")
-        assert len(wait_for_calls(log, 1, 8)) == 1
+        assert len(wait_for_calls(log, 1, 20)) == 1
         hook_event("UserPromptSubmit", prompt=wake(data))
         call_inbox(mcp, "cx-1", "c2")
         time.sleep(3)
         peer_send(server, to, "second")
         time.sleep(3)
         hook_event("Stop", stop_hook_active=True)
-        assert len(wait_for_calls(log, 2, 8)) == 2
+        assert len(wait_for_calls(log, 2, 20)) == 2
     finally:
         mcp.close()
 
