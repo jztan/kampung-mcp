@@ -248,9 +248,13 @@ def send(
     with db.transaction(conn):
         # The lookup above ran outside the lock; housekeeping or an admin may
         # have removed the mailbox since (an image re-encode takes a while).
+        # Match machine and repo too: SQLite reuses a deleted highest id, so a
+        # mailbox made meanwhile, perhaps on an unpaired machine, can hold it.
         if (
             conn.execute(
-                "SELECT 1 FROM mailboxes WHERE id = ?", (mailbox["id"],)
+                "SELECT 1 FROM mailboxes WHERE id = ? AND machine_id = ? "
+                "AND repo = ?",
+                (mailbox["id"], target.id, address.repo),
             ).fetchone()
             is None
         ):
