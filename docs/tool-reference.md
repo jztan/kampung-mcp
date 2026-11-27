@@ -20,7 +20,7 @@ A session name is a short label a person can read and say, such as `gateway-work
 2. `KAMPUNG_NAME` in the agent's environment, for example `KAMPUNG_NAME=screen-view claude`.
 3. The title the agent already shows you: Claude Code's session title (a `/rename` one before the automatic one), or Codex's thread name.
 
-The title is made into a name: lower case, words joined by `-`, at most 32 characters, cut at a word. The hooks send it when the session starts (with its registration) and at the end of each turn (in a request header), and the server checks it for secrets; a title that fails, or one the hooks cannot read, means no name. A name is unique among the open sessions in its mailbox: a second session with the same title gets `-2`, then `-3`, and keeps it while its title stays the same. An ended session frees its name. A newer `/rename` (or `KAMPUNG_NAME`) replaces an owner's rename; the automatic title never does. Each session keeps its last 5 former names for 7 days, so mail to an old name gets a hint saying where it went. The hint only points; the mail is not redirected.
+The title is made into a name: lower case, words joined by `-`, at most 32 characters, cut at a word. The hooks send it when the session starts (with its registration) and at the end of each turn (in a request header), and the server checks it for secrets. A title that fails the check means no name. If the hooks cannot read a title, a session that has none stays without one, and one that has a name keeps it. A name is unique among the open sessions in its mailbox: a second session with the same title gets `-2`, then `-3`, and keeps it while its title stays the same. An ended session frees its name. A newer Claude Code `/rename` (or a new `KAMPUNG_NAME`) replaces an owner's rename; an automatic title never does, and Codex's thread name always counts as automatic, since Kampung cannot tell whether a person chose it. Each session keeps its last 5 former names for 7 days, so mail to an old name gets a hint saying where it went. The hint only points; the mail is not redirected.
 
 A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started outside git in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind. A folder keeps the name it first registered with (recorded in `~/.cache/kampung/mailboxes.json`), so a client upgrade never renames its mailbox; delete that file to start over.
 
@@ -158,7 +158,7 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 
 ### Renaming a session
 
-`mode: "rename"` names a session from the owner's Claude app ("rename noc#92 to gateway-work"). Like an owner instruction it is accepted only from a connection marked with `kampung owner add`, checked before any address or session lookup and audited (only the rate limit and an attachment are checked earlier), and the adapter's `send` does not offer it. `to` is the session: `machine/repo#xx`, an exact `machine/repo@name`, or a bare `machine/repo` when only one agent session is open there (the Claude app's own does not count; several: `pick_session`, none: `no_session`). `body` is the new name, checked for secrets like a message (`secret_detected`) and made into a name like a title; a blank body clears it, and the session goes back to its reported name. No message is stored, nobody is woken and no budget is spent. The result is `{"renamed": "machine/repo#xx", "old": ..., "name": ..., "offline": ...}`; `offline` is true when the session is open but not seen lately (its machine asleep, say): the new name holds at once anyway, since the rename never needs the session to run. The session itself is not told.
+`mode: "rename"` names a session from the owner's Claude app ("rename noc#92 to gateway-work"). Like an owner instruction it is accepted only from a connection marked with `kampung owner add`, checked before any address or session lookup and audited (only `mode_conflict`, the rate limit and an attachment are checked earlier), and the adapter's `send` does not offer it. `to` is the session: `machine/repo#xx`, an exact `machine/repo@name`, or a bare `machine/repo` when only one agent session is open there (the Claude app's own does not count; several: `pick_session`, none: `no_session`). `body` is the new name, checked for secrets like a message (`secret_detected`) and made into a name like a title; a blank body clears it, and the session goes back to its reported name. No message is stored, nobody is woken and no budget is spent. The result is `{"renamed": "machine/repo#xx", "old": ..., "name": ..., "offline": ...}`; `offline` is true when the session is open but not seen lately (its machine asleep, say): the new name holds at once anyway, since the rename never needs the session to run. The session itself is not told.
 
 ## `inbox`
 
@@ -167,7 +167,7 @@ Reads new messages, oldest first. The filters read only some of the mail and lea
 | Argument | Type | Meaning |
 |---|---|---|
 | `limit` | integer, default 20 | How many to read, 0 to 20; values outside are moved to the nearest. 0 reads nothing and only counts (a server before 0.8 reads one message instead) |
-| `sender` | string, optional | Read only mail from this mailbox, `machine/repo` (no `#xx`). For the Claude app it reads new mail only and skips answers to messages sent from its mailbox, which are for `replies_to` |
+| `sender` | string, optional | Read only mail from this mailbox, `machine/repo` (no `#xx` or `@name`). For the Claude app it reads new mail only and skips answers to messages sent from its mailbox, which are for `replies_to` |
 | `replies_to` | list of strings, optional | Read only replies to these message ids (up to 20), the messages this chat sent, and report what became of each in `sent` |
 | `answers` | boolean, default false | Claude app only. Reads nothing, whatever `limit` says: lists the waiting answers in `answers`, grouped by the message from this mailbox they answer, newest first, up to 20, with `answers_more` counting the older groups. For a chat that lost the ids it sent. Cannot be combined with `sender` or `replies_to` |
 | `before` | string, optional | With `answers`, list only groups older than this message id: the last `id` of the previous page |
@@ -275,7 +275,7 @@ From the server:
 | Error | Tools | Meaning |
 |---|---|---|
 | `unauthorized` | all | The machine key is unknown or revoked |
-| `session_ended` | all | The calling session was ended. The adapter finds its current session and retries once, so this shows only when that fails |
+| `session_ended` | all | The calling session was ended. The adapter finds its current session and retries once, so this shows only when that fails. For a rename (`send`): the session being renamed has ended, and an ended session has no name |
 | `missing_session` | all | The call didn't come through the adapter |
 | `busy` | all | The database was locked, or (`send` with an image) the server is decoding other images. Try again in a moment |
 | `empty_body` | `send` | The body is empty or only whitespace |
@@ -287,7 +287,6 @@ From the server:
 | `name_taken` | `send` | A rename to a name another open session in that mailbox has. The hint names it |
 | `invalid_name` | `send` | A rename whose body has no ASCII letters or digits (accents are dropped, so `Café` becomes `cafe`; text in other scripts leaves nothing) |
 | `pick_session` | `send` | A rename to a mailbox with several open sessions. The hint lists them |
-| `session_ended` | `send` | A rename of a session that has ended: an ended session has no name |
 | `invalid_replies_to` | `inbox` | `replies_to` isn't a list of up to 20 message ids (`msg_...`) |
 | `invalid_answers` | `inbox` | `answers` from a session that is not the Claude app, `answers` with `sender` or `replies_to`, or a `before` without `answers` or that is not a message id |
 | `unknown_machine` | `send` | No machine has that name |
