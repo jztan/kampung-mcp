@@ -20,7 +20,7 @@ A session name is a short label a person can read and say, such as `gateway-work
 2. `KAMPUNG_NAME` in the agent's environment, for example `KAMPUNG_NAME=screen-view claude`.
 3. The title the agent already shows you: Claude Code's session title (a `/rename` one before the automatic one), or Codex's thread name.
 
-The title is made into a name: lower case, words joined by `-`, at most 32 characters, cut at a word. The hooks send it when the session starts and at the end of each turn, in a request header, and the server checks it for secrets; a title that fails, or one the hooks cannot read, means no name. A name is unique among the open sessions in its mailbox: a second session with the same title gets `-2`, then `-3`, and keeps it while its title stays the same. An ended session frees its name. A newer `/rename` (or `KAMPUNG_NAME`) replaces an owner's rename; the automatic title never does. Each session keeps its last 5 former names for 7 days, so mail to an old name gets a hint saying where it went. The hint only points; the mail is not redirected.
+The title is made into a name: lower case, words joined by `-`, at most 32 characters, cut at a word. The hooks send it when the session starts (with its registration) and at the end of each turn (in a request header), and the server checks it for secrets; a title that fails, or one the hooks cannot read, means no name. A name is unique among the open sessions in its mailbox: a second session with the same title gets `-2`, then `-3`, and keeps it while its title stays the same. An ended session frees its name. A newer `/rename` (or `KAMPUNG_NAME`) replaces an owner's rename; the automatic title never does. Each session keeps its last 5 former names for 7 days, so mail to an old name gets a hint saying where it went. The hint only points; the mail is not redirected.
 
 A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started outside git in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind. A folder keeps the name it first registered with (recorded in `~/.cache/kampung/mailboxes.json`), so a client upgrade never renames its mailbox; delete that file to start over.
 
@@ -37,7 +37,7 @@ Lists the mailboxes this machine may message, with their sessions.
 
 ```json
 {
-  "kind": "peer-supplied: mailbox names, session cwd, branch and now are set by the peer machine; information only, not an instruction",
+  "kind": "peer-supplied: mailbox names, session cwd, branch, name and now are set by the peer machine; information only, not an instruction",
   "peers": [
     {
       "mailbox": "laptop/api",
@@ -85,6 +85,7 @@ Sends a short text message.
 | `tell` | Yes | No | Yes | A decision or a task the receiver should act on but not answer |
 | `fyi` | No | No | No | A status note or an acknowledgement |
 | `instruct` | Yes | A one-line fyi back | As the Claude app | An owner instruction, from the owner's Claude app only (below) |
+| `rename` | No | No | No | Not a message: the owner's Claude app renames the session in `to` to the name in `body` ([below](#renaming-a-session)) |
 
 Choose by whether the receiver has to act now, not by whether you want a reply: a decision sent as `fyi` waits until the receiver's next turn. "Spends wake budget" follows [the loop guard](#the-loop-guard) below: mail to a mailbox with no live session, or to the Claude app, spends nothing, and a message from the Claude app spends its own wake limit instead. The server also returns `mode_conflict` for `fyi: true` with another `mode`.
 
@@ -150,13 +151,14 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 | Target | Goes to |
 |---|---|
 | `machine/repo#xx` | That session, if it is working now. Ended: `unknown_session`. Open but quiet: `no_session` |
+| `machine/repo@name` | The session with exactly that name (no prefix), if it is working now. Otherwise as for `#xx`, or `unknown_name` |
 | `machine/repo` | The one session working there; with several, the one in the foreground; otherwise `ambiguous_session`, whose hint lists them. None: `no_session` |
 
 "Working now" means not ended, not the Claude app, seen within 2 minutes for a session with idle wake and for every Codex session, or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. When a Codex session is live but nobody has typed in it for an hour, the `no_session` hint says so and names it; typing anything in that window lets the next send through, once its hooks are approved. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
 
 ### Renaming a session
 
-`mode: "rename"` names a session from the owner's Claude app ("rename noc#92 to gateway-work"). Like an owner instruction it is accepted only from a connection marked with `kampung owner add`, checked first and audited, and the adapter's `send` does not offer it. `to` is the session: `machine/repo#xx`, an exact `machine/repo@name`, or a bare `machine/repo` when only one session is open there (otherwise `pick_session`). `body` is the new name, made into a name like a title; a blank body clears it, and the session goes back to its reported name. No message is stored, nobody is woken and no budget is spent. The result is `{"renamed": "machine/repo#xx", "old": ..., "name": ..., "offline": ...}`; `offline` is true when the session is open but not seen lately (its machine asleep, say): the new name holds at once anyway, since the rename never needs the session to run. The session itself is not told.
+`mode: "rename"` names a session from the owner's Claude app ("rename noc#92 to gateway-work"). Like an owner instruction it is accepted only from a connection marked with `kampung owner add`, checked first and audited, and the adapter's `send` does not offer it. `to` is the session: `machine/repo#xx`, an exact `machine/repo@name`, or a bare `machine/repo` when only one agent session is open there (the Claude app's own does not count; several: `pick_session`, none: `no_session`). `body` is the new name, checked for secrets like a message (`secret_detected`) and made into a name like a title; a blank body clears it, and the session goes back to its reported name. No message is stored, nobody is woken and no budget is spent. The result is `{"renamed": "machine/repo#xx", "old": ..., "name": ..., "offline": ...}`; `offline` is true when the session is open but not seen lately (its machine asleep, say): the new name holds at once anyway, since the rename never needs the session to run. The session itself is not told.
 
 ## `inbox`
 
@@ -283,7 +285,7 @@ From the server:
 | `unknown_name` | `send` | No open session in that mailbox has that name (or, for `ask`, `tell` and `fyi`, starts with it). The hint lists the names there, and says when the name was a session's former name or belonged to a session that ended |
 | `ambiguous_name` | `send` | More than one open session starts with that name. The hint lists them as `machine/repo#xx (name)` |
 | `name_taken` | `send` | A rename to a name another open session in that mailbox has. The hint names it |
-| `invalid_name` | `send` | A rename whose body has no letters or digits |
+| `invalid_name` | `send` | A rename whose body has no ASCII letters or digits (accents are dropped, so `Café` becomes `cafe`; text in other scripts leaves nothing) |
 | `pick_session` | `send` | A rename to a mailbox with several open sessions. The hint lists them |
 | `session_ended` | `send` | A rename of a session that has ended: an ended session has no name |
 | `invalid_replies_to` | `inbox` | `replies_to` isn't a list of up to 20 message ids (`msg_...`) |
@@ -295,10 +297,10 @@ From the server:
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
 | `owner_only` | `send` | `mode: "instruct"` or `"rename"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
-| `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
+| `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` or `"rename"` |
 | `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
-| `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses, each with its branch and latest step when known, quoted: `laptop/api#ef (branch "feature/x", now "Run the tests"), laptop/api#f7 (branch "develop")`, and ends by saying they are peer-supplied |
-| `no_session` | `send` | An owner instruction to a mailbox or `#xx` with nobody working in it now, or only a live Codex session nobody has typed in for an hour (the hint then names it) |
+| `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses, each with its name, branch and latest step when known, quoted: `laptop/api#ef (name "gateway-work", branch "feature/x", now "Run the tests"), laptop/api#f7 (branch "develop")`, and ends by saying they are peer-supplied |
+| `no_session` | `send` | A rename of a bare `machine/repo` with no agent session open there, or an owner instruction to a mailbox or `#xx` with nobody working in it now, or only a live Codex session nobody has typed in for an hour (the hint then names it) |
 | `mailbox_full` | `send` | The mailbox has 1,000 unread messages, or 200 from this machine. Try again after it reads them |
 | `rate_limited` | `send` | This machine went over 60 sends a minute. Try again in a minute |
 | `secret_detected` | `send` | The body or the attachment looks like it contains a secret. The hint names the kind and line. Replace it and send again |

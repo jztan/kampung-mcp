@@ -8,8 +8,10 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Server (`ghcr.io/jztan/kampung-mcp`)
 
-- Sessions have names a person can read and say. `list_peers` and the dashboard show each session's name, taken from the title its agent already shows you (Claude Code's session title, a `/rename` one first, or Codex's thread name), and mail can go to `machine/repo@name` instead of `#xx`. Names are unique within a repo: a second session with the same title gets `-2`. A unique start of a name works for `ask`, `tell` and `fyi`; an owner instruction needs the exact name. Mail to an old name gets a hint saying where it went.
-- Rename a session from the Claude app: "rename noc#92 to gateway-work" (`send` with `mode: "rename"`, owner only). It stores no message and wakes nobody. A later `/rename` at the terminal replaces it; the automatic title never does.
+- Sessions have names a person can read and say. `list_peers` and the dashboard show each session's name, taken from the title its agent already shows you (Claude Code's session title, a `/rename` one first, or Codex's thread name), and mail can go to `machine/repo@name` instead of `#xx`. Names are unique among the open sessions of one `machine/repo`: a second session with the same title gets `-2`. A title is checked for secrets like a message, and one that fails gives no name. A unique start of a name works for `ask`, `tell` and `fyi`; an owner instruction needs the exact name. Mail to an old name gets a hint saying where it went.
+- Rename a session from the Claude app: "rename noc#92 to gateway-work" (`send` with `mode: "rename"`, owner only). It stores no message and wakes nobody. A later `/rename` at the terminal (or a new `KAMPUNG_NAME`) replaces it; the automatic title never does.
+- The `ambiguous_session` hint for an owner instruction shows each session's name.
+- Upgrading: names need both the new server image (schema 14 runs once on first start) and the new client, whose hooks report the titles. The Caddyfile and setup are unchanged.
 
 #### Client (`kampung-mcp`)
 

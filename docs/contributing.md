@@ -67,7 +67,8 @@ The FastMCP server, Streamable HTTP at `/mcp`, the hook API at `/v1`, SQLite sto
 | `oauth.py`, `oauth_store.py`, `oauth_connect.py` | The Claude app connector: OAuth routes, tokens and the connect page |
 | `bodylimit.py` | Request body caps on the OAuth routes and `/mcp`, which FastMCP serves |
 | `sessions.py` | Session registration, revival, resolution and liveness |
-| `addressing.py` | Machine and repo names, and mailbox addresses |
+| `addressing.py` | Machine, repo and session names, and addresses (`#xx`, `@name`) |
+| `names.py` | Session names: from reported titles or an owner rename, unique per mailbox, former names for hints |
 | `ids.py` | Message ids, session ids and session suffixes |
 | `models.py` | Row types loaded from the store: machines and sessions |
 | `identity.py` | Who is calling, and whether two machines are paired |
