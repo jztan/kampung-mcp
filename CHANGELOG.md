@@ -9,12 +9,12 @@ All notable changes for people who run a Kampung server or use it from their age
 #### Server (`ghcr.io/jztan/kampung-mcp`)
 
 - Sessions have names a person can read and say. `list_peers` and the dashboard show each session's name, taken from the title its agent already shows you (Claude Code's session title, a `/rename` one first, or Codex's thread name), and mail can go to `machine/repo@name` instead of `#xx`. Names are unique among the open sessions of one `machine/repo`: a second session with the same title gets `-2`. A title is checked for secrets like a message, and one that fails gives no name. A unique start of a name (at least 3 characters) works for `ask`, `tell` and `fyi`; an owner instruction needs the exact name. Mail to an old name gets a hint saying where it went. New errors: `unknown_name`, `ambiguous_name`, and for renames `name_taken`, `invalid_name` and `pick_session`. `inbox`'s `sender` refuses an `@name`, like a `#xx`.
-- Rename a session from the Claude app: "rename noc#92 to gateway-work" (`send` with `mode: "rename"`, owner only). It stores no message, wakes nobody and is audited, like a refused attempt. A later Claude Code `/rename` (or a new `KAMPUNG_NAME`) replaces it; an automatic title, including Codex's thread name, never does.
+- Rename a session from the Claude app: "rename noc#92 to gateway-work" (`send` with `mode: "rename"`, owner only). It stores no message, wakes nobody and is audited, like a refused attempt. A later Claude Code `/rename` (or a new `KAMPUNG_NAME` for Claude Code) replaces it; an automatic title, including Codex's thread name, never does.
 - The `ambiguous_session` hint for an owner instruction shows each session's name.
 
 #### Client (`kampung-mcp`)
 
-- The hooks report the session's title when it starts and at the end of each turn. `KAMPUNG_NAME` in the agent's environment names the session instead.
+- The hooks report the session's title when it starts and at the end of each turn. `KAMPUNG_NAME` in Claude Code's environment names the session instead (not for Codex, whose windows share one background process).
 - The tool descriptions Claude Code and Codex see mention `machine/repo@name`.
 
 ### Upgrading
