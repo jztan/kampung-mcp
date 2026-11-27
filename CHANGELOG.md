@@ -4,6 +4,25 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-28
+
+### Added
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- Sessions have names a person can read and say. `list_peers` and the dashboard show each session's name, taken from the title its agent already shows you (Claude Code's session title, a `/rename` one first, or Codex's thread name), and mail can go to `machine/repo@name` instead of `#xx`. Names are unique among the open sessions of one `machine/repo`: a second session with the same title gets `-2`. A title is checked for secrets like a message, and one that fails gives no name. A unique start of a name (at least 3 characters) works for `ask`, `tell` and `fyi`; an owner instruction needs the exact name. Mail to an old name gets a hint saying where it went. New errors: `unknown_name`, `ambiguous_name`, and for renames `name_taken`, `invalid_name` and `pick_session`. `inbox`'s `sender` refuses an `@name`, like a `#xx`.
+- Rename a session from the Claude app: "rename noc#92 to gateway-work" (`send` with `mode: "rename"`, owner only). It stores no message, wakes nobody and is audited, like a refused attempt. A later Claude Code `/rename` (or a new `KAMPUNG_NAME` for Claude Code) replaces it; an automatic title, including Codex's thread name, never does.
+- The `ambiguous_session` hint for an owner instruction shows each session's name.
+
+#### Client (`kampung-mcp`)
+
+- The hooks report the session's title when it starts and at the end of each turn. `KAMPUNG_NAME` in Claude Code's environment names the session instead (not for Codex, whose windows share one background process).
+- The tool descriptions Claude Code and Codex see mention `machine/repo@name`.
+
+### Upgrading
+
+- Renaming from the Claude app needs only the new server image (schema 14 runs once on first start). Names from the agents' titles and `KAMPUNG_NAME` also need the new client, whose hooks report them. The Caddyfile and setup are unchanged.
+
 ## [0.10.0] - 2026-11-27
 
 ### Added
@@ -386,6 +405,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.11.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.11.0
 [0.10.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.10.0
 [0.9.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.9.1
 [0.9.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.9.0

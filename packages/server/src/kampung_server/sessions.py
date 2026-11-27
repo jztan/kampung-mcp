@@ -5,7 +5,7 @@ import re
 import sqlite3
 from datetime import datetime
 
-from . import audit, db, guard
+from . import audit, db, guard, names
 from .addressing import validate_name
 from .clock import parse_ts, ts
 from .errors import KampungError
@@ -190,6 +190,10 @@ def _register(
                 "That session belongs to the Claude app connector.",
             )
         if existing is not None:
+            if existing.ended_at is not None:
+                # Its name may have been taken while it was ended: work it out
+                # again (a -2 if so) before it counts as open.
+                names.refresh(conn, existing.id, now)
             # A conversation can move between a window and the background,
             # and its client can gain or lose idle wake, so each registration
             # says what holds now.

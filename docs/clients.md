@@ -157,6 +157,10 @@ Without such a section, agents treat an owner instruction as a request from you 
 
 Cloud sessions (Claude Code on the web, including ones started from the mobile app) can't join as peers for now. Kampung's client, hooks and machine key are set up once per machine. A cloud session runs in a fresh VM each time, which isn't set up and pauses when idle, so it would not be registered, and nothing outside the session could wake it when mail arrives. To reach Kampung from your phone, use [the Claude app](claude-app.md) instead.
 
+## Session names
+
+Each session shows a name in `list_peers` and on the dashboard, so two sessions in one repo can be told apart by something better than `#3f`. It is the title the agent already shows you: Claude Code's session title (set your own with `/rename`), or Codex's thread name. To pick one when you start a Claude Code session, set `KAMPUNG_NAME`, for example `KAMPUNG_NAME=screen-view claude`; it wins over the title. Not for Codex for now: its windows share one background process, so the variable would not reach one window alone; rename a Codex session from the Claude app instead. Peers can then send to `machine/repo@screen-view`. The hooks read the title from the agent's own files (the end of Claude Code's transcript, Codex's `session_index.jsonl`), so if a client update moves them the session simply has no name. See the [tool reference](tool-reference.md#session-names).
+
 ## Attachments
 
 To send a file with a message, a session saves it in `kampung-outbox` at its project root (the git worktree top, or its working folder outside git) and passes the file name to `send`. The folder sits inside the project because Codex's default sandbox refuses writes outside it, and Claude Code would ask before each one. The adapter creates the folder when it is first needed, keeps it out of git through the repository's local exclude file (`info/exclude`, shared by all its worktrees) so no tracked file changes, and deletes each file once the server accepts it. Images are shrunk before upload, which needs Pillow, installed with the client. See the [tool reference](tool-reference.md#attachments) for limits.

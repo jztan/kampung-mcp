@@ -58,6 +58,15 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 
 - Read receipts: `inbox` with `replies_to` says whether each message sent is unread, read or expired.
 
+### v0.10: old mailboxes tidy themselves (released 2026-11-27)
+
+- Idle empty mailboxes are removed; a mailbox can be deleted by hand.
+- A Claude app chat finds answers it lost the ids for.
+
+### v0.11: sessions you can name
+
+- Session names from the agent's own title, `machine/repo@name`, and rename from the Claude app.
+
 ### v1.0: a tool trusted day to day
 
 - [ ] Seven days in a row of daily use with no silent failure and no new problem (soak restarted 2026-11-17, earliest 2026-11-24).

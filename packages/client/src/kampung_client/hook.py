@@ -60,6 +60,13 @@ CODEX_START_CONTEXT = (
 # taken only from what the agent wrote for people (a command's description) or
 # a file's name, never from a command line, which can carry a secret.
 MAX_NOW_CHARS = 80
+# The session's name comes from the title its agent shows the person: Claude
+# Code's session title in its transcript (re-written every few dozen lines, so
+# the tail is enough), Codex's thread name in its session index, or
+# KAMPUNG_NAME. Reads are bounded, and any miss means no name.
+TRANSCRIPT_TAIL = 64 * 1024
+CODEX_INDEX_TAIL = 1024 * 1024
+MAX_TITLE_CHARS = 200
 _PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
 STOP_REASON = (
     "{n} Kampung message(s) waiting. Call the kampung inbox tool to read them."
@@ -772,6 +779,7 @@ def register(
     timeout: float = 2.0,
     ancestry: bool = True,
     report_branch: bool = True,
+    title: Title | None = None,
 ) -> dict[str, object]:
     """Register (or revive) a session and return its session-file contents.
 
@@ -804,6 +812,8 @@ def register(
     version = client_version()
     if version is not None:
         body["client_version"] = version
+    if title is not None:  # a server before 0.11 ignores both
+        body["title_kind"], body["title"] = title
     status, data = api("POST", "/v1/sessions", body, timeout)
     if status != 200:
         raise HookError(f"register failed: HTTP {status} {data.get('error')}")
@@ -825,6 +835,7 @@ def register(
         # Only a server that keeps the branch echoes it; with an older one the
         # branch counts as unsent, so it goes again once the server is new.
         **({"branch_sent": branch} if report_branch and "branch" in data else {}),
+        **({"title_sent": list(title)} if title and "name" in data else {}),
     }
 
 
@@ -851,11 +862,140 @@ def _agent(event: Event) -> str:
     return str(event.get("_kampung_agent", "claude-code"))
 
 
+Title = tuple[str, str]  # (kind, text): kind is "env", "rename" or "auto"
+
+
+def _clean_title(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())[:MAX_TITLE_CHARS]
+    return text or None
+
+
+def _tail_lines(path: Path, size: int) -> list[bytes]:
+    """The whole lines in the last `size` bytes of a file."""
+    with path.open("rb") as f:
+        end = f.seek(0, os.SEEK_END)
+        start = max(0, end - size)
+        f.seek(start)
+        lines = f.read(size).split(b"\n")
+    return lines[1:] if start > 0 else lines  # the first may be cut
+
+
+def _json_line(line: bytes) -> dict[str, object] | None:
+    try:
+        obj = json.loads(line)
+    except ValueError:  # includes a bad encoding
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def claude_title(path: object) -> Title | None:
+    """Claude Code's title for the session: a /rename one ("custom-title")
+    wins over the automatic one ("ai-title"), newest first."""
+    if not isinstance(path, str) or not path:
+        return None
+    try:
+        lines = _tail_lines(Path(path), TRANSCRIPT_TAIL)
+    except OSError:
+        return None
+    auto = None
+    for line in reversed(lines):
+        if b'"custom-title"' in line:
+            obj = _json_line(line)
+            if obj and obj.get("type") == "custom-title":
+                title = _clean_title(obj.get("customTitle"))
+                if title:
+                    return ("rename", title)
+        elif auto is None and b'"ai-title"' in line:
+            obj = _json_line(line)
+            if obj and obj.get("type") == "ai-title":
+                auto = _clean_title(obj.get("aiTitle"))
+    return ("auto", auto) if auto else None
+
+
+def codex_home() -> Path:
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+
+
+def codex_title(thread_id: str) -> Title | None:
+    """Codex's name for the thread, from the newest line for it in its
+    session index. Codex does not say whether a person chose it."""
+    try:
+        lines = _tail_lines(codex_home() / "session_index.jsonl", CODEX_INDEX_TAIL)
+    except OSError:
+        return None
+    needle = json.dumps(thread_id).encode()
+    for line in reversed(lines):
+        if needle not in line:
+            continue
+        obj = _json_line(line)
+        if obj and obj.get("id") == thread_id:
+            title = _clean_title(obj.get("thread_name"))
+            return ("auto", title) if title else None
+    return None
+
+
+def env_title() -> Title | None:
+    title = _clean_title(os.environ.get("KAMPUNG_NAME"))
+    return ("env", title) if title else None
+
+
+def session_title(event: Event) -> Title | None:
+    """The session's title, strongest first, or None. Never raises: a name is
+    cosmetic, and must not cost a hook its wake check."""
+    try:
+        title = env_title()
+        if title:
+            return title
+        sid = event.get("session_id")
+        if _agent(event) == "codex":
+            return codex_title(sid) if isinstance(sid, str) else None
+        return claude_title(event.get("transcript_path"))
+    except Exception:  # noqa: BLE001 - fail open on anything unexpected
+        return None
+
+
+# Like the step, the title rides in a header, never the URL.
+TITLE_HEADER = "X-Kampung-Title"
+TITLE_KIND_HEADER = "X-Kampung-Title-Kind"
+
+
+def _title_headers(
+    data: dict[str, object] | None, title: Title | None
+) -> dict[str, str]:
+    """The title to send with a peek: only one not yet sent."""
+    if data is None or title is None or data.get("title_sent") == list(title):
+        return {}
+    return {
+        TITLE_HEADER: urllib.parse.quote(title[1], safe=""),
+        TITLE_KIND_HEADER: title[0],
+    }
+
+
+def _mark_title_sent(sid: str, body: dict[str, object], title: Title | None) -> None:
+    data = read_session_file(sid)
+    if title is None or "title" not in body or data is None:
+        return  # an older server does not echo it, so it counts as unsent
+    if data.get("title_sent") == list(title):
+        return
+    try:
+        write_session_file(sid, {**data, "title_sent": list(title)})
+    except OSError:
+        pass  # sent again next time
+
+
 def _register_and_save(event: Event, clock: _Clock) -> dict[str, object]:
     sid = str(event["session_id"])
     agent = _agent(event)
     data = register(
-        agent, str(event["cwd"]), True, sid, clock.timeout(), agent != "codex"
+        agent,
+        str(event["cwd"]),
+        True,
+        sid,
+        clock.timeout(),
+        agent != "codex",
+        title=session_title(event),
     )
     write_session_file(sid, data)
     return data
@@ -1269,6 +1409,10 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
         changed = data is not None and data.get("branch_sent") != branch
         query = {"branch": branch} if changed else {}
         step = _step_header(data)  # the turn's last step, if new
+        # The title too, if it changed: Claude Code names a session after its
+        # first turns, and /rename can come at any time.
+        title = session_title(event)
+        headers = {**step, **_title_headers(data, title)}
         body = _call(
             event,
             clock,
@@ -1276,8 +1420,9 @@ def on_stop(event: Event, clock: _Clock) -> dict[str, object] | None:
             "peek",
             revive=False,
             query=query or None,
-            headers=step or None,
+            headers=headers or None,
         )
+        _mark_title_sent(str(event["session_id"]), body, title)
         if changed and "branch" in body:  # an older server ignores it
             _mark_branch_sent(str(event["session_id"]), branch)
         _mark_step_sent(str(event["session_id"]), body)

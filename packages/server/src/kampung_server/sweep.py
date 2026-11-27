@@ -20,6 +20,7 @@ from .limits import (
     AUDIT_MAX_ROWS,
     AUDIT_RETENTION,
     ENDED_SESSION_RETENTION,
+    FORMER_NAME_TTL,
     MAILBOX_DELETE_BATCH,
     SESSION_DELETE_BATCH,
     TARGET_FALLBACK,
@@ -53,6 +54,10 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
         "AND NOT EXISTS (SELECT 1 FROM messages WHERE delivered_to = s.id) "
         "LIMIT ?)",
         (ts(now - ENDED_SESSION_RETENTION), SESSION_DELETE_BATCH),
+    )
+    conn.execute(
+        "DELETE FROM session_names WHERE retired_at < ?",
+        (ts(now - FORMER_NAME_TTL),),
     )
     oauth_store.sweep_oauth(conn, now)
     _prune_audit(conn, now)
