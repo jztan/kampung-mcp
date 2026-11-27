@@ -686,6 +686,8 @@ def build_adapter(
             box = await asyncio.to_thread(
                 outbox.outbox_dir, str(session.get("cwd") or resolver.cwd)
             )
+        except SessionFileError as e:
+            return {"error": "session_file", "hint": str(e)}
         except Exception as e:  # noqa: BLE001 - inline, like every tool error
             hook.log_from_adapter("adapter send", e)
             return await asyncio.to_thread(_diagnose)

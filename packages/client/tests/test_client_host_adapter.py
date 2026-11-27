@@ -9,7 +9,7 @@ import pytest
 from fastmcp import Client
 
 from client_testlib import LiveServer, db_query, git_repo, set_home, write_config
-from kampung_client import __version__, cli, hook
+from kampung_client import __version__, cli, hook, outbox
 from kampung_client.adapter import _WakePoller, build_adapter
 
 
@@ -124,3 +124,36 @@ def test_session_file_mode_starts_no_wake_poller(
     monkeypatch.setenv("KAMPUNG_SESSION_FILE", str(tmp_path / "s.json"))
     mcp = build_adapter("other", str(tmp_path))
     assert not any(isinstance(m, _WakePoller) for m in mcp.middleware)
+
+
+async def test_session_file_mode_attachment_missing_file_is_inline_error(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = tmp_path / "nope.json"
+    monkeypatch.setenv("KAMPUNG_SESSION_FILE", str(missing))
+    async with Client(build_adapter("other", str(tmp_path))) as c:
+        r = await c.call_tool(
+            "send", {"to": "desktop/blog", "body": "x", "attachment": "a.txt"}
+        )
+    assert r.data["error"] == "session_file"
+    assert str(missing) in r.data["hint"]
+
+
+async def test_session_file_mode_outbox_follows_the_files_cwd(
+    home: Path, server: LiveServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host_repo = git_repo(tmp_path, "bc")
+    other_dir = tmp_path / "elsewhere"
+    other_dir.mkdir()
+    f = tmp_path / "s.json"
+    _host_session(host_repo, f)
+    monkeypatch.setenv("KAMPUNG_SESSION_FILE", str(f))
+    box = outbox.outbox_dir(str(host_repo))
+    box.mkdir(parents=True, exist_ok=True)
+    (box / "a.txt").write_text("hello")
+    async with Client(build_adapter("other", str(other_dir))) as c:
+        r = await c.call_tool(
+            "send", {"to": "laptop/bc", "body": "x", "attachment": "a.txt"}
+        )
+    assert "error" not in r.data, r.data
+    assert not (box / "a.txt").exists()
