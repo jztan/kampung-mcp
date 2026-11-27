@@ -670,11 +670,20 @@ def test_codex_launch_check(
     assert _by_name(checks, "codex launch").status == doctor.OK
     assert "not running" in _by_name(checks, "codex launch").detail
     shutil.rmtree(stale_dir, ignore_errors=True)
-    # A socket path that exists but refuses connections: a broken daemon.
-    link = home / ".codex" / "app-server-control" / "app-server-control.sock"
+    # A daemon that takes the connection but never answers: broken. (A plain
+    # file there reads as "not running" on Linux, and as "broken" only when
+    # the path is too long for a socket, so it cannot stand in for this.)
+    mute_dir = tempfile.mkdtemp(prefix="kcs-", dir="/tmp")
+    mute = socket.socket(socket.AF_UNIX)
+    mute.bind(os.path.join(mute_dir, "s"))
+    mute.listen(1)
     link.unlink()
-    link.write_text("not a socket")
-    checks = doctor.run_checks(_registered)
+    link.symlink_to(os.path.join(mute_dir, "s"))
+    try:
+        checks = doctor.run_checks(_registered)
+    finally:
+        mute.close()
+        shutil.rmtree(mute_dir, ignore_errors=True)
     launch = _by_name(checks, "codex launch")
     assert launch.status == doctor.WARN and "first prompt" in launch.detail
 
