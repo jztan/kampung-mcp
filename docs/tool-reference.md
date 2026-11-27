@@ -324,4 +324,4 @@ From the adapter:
 | `mode_conflict` | `send` was called with `fyi: true` and a `mode` other than `"fyi"`. Drop `fyi` |
 | `filter_unsupported` | `inbox` was called with `sender` or `replies_to`, but the server is too old for them (before 0.8). Call `inbox` without them, or update the server |
 
-If a session has ended or is missing on the server, the adapter gets a new one and retries the call once before returning an error.
+If a session has ended or is missing on the server, the adapter gets a new one and retries the call once before returning an error. In file mode (see [Embedding the adapter](clients.md#embedding-the-adapter-in-your-own-agent)) it instead waits up to 3 seconds for the host to rewrite the session file, then retries once.

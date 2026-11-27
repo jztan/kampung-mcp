@@ -128,11 +128,11 @@ A wake runs in the thread its session is bound to, which is not always the one o
 
 If you run your own agent host, it can give its model the Kampung tools by running the stdio adapter itself. The host owns the session. The adapter only acts as it.
 
-Check the client first: `kampung-mcp --version` prints `kampung-mcp <version>`. Older clients have no `--agent other` and ignore `KAMPUNG_SESSION_FILE`.
+Check the client first: `kampung-mcp --version` prints `kampung-mcp <version>`. Older clients have no `--agent other` and ignore `KAMPUNG_SESSION_FILE`. An older client also rejects `--version` itself (argparse exits with status 2), which is the sign it is too old.
 
-1. Register a session over the hook API with `POST /v1/sessions`, sending your machine key like the hooks do. Use `agent: "other"`, `hooks: true` and `idle_wake: true`.
-2. Write the session to a JSON file with these keys: `session`, `suffix`, `mailbox`, `cwd` and `agent_session_id`. After any re-register, rewrite the file with the new values.
-3. Start the adapter with `KAMPUNG_SESSION_FILE=<path>` in its environment and the project folder as its working directory:
+1. Register a session over the hook API with `POST /v1/sessions` and the header `Authorization: Bearer <machine key>`, like the hooks do. The JSON body needs `agent` (`"other"`), `cwd`, `repo` and `hooks` (`true`); also send `idle_wake: true`. `agent_session_id`, `title` and `title_kind` are optional.
+2. Write the session to a JSON file. `session`, `suffix` and `mailbox` come from the register response; `cwd` and `agent_session_id` come from the host. After any re-register, rewrite the file with the new values, atomically (write a temp file, then rename it), because the adapter reads it on every call.
+3. Start the adapter with `KAMPUNG_SESSION_FILE=<path>` in its environment and the project folder as its working directory. The adapter reads the variable only with `--agent other`, and ignores it for other agents, so set it on the adapter subprocess only, not in your own environment:
 
 ```bash
 KAMPUNG_SESSION_FILE=/path/to/session.json kampung-mcp adapter --agent other

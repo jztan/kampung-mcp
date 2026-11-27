@@ -441,15 +441,19 @@ class FileSessionResolver:
         revived it)."""
         old = self._last
         end = time.monotonic() + self.wait
+        data: dict[str, object] | None = None
+        error: SessionFileError | None = None
         while True:
             try:
                 data = self._read()
                 if data["session"] != old:
                     return data
-            except SessionFileError:
-                if time.monotonic() >= end:
-                    raise
+            except SessionFileError as e:
+                error = e
             if time.monotonic() >= end:
+                if data is None:
+                    assert error is not None
+                    raise error
                 return data
             time.sleep(self.poll)
 
@@ -500,7 +504,9 @@ def build_adapter(
 ) -> FastMCP:
     session_file = os.environ.get("KAMPUNG_SESSION_FILE")
     resolver: SessionResolver | FileSessionResolver
-    if session_file:
+    # Only a host-run agent reads the variable: an inherited one must not make
+    # a nested Claude Code or Codex adapter act as the host's session.
+    if agent == "other" and session_file:
         resolver = FileSessionResolver(Path(session_file), cwd or os.getcwd())
     else:
         resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)

@@ -78,16 +78,19 @@ async def test_session_file_mode_retries_after_host_reregisters(
 
     def revive() -> None:
         time.sleep(0.5)
-        f.write_text(json.dumps(hook.register("other", str(repo), True, "blueclaw-x")))
+        f.write_text(json.dumps(hook.register("other", str(repo), True, "blueclaw-y")))
 
     async with Client(build_adapter("other", str(repo))) as c:
         assert "peers" in (await c.call_tool("list_peers", {})).data
         await _end(server, data)
         t = threading.Thread(target=revive)
         t.start()
+        start = time.monotonic()
         r = await c.call_tool("list_peers", {})
+        elapsed = time.monotonic() - start
         t.join()
     assert "error" not in r.data
+    assert elapsed < 2.5  # change detection, not the 3 s timeout
 
 
 async def test_session_file_mode_gives_up_inline(
@@ -124,6 +127,14 @@ def test_session_file_mode_starts_no_wake_poller(
     monkeypatch.setenv("KAMPUNG_SESSION_FILE", str(tmp_path / "s.json"))
     mcp = build_adapter("other", str(tmp_path))
     assert not any(isinstance(m, _WakePoller) for m in mcp.middleware)
+
+
+def test_session_file_ignored_for_other_agents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KAMPUNG_SESSION_FILE", str(tmp_path / "s.json"))
+    mcp = build_adapter("claude-code", str(tmp_path))
+    assert any(isinstance(m, _WakePoller) for m in mcp.middleware)
 
 
 async def test_session_file_mode_attachment_missing_file_is_inline_error(
