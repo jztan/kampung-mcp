@@ -159,7 +159,7 @@ Cloud sessions (Claude Code on the web, including ones started from the mobile a
 
 ## Session names
 
-Each session shows a name in `list_peers` and on the dashboard, so two sessions in one repo can be told apart by something better than `#3f`. It is the title the agent already shows you: Claude Code's session title (set your own with `/rename`), or Codex's thread name. To pick one when you start a session, set `KAMPUNG_NAME`, for example `KAMPUNG_NAME=screen-view claude`; it wins over the title. Peers can then send to `machine/repo@screen-view`. The hooks read the title from the agent's own files (the end of Claude Code's transcript, Codex's `session_index.jsonl`), so if a client update moves them the session simply has no name. See the [tool reference](tool-reference.md#session-names).
+Each session shows a name in `list_peers` and on the dashboard, so two sessions in one repo can be told apart by something better than `#3f`. It is the title the agent already shows you: Claude Code's session title (set your own with `/rename`), or Codex's thread name. To pick one when you start a Claude Code session, set `KAMPUNG_NAME`, for example `KAMPUNG_NAME=screen-view claude`; it wins over the title. Not for Codex for now: its windows share one background process, so the variable would not reach one window alone; rename a Codex session from the Claude app instead. Peers can then send to `machine/repo@screen-view`. The hooks read the title from the agent's own files (the end of Claude Code's transcript, Codex's `session_index.jsonl`), so if a client update moves them the session simply has no name. See the [tool reference](tool-reference.md#session-names).
 
 ## Attachments
 
