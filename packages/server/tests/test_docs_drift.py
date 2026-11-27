@@ -192,6 +192,7 @@ SECURITY_PHRASES = {
     "MIN_FREE_DISK_BYTES": f"under {L.MIN_FREE_DISK_BYTES // 2**30} GB free",
     "SESSION_DELETE_BATCH": f"days, then deleted up to "
     f"{_thousands(L.SESSION_DELETE_BATCH)} per cleanup pass",
+    "MAILBOX_DELETE_BATCH": f"no mail, up to {L.MAILBOX_DELETE_BATCH} per cleanup pass",
     "AUDIT_DELETE_BATCH": f"the oldest deleted up to "
     f"{_thousands(L.AUDIT_DELETE_BATCH)} per cleanup pass",
     "NOHOOK_MAILBOX_REFILL": f"they come back after "

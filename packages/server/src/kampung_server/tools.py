@@ -99,7 +99,12 @@ INBOX_DESCRIPTION = (
     "send reported then, such as no_session), read (when, and by which "
     "session), expired or not_found. Read long ago with no answer may mean the "
     "receiver is stuck; list_peers shows its latest step. Pass at most the 20 "
-    "most recent ids; limit 0 checks status without reading answers."
+    "most recent ids; limit 0 checks status without reading answers. If this "
+    "chat lost the ids it sent (after a summary), answers=true lists waiting "
+    "answers by the message they answer, newest first, with the start of that "
+    "message. It reads nothing. Claim the ones this chat sent with replies_to, "
+    "repeating while more is above 0; for older ones pass before with the last "
+    "id listed."
 )
 
 MODE_DESCRIPTION = (
@@ -315,12 +320,16 @@ def register_tools(mcp: FastMCP, deps: ServerDeps) -> None:
         limit: int = 20,
         sender: str | None = None,
         replies_to: list[str] | None = None,
+        answers: bool = False,
+        before: str | None = None,
     ) -> Result:
         def work(
             conn: sqlite3.Connection, me: Machine, s: Session | None, now: datetime
         ) -> Result:
             assert s is not None
-            result = mail.inbox(conn, s, limit, now, sender, replies_to).to_dict()
+            result = mail.inbox(
+                conn, s, limit, now, sender, replies_to, answers, before
+            ).to_dict()
             return _with_notice(conn, s, result)
 
         return call(work)

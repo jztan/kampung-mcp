@@ -12,13 +12,15 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from . import db, guard, oauth_store
+from . import audit, db, guard, oauth_store
 from .clock import ts
+from .sessions import CONNECTOR_REPO
 from .limits import (
     AUDIT_DELETE_BATCH,
     AUDIT_MAX_ROWS,
     AUDIT_RETENTION,
     ENDED_SESSION_RETENTION,
+    MAILBOX_DELETE_BATCH,
     SESSION_DELETE_BATCH,
     TARGET_FALLBACK,
 )
@@ -60,6 +62,49 @@ def sweep(conn: sqlite3.Connection, now: datetime) -> None:
     conn.execute("PRAGMA incremental_vacuum").fetchall()
 
 
+# A mailbox with no session rows and no mail. Ended sessions go 30 days after
+# they end and mail after 7, so a row only qualifies about a month after its
+# last session. The Claude app's mailbox stays while the app is connected.
+# NOT IN over plain subqueries is evaluated once per statement; a correlated
+# NOT EXISTS would scan messages once per mailbox (to_mailbox_id has only a
+# partial index).
+PRUNE_MAILBOXES_SQL = (
+    "DELETE FROM mailboxes WHERE id IN ("
+    "SELECT mb.id FROM mailboxes mb "
+    "WHERE mb.id NOT IN (SELECT mailbox_id FROM sessions) "
+    "AND mb.id NOT IN (SELECT to_mailbox_id FROM messages) "
+    "AND NOT (mb.repo = :connector "
+    "AND mb.machine_id IN (SELECT machine_id FROM oauth_grants)) "
+    "LIMIT :batch) "
+    "RETURNING machine_id, repo"
+)
+
+
+def housekeep(conn: sqlite3.Connection, now: datetime) -> None:
+    """The timer's pass: the sweep, then work too slow for the sweep that runs
+    before every read (it scans whole tables)."""
+    sweep(conn, now)
+    _prune_mailboxes(conn, now)
+
+
+def _prune_mailboxes(conn: sqlite3.Connection, now: datetime) -> None:
+    gone = conn.execute(
+        PRUNE_MAILBOXES_SQL,
+        {"batch": MAILBOX_DELETE_BATCH, "connector": CONNECTOR_REPO},
+    ).fetchall()
+    if not gone:
+        return
+    names = dict(conn.execute("SELECT id, name FROM machines").fetchall())
+    addresses = sorted(f"{names[r[0]]}/{r[1]}" for r in gone)
+    audit.record(
+        conn,
+        now,
+        "server",
+        "delete_mailboxes",
+        {"mailboxes": addresses, "count": len(addresses)},
+    )
+
+
 def _prune_audit(conn: sqlite3.Connection, now: datetime) -> None:
     """Drop audit rows past AUDIT_RETENTION, and the oldest past AUDIT_MAX_ROWS,
     a batch at a time. Ids rise with time, so both are ranges of the primary
@@ -90,7 +135,7 @@ def start_sweeper(
                 conn = db.connect(db_path)
                 try:
                     with db.transaction(conn):
-                        sweep(conn, clock())
+                        housekeep(conn, clock())
                     SIGNAL.bump()  # expired mail, ended sessions
                 finally:
                     conn.close()

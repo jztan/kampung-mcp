@@ -33,7 +33,7 @@ This works only when your agents mark what they send: every message about a requ
 
 The same call says what became of each message the chat sent (since 0.9): unread, read (when, and by which session), expired or not found. So a chat can tell "not answered yet" from "not picked up yet", and a message that was read long ago with no answer points at a session that may be stuck, for example on a permission prompt. Only messages sent from the app's own mailbox are reported.
 
-A chat that no longer has the ids it sent (a new chat, say) sees its answers only in the `replies` count. A plain `inbox` reads them, along with every other chat's mail.
+A chat that no longer has the ids it sent (after a summary, say) can find its answers again with `inbox(answers=true)` (since 0.10). It reads nothing: it lists the waiting answers by the message they answer, newest first, with the start of that message, so the chat can tell which ones it sent. The chat then claims those with `replies_to`, and pages to older ones with `before`. A plain `inbox` would read them along with every other chat's mail.
 
 An answer counts as one only while the message it answers exists. When that message expires (7 days after it was sent) or is deleted from the dashboard while still unread, an answer still waiting loses its link: from then on it reads as new mail, so the first chat to read that peer by `sender` takes it.
 

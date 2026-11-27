@@ -141,11 +141,30 @@ def git_repo(parent: Path, name: str) -> Path:
     return repo
 
 
+# The hook gives up after HTTP_TIMEOUT per call and HOOK_DEADLINE in all, and
+# then exits 0 as if nothing happened. A slow CI runner (Windows, mostly) can
+# pass those limits on a registration or a peek, which made tests fail at
+# random. Tests run the hook with roomier limits; only a test about the limits
+# themselves runs it with the real ones (patient=False).
+_PATIENT_HOOK = (
+    "import importlib.util, sys\n"
+    "spec = importlib.util.spec_from_file_location('kampung_hook', sys.argv[1])\n"
+    "hook = sys.modules['kampung_hook'] = importlib.util.module_from_spec(spec)\n"
+    "spec.loader.exec_module(hook)\n"
+    "hook.HTTP_TIMEOUT, hook.HOOK_DEADLINE = 10.0, 15.0\n"
+    "del sys.argv[1]\n"
+    "sys.exit(hook.main())\n"
+)
+
+
 def run_hook(
-    home: Path, event: dict[str, object], *args: str
+    home: Path, event: dict[str, object], *args: str, patient: bool = True
 ) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, hook.__file__, *args]
+    if patient:
+        command = [sys.executable, "-c", _PATIENT_HOOK, hook.__file__, *args]
     return subprocess.run(
-        [sys.executable, hook.__file__, *args],
+        command,
         input=json.dumps(event),
         text=True,
         capture_output=True,

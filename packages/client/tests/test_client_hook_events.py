@@ -275,7 +275,9 @@ def test_slow_server_respects_overall_deadline(home: Path, repo: Path) -> None:
     write_config(home, f"http://127.0.0.1:{httpd.server_address[1]}", "kmp_x")
     hook.write_session_file("cc-1", {"session": "1", "ancestors": []})
     t = time.monotonic()
-    r = run_hook(home, event("UserPromptSubmit", cwd=str(repo), prompt="hi"))
+    r = run_hook(
+        home, event("UserPromptSubmit", cwd=str(repo), prompt="hi"), patient=False
+    )
     elapsed = time.monotonic() - t
     httpd.shutdown()
     assert r.returncode == 0 and r.stdout == ""

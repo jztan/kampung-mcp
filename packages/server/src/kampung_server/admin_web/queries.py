@@ -8,8 +8,9 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 
 from ..clock import ts
-from ..limits import LIVE_WINDOW, OWNER_INSTRUCTION_TTL, POLL_WINDOW
+from ..limits import LIVE_WINDOW, POLL_WINDOW
 from ..oauth_store import lost_marks, owner_lost_at_text, owner_lost_words
+from ..queued import OWNER_EXPIRED_SQL, QUEUED_SQL, time_params
 from ..sessions import STALE_POLLER_SQL
 
 LIMIT = 100
@@ -85,6 +86,10 @@ class MailboxRow:
     oldest_queued_at: str | None
     # Live sessions that poll but have stopped: their machine is likely asleep.
     unreachable: int = 0
+    # Sessions not ended, live or not: a delete refuses while any remain.
+    open: int = 0
+    machine: str = ""
+    repo: str = ""
 
 
 @dataclass
@@ -167,13 +172,13 @@ def mode_of(r: sqlite3.Row) -> str:
 # held back. Expired mail stays in the table until the sweep removes it.
 # An owner instruction expires for reading after its own deadline, long
 # before its row does.
-_OWNER_EXPIRED = "(msg.owner = 1 AND msg.sent_at <= :owner_cutoff)"
+_OWNER_EXPIRED = OWNER_EXPIRED_SQL
 _MSG_STATE = (
     "CASE WHEN msg.delivered_at IS NOT NULL THEN 'delivered' "
     f"WHEN msg.expires_at <= :now OR {_OWNER_EXPIRED} THEN 'expired' "
     "WHEN msg.wake = 0 THEN 'no-wake' ELSE 'queued' END"
 )
-_QUEUED = f"msg.delivered_at IS NULL AND msg.expires_at > :now AND NOT {_OWNER_EXPIRED}"
+_QUEUED = QUEUED_SQL
 _SESSION_ADDRESS = "m.name || '/' || mb.repo || '#' || s.suffix"
 _MSG_FROM = (
     "FROM messages msg "
@@ -199,7 +204,7 @@ def _poll_since(now: datetime) -> str:
 
 def _at(now: datetime) -> dict[str, object]:
     """The time parameters every message query takes."""
-    return {"now": ts(now), "owner_cutoff": ts(now - OWNER_INSTRUCTION_TTL)}
+    return time_params(now)
 
 
 def _count(conn: sqlite3.Connection, sql: str, params: dict[str, object]) -> int:
@@ -323,9 +328,11 @@ def machines(conn: sqlite3.Connection, now: datetime) -> list[MachineRow]:
 
 def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
     rows = conn.execute(
-        "SELECT m.name || '/' || mb.repo AS address, "
+        "SELECT m.name || '/' || mb.repo AS address, m.name AS machine, mb.repo, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
         " AND s.ended_at IS NULL AND s.last_seen >= :live) AS live, "
+        "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
+        " AND s.ended_at IS NULL) AS open, "
         "(SELECT COUNT(*) FROM sessions s WHERE s.mailbox_id = mb.id "
         f" AND s.ended_at IS NULL AND s.last_seen >= :live AND {STALE_POLLER_SQL}) "
         "AS unreachable, "
@@ -346,6 +353,9 @@ def mailboxes(conn: sqlite3.Connection, now: datetime) -> list[MailboxRow]:
             r["queued"],
             r["oldest"],
             r["unreachable"],
+            r["open"],
+            r["machine"],
+            r["repo"],
         )
         for r in rows
     ]
@@ -646,3 +656,39 @@ def actors_and_actions(conn: sqlite3.Connection) -> tuple[list[str], list[str]]:
         r[0] for r in conn.execute("SELECT DISTINCT action FROM audit ORDER BY 1")
     ]
     return actors, actions
+
+
+@dataclass
+class MailboxDeletePreview:
+    address: str
+    ended_sessions: int
+    read_messages: int
+
+
+def mailbox_delete_preview(
+    conn: sqlite3.Connection, machine: str, repo: str
+) -> MailboxDeletePreview | None:
+    """What deleting a mailbox would remove, for the confirm page."""
+    row = conn.execute(
+        "SELECT mb.id FROM mailboxes mb JOIN machines m ON m.id = mb.machine_id "
+        "WHERE m.name = ? AND mb.repo = ?",
+        (machine, repo),
+    ).fetchone()
+    if row is None:
+        return None
+    box = row[0]
+    return MailboxDeletePreview(
+        f"{machine}/{repo}",
+        _count(
+            conn,
+            "SELECT COUNT(*) FROM sessions WHERE mailbox_id = :box "
+            "AND ended_at IS NOT NULL",
+            {"box": box},
+        ),
+        _count(
+            conn,
+            "SELECT COUNT(*) FROM messages WHERE to_mailbox_id = :box "
+            "AND delivered_at IS NOT NULL",
+            {"box": box},
+        ),
+    )

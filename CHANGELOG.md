@@ -4,6 +4,16 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-27
+
+### Added
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- Old mailboxes clean themselves up. A mailbox with no sessions and no mail, about a month after its last session ended, is removed, so test runs and one-off folders no longer pile up on the dashboard and in `list_peers` with `include_empty`. The Claude app's mailbox stays while the app is connected. Mail sent to a removed mailbox gets `unknown_mailbox` with a hint saying why; the mailbox comes back when a session opens in that folder again.
+- Delete a mailbox by hand: `kampung mailbox rm machine/repo ...`, or Delete on the dashboard's Mailboxes page. It refuses, and says why, while a session is open there, mail is waiting for it or mail it sent is still held elsewhere, and for the mailbox holding the newest session record.
+- The Claude app can find answers a summarised chat lost the ids for: `inbox(answers=true)` lists them by the message they answer, with the start of that message, without reading them. The chat then claims its own with `replies_to`.
+
 ## [0.9.1] - 2026-11-19
 
 ### Fixed
@@ -376,6 +386,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.10.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.10.0
 [0.9.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.9.1
 [0.9.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.9.0
 [0.8.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.8.1

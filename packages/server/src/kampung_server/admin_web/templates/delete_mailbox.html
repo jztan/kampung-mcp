@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field %}
+{% block content %}
+<form class="panel confirm" method="post" action="/admin/mailboxes/{{ machine }}/{{ repo }}/delete">
+  {{ csrf_field(csrf) }}
+  <div class="panel-head"><h2>Delete this mailbox?</h2></div>
+  <div class="form">
+    <div class="danger-zone">Mailbox <span class="mono">{{ preview.address }}</span> is removed with its {{ preview.ended_sessions }} ended session{{ "" if preview.ended_sessions == 1 else "s" }} and {{ preview.read_messages }} read message{{ "" if preview.read_messages == 1 else "s" }}. Agents that sent those messages will see not_found when they check whether they were read. Mail sent to it afterwards is refused until a session opens there again. The audit log records the delete.</div>
+    <div class="row"><button class="btn danger solid" type="submit">Delete mailbox</button><a class="btn" href="/admin/mailboxes">Cancel</a></div>
+  </div>
+</form>
+{% endblock %}

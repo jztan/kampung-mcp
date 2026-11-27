@@ -86,7 +86,10 @@ def test_channel_nudge_on_new_wakeable_mail(
         mcp.read(10, until="tl")
         assert not [m for m in mcp.read(3) if m.get("method")]  # nothing waiting yet
         peer_send(server, "laptop/api", "hello")
-        pushed = [m for m in mcp.read(8) if m.get("method")]
+        # Wait for the push, not a fixed time a slow Windows runner can miss;
+        # a second push would show up in the read after the held send.
+        got = mcp.read(20, until="notifications/claude/channel")
+        pushed = [m for m in got if m.get("method")]
         assert pushed == [
             {
                 "jsonrpc": "2.0",
@@ -180,7 +183,8 @@ def test_no_push_before_initialized(
         mcp.read(15, until="init")
         assert not [m for m in mcp.read(4) if m.get("method")]
         mcp.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-        pushed = [m for m in mcp.read(6) if m.get("method")]
+        got = mcp.read(20, until="notifications/claude/channel")
+        pushed = [m for m in got if m.get("method")]
         assert [m["method"] for m in pushed] == ["notifications/claude/channel"]
     finally:
         mcp.close()
