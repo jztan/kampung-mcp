@@ -73,7 +73,7 @@ Sends a short text message.
 | Argument | Type | Meaning |
 |---|---|---|
 | `to` | string | An address, as above |
-| `body` | string | The message, up to 8 KB of UTF-8 |
+| `body` | string | The message, up to 8 KB of UTF-8. For `mode: "rename"`, the new name instead (blank clears it) |
 | `reply_to` | string, optional | The id of a message this machine sent or received. Any message about a request (an answer, a progress note, a follow-up, each part of a multi-part send) carries it, set to that request's id: that is how a Claude app chat finds its mail |
 | `attachment` | string, optional | The name of one file in the outbox folder, described below |
 | `mode` | string, default `"ask"` | What the receiver should do, in the table below |
@@ -158,7 +158,7 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 
 ### Renaming a session
 
-`mode: "rename"` names a session from the owner's Claude app ("rename noc#92 to gateway-work"). Like an owner instruction it is accepted only from a connection marked with `kampung owner add`, checked first and audited, and the adapter's `send` does not offer it. `to` is the session: `machine/repo#xx`, an exact `machine/repo@name`, or a bare `machine/repo` when only one agent session is open there (the Claude app's own does not count; several: `pick_session`, none: `no_session`). `body` is the new name, checked for secrets like a message (`secret_detected`) and made into a name like a title; a blank body clears it, and the session goes back to its reported name. No message is stored, nobody is woken and no budget is spent. The result is `{"renamed": "machine/repo#xx", "old": ..., "name": ..., "offline": ...}`; `offline` is true when the session is open but not seen lately (its machine asleep, say): the new name holds at once anyway, since the rename never needs the session to run. The session itself is not told.
+`mode: "rename"` names a session from the owner's Claude app ("rename noc#92 to gateway-work"). Like an owner instruction it is accepted only from a connection marked with `kampung owner add`, checked before any address or session lookup and audited (only the rate limit and an attachment are checked earlier), and the adapter's `send` does not offer it. `to` is the session: `machine/repo#xx`, an exact `machine/repo@name`, or a bare `machine/repo` when only one agent session is open there (the Claude app's own does not count; several: `pick_session`, none: `no_session`). `body` is the new name, checked for secrets like a message (`secret_detected`) and made into a name like a title; a blank body clears it, and the session goes back to its reported name. No message is stored, nobody is woken and no budget is spent. The result is `{"renamed": "machine/repo#xx", "old": ..., "name": ..., "offline": ...}`; `offline` is true when the session is open but not seen lately (its machine asleep, say): the new name holds at once anyway, since the rename never needs the session to run. The session itself is not told.
 
 ## `inbox`
 
@@ -294,7 +294,7 @@ From the server:
 | `machine_revoked` | `send` | The target machine was revoked |
 | `not_paired` | `send` | The two machines aren't paired. The hint gives the `kampung pair` command for the owner |
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo; one with no sessions and no mail for about a month is removed and comes back when a session opens there |
-| `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
+| `unknown_session` | all | The `#xx` session has ended (`send`), a rename names a `#xx` that does not exist, or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
 | `owner_only` | `send` | `mode: "instruct"` or `"rename"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
 | `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` or `"rename"` |
