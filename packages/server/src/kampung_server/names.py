@@ -88,13 +88,17 @@ def _set_name(
     )
 
 
-def refresh(conn: sqlite3.Connection, session_id: int, now: datetime) -> str | None:
-    """Work out the session's name from what it has, and store it."""
+def refresh(
+    conn: sqlite3.Connection, session_id: int, now: datetime, keep: bool = True
+) -> str | None:
+    """Work out the session's name from what it has, and store it. Without
+    `keep`, a numbered name is not kept: an owner rename asked for this one."""
     s = load_session(conn, session_id)
     if s is None:
         return None
     want = s.owner_name or s.title
-    new = None if want is None else _unique(want, s.name, _taken(conn, s))
+    current = s.name if keep else None
+    new = None if want is None else _unique(want, current, _taken(conn, s))
     _set_name(conn, s, new, now)
     return new
 
@@ -140,7 +144,7 @@ def set_owner_name(
         "UPDATE sessions SET owner_name = ?, owner_title_seen = ? WHERE id = ?",
         (name, seen if name is not None else None, s.id),
     )
-    return refresh(conn, s.id, now)
+    return refresh(conn, s.id, now, keep=name is None)
 
 
 def holder(
