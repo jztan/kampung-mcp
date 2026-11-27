@@ -551,3 +551,31 @@ def test_inbox_sender_must_be_a_mailbox_not_a_name(
     me = make_session("laptop")
     e = _error(mail.inbox, conn, me, 20, clock.now(), sender="desktop/api@gateway")
     assert e.code == "invalid_address"
+
+
+def test_a_rename_carrying_a_secret_is_refused(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    a = make_session("desktop")
+    to = f"desktop/api#{a.suffix}"
+    e = _error(_rename, conn, phone, clock, to, "https://u:secret123@example.com")
+    assert e.code == "secret_detected"
+    assert _name(conn, a) is None
+
+
+def test_a_rename_to_a_freed_name_takes_it_not_the_number(
+    conn: sqlite3.Connection,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    a = make_session("desktop", agent_session_id="a")
+    b = make_session("desktop", agent_session_id="b")
+    _report(conn, clock, a, "Gateway work")
+    assert _report(conn, clock, b, "Gateway work") == "gateway-work-2"
+    sessions.end(conn, a.id, clock.now())
+    result = _rename(conn, phone, clock, f"desktop/api#{b.suffix}", "gateway-work")
+    assert result["name"] == "gateway-work" and _name(conn, b) == "gateway-work"
