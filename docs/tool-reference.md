@@ -317,6 +317,7 @@ From the adapter:
 | `server_error` | The server answered, but the call failed. The hint says more, and the cause is in `~/.cache/kampung/hooks.log` |
 | `insecure_server_url` | The server URL isn't `https://` or loopback, so the client won't send the key: see [HTTPS only](clients.md#https-only) |
 | `bad_response` | The server's reply wasn't in the expected shape |
+| `session_file` | `KAMPUNG_SESSION_FILE` is missing, unreadable or has no `session`. The hint gives the path and the cause. See [Embedding the adapter](clients.md#embedding-the-adapter-in-your-own-agent) |
 | `attachment_not_found` | No file with that name in the outbox. The hint gives the folder's full path |
 | `fyi_unsupported` | `send` was called with `fyi: true` or `mode: "fyi"` (which the adapter sends as `fyi: true`), but the server is too old for it. Send without `fyi`, or update the server |
 | `mode_unsupported` | `send` was called with `mode: "tell"`, but the server is too old for it. Send without `mode` and say in the body that no reply is needed, or update the server |
