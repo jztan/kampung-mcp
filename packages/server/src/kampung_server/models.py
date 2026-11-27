@@ -49,6 +49,12 @@ class Session:
     client_version: str | None = None
     activity: str | None = None
     activity_at: str | None = None
+    # The name in use (see sessions.report_title), and what it comes from.
+    name: str | None = None
+    title: str | None = None
+    title_kind: str | None = None
+    owner_name: str | None = None
+    owner_title_seen: str | None = None
 
     @property
     def mailbox(self) -> str:
@@ -64,7 +70,8 @@ SESSION_SELECT = (
     "s.suffix, s.agent, s.agent_session_id, s.hooks, s.cwd, s.started_at, "
     "s.last_seen, s.ended_at, s.max_depth_seen, s.last_delivered_at, s.typed_at, "
     "s.background, s.idle_wake, s.branch, s.client_version, s.activity, "
-    "s.activity_at "
+    "s.activity_at, s.name, s.title, s.title_kind, s.owner_name, "
+    "s.owner_title_seen "
     "FROM sessions s JOIN mailboxes mb ON mb.id = s.mailbox_id "
     "JOIN machines m ON m.id = mb.machine_id"
 )
@@ -94,6 +101,11 @@ def session_from_row(row: sqlite3.Row) -> Session:
         client_version=row["client_version"],
         activity=row["activity"],
         activity_at=row["activity_at"],
+        name=row["name"],
+        title=row["title"],
+        title_kind=row["title_kind"],
+        owner_name=row["owner_name"],
+        owner_title_seen=row["owner_title_seen"],
     )
 
 

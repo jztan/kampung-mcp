@@ -157,8 +157,17 @@ _PATIENT_HOOK = (
 )
 
 
+# The hook reads these to name a session; one set where the suite runs must
+# not name every test's session.
+_NAMING_VARS = ("CLAUDE_JOB_DIR", "KAMPUNG_NAME", "CODEX_HOME")
+
+
 def run_hook(
-    home: Path, event: dict[str, object], *args: str, patient: bool = True
+    home: Path,
+    event: dict[str, object],
+    *args: str,
+    patient: bool = True,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [sys.executable, hook.__file__, *args]
     if patient:
@@ -171,8 +180,9 @@ def run_hook(
         # A suite run from a Claude Code background session must not make
         # every test's session a background one.
         env={
-            **{k: v for k, v in os.environ.items() if k != "CLAUDE_JOB_DIR"},
+            **{k: v for k, v in os.environ.items() if k not in _NAMING_VARS},
             **home_env(home),
+            **(env or {}),
         },
         timeout=20,
     )
