@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from . import audit, db, events, mail, sessions
+from . import audit, db, events, mail, names, sessions
 from .auth import machine_from_request
 from .deps import ServerDeps
 from .errors import KampungError
@@ -210,6 +210,13 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 ),
                 client_version=_reported_version(b.get("client_version")),
             )
+            name = s.name
+            title = b.get("title")
+            if isinstance(title, str):
+                with db.transaction(conn):
+                    name = names.report_title(
+                        conn, s.id, str(b.get("title_kind")), title, now
+                    )
             # The stored branch is echoed so a client knows this server keeps
             # it (one before 0.6 drops it silently).
             return {
@@ -217,6 +224,7 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
                 "suffix": s.suffix,
                 "mailbox": s.mailbox,
                 "branch": s.branch,
+                "name": name,
             }
 
         return await _run(deps, request, handler, read_body=True)
@@ -272,6 +280,14 @@ def register_hook_routes(mcp: FastMCP, deps: ServerDeps) -> None:
             if activity is not None:
                 sessions.set_activity(conn, s.id, activity, now)
                 result["now"] = activity
+            raw = request.headers.get("x-kampung-title")
+            if raw is not None:
+                # Like the step, the title rides in a header: never the URL.
+                title = urllib.parse.unquote(raw)
+                kind = request.headers.get("x-kampung-title-kind", "auto")
+                with db.transaction(conn):
+                    result["name"] = names.report_title(conn, s.id, kind, title, now)
+                result["title"] = title  # echoed: this server keeps it
             return result
 
         return await _run(deps, request, handler)

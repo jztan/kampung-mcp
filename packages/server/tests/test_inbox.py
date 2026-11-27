@@ -245,6 +245,7 @@ def test_list_peers_sessions_and_live_flag(
     assert sessions == [
         {
             "suffix": s.suffix,
+            "name": None,
             "cwd": "/home/u/blog",
             "branch": None,
             "now": None,

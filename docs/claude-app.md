@@ -55,6 +55,8 @@ Then say "tell desktop/api to merge it" to the app. The server stamps the messag
 
 What an instruction may approve is up to you: paste the section in [owner instructions](clients.md#owner-instructions) into each machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` and edit it. A Codex session receives one only if you typed in it within the last hour, so approve its hooks with `/hooks` first: until then it never reports typing.
 
+With the mark on, the app can also rename a session: "rename noc#92 to gateway-work". The name shows in `list_peers` and works as an address (`machine/noc@gateway-work`) until you rename it again, the session ends, or you `/rename` it at the terminal. No message is sent. See [renaming a session](tool-reference.md#renaming-a-session).
+
 The mark sits on the app's connection, so a new `kampung connect`, an old sign-in token reused after an outage, removing the connector in the app, `kampung disconnect`, `revoke` and `key rotate` all clear it. Unless you removed it yourself (`kampung disconnect` or `revoke`), the app says so and the dashboard flags it. Run `kampung owner add phone` again, after a new `kampung connect` if the connection itself is gone. `kampung owner remove phone` turns it off.
 
 Anyone who can steer your app can now direct your agents, within the limits you wrote: a paired peer's mail to the app, or any chat on the account with the connector on (Research runs connector tools without asking). Read [the security notes](../SECURITY.md#what-it-does-not-protect-against) before turning it on.

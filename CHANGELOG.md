@@ -4,6 +4,17 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Added
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- Sessions have names a person can read and say. `list_peers` and the dashboard show each session's name, taken from the title its agent already shows you (Claude Code's session title, a `/rename` one first, or Codex's thread name), and mail can go to `machine/repo@name` instead of `#xx`. Names are unique within a repo: a second session with the same title gets `-2`. A unique start of a name works for `ask`, `tell` and `fyi`; an owner instruction needs the exact name. Mail to an old name gets a hint saying where it went.
+- Rename a session from the Claude app: "rename noc#92 to gateway-work" (`send` with `mode: "rename"`, owner only). It stores no message and wakes nobody. A later `/rename` at the terminal replaces it; the automatic title never does.
+
+#### Client (`kampung-mcp`)
+
+- The hooks report the session's title when it starts and at the end of each turn. `KAMPUNG_NAME` in the agent's environment names the session instead.
+
 ## [0.10.0] - 2026-11-27
 
 ### Added

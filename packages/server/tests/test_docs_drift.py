@@ -162,6 +162,10 @@ SECURITY_PHRASES = {
     "connects per minute",
     "MAX_STREAMS": f"{L.MAX_LIVE_SESSIONS_PER_MACHINE} open at once",
     "MAX_ACTIVITY_CHARS": f"| Session `now` | {L.MAX_ACTIVITY_CHARS} printable",
+    "MAX_SESSION_NAME_CHARS": f"| Session name | {L.MAX_SESSION_NAME_CHARS} characters",
+    "MAX_TITLE_CHARS": f"title of up to {L.MAX_TITLE_CHARS} characters",
+    "FORMER_NAMES_KEPT": f"the last {L.FORMER_NAMES_KEPT} former names kept for "
+    f"{L.FORMER_NAME_TTL.days} days",
     "MAX_CLIENT_VERSION_CHARS": f"| Session `client_version` | "
     f"{L.MAX_CLIENT_VERSION_CHARS} characters",
     "ENDED_SESSION_RETENTION": f"| Ended sessions kept | "

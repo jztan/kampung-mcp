@@ -108,6 +108,7 @@ class SessionRow:
     client_version: str | None = None
     activity: str | None = None
     activity_at: str | None = None
+    name: str | None = None
 
 
 @dataclass
@@ -383,7 +384,7 @@ def sessions(
     rows = conn.execute(
         f"SELECT s.id, {_SESSION_ADDRESS} AS address, s.agent, s.cwd, "
         "s.started_at, s.last_seen, mb.wakes_since_refill, s.background, "
-        "s.branch, s.client_version, s.activity, s.activity_at, "
+        "s.branch, s.client_version, s.activity, s.activity_at, s.name, "
         "CASE WHEN s.ended_at IS NOT NULL THEN 'ended' "
         f"WHEN s.last_seen >= :live AND {STALE_POLLER_SQL} THEN 'unreachable' "
         "WHEN s.last_seen >= :live THEN 'live' ELSE 'idle' END AS state "
@@ -406,6 +407,7 @@ def sessions(
                 r["client_version"],
                 r["activity"],
                 r["activity_at"],
+                r["name"],
             )
             for r in rows
         ],

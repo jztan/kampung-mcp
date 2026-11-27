@@ -8,8 +8,19 @@ Kampung gives an agent four MCP tools: `list_peers`, `send`, `inbox` and `read_a
 |---|---|
 | `machine/repo` | The mailbox. Whichever session in it reads first gets the message |
 | `machine/repo#xx` | One session in that mailbox. `xx` is its suffix, 2 to 4 lowercase hex characters |
+| `machine/repo@name` | One session in that mailbox, by its [name](#session-names). For `ask`, `tell` and `fyi` a unique start of the name works too (at least 3 characters); an owner instruction or a rename needs the exact name. Once matched, it is the same as that session's `#xx` |
 
 Machine and repo names are 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit.
+
+### Session names
+
+A session name is a short label a person can read and say, such as `gateway-work`, so you can tell two sessions in one repo apart without their suffixes. It is never needed: `#xx` works everywhere, and agents use it. A name comes from, strongest first:
+
+1. A rename from the owner's Claude app (`send` with `mode: "rename"`, below).
+2. `KAMPUNG_NAME` in the agent's environment, for example `KAMPUNG_NAME=screen-view claude`.
+3. The title the agent already shows you: Claude Code's session title (a `/rename` one before the automatic one), or Codex's thread name.
+
+The title is made into a name: lower case, words joined by `-`, at most 32 characters, cut at a word. The hooks send it when the session starts and at the end of each turn, in a request header, and the server checks it for secrets; a title that fails, or one the hooks cannot read, means no name. A name is unique among the open sessions in its mailbox: a second session with the same title gets `-2`, then `-3`, and keeps it while its title stays the same. An ended session frees its name. A newer `/rename` (or `KAMPUNG_NAME`) replaces an owner's rename; the automatic title never does. Each session keeps its last 5 former names for 7 days, so mail to an old name gets a hint saying where it went. The hint only points; the mail is not redirected.
 
 A session's repo name is the name of its git worktree's top folder, or outside git the name of its own folder. A session started outside git in the home folder or under a temp folder, where eval and throwaway runs live, uses the machine's shared `scratch` mailbox instead, so those folders don't each leave a mailbox behind. A folder keeps the name it first registered with (recorded in `~/.cache/kampung/mailboxes.json`), so a client upgrade never renames its mailbox; delete that file to start over.
 
@@ -33,6 +44,7 @@ Lists the mailboxes this machine may message, with their sessions.
       "sessions": [
         {
           "suffix": "3f",
+          "name": "gateway-work",
           "cwd": "/home/me/src/api",
           "branch": "feature/login",
           "now": "Run the client test suite",
@@ -50,7 +62,7 @@ Lists the mailboxes this machine may message, with their sessions.
 }
 ```
 
-Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) is seen at least every 30 seconds while it is open and its machine is awake, because its adapter keeps checking for mail (an event stream, or polling every 2 seconds against an older server). When its machine sleeps it stays `live` for 30 minutes, like any other session, but `reachable` turns false after 2 minutes. `reachable` is true or false only for idle-wake sessions; for any other session (Codex, the Claude app, Claude Code without idle wake) it is null, because Kampung cannot tell. `seen` is how long ago the session was last seen, in words ("6 min ago"). A session not seen for 24 hours ends. `branch` is the git branch of the session's folder, so two sessions in one mailbox can be told apart; it is null outside git and for clients before 0.6. Claude Code and Codex report it when the session starts, when you type, and at the end of each turn. The hooks report it, so it stays null for a Codex session whose hooks are not approved yet. `now` is the session's latest step and `now_seen` how long ago it was reported, so a peer can tell what the session is doing and whether it is still at it. The hooks take it from what the session does, with no model involved: the description the agent wrote on a command or a subagent ("Run the client test suite"), the file it read or edited ("editing hook.py"), or, for a command with no description (usual for Codex), just the names of the programs it runs ("running pytest, git"), never their arguments: only each command's first word counts, and only if it names a program on that machine (on `PATH`, a shell builtin or a common PowerShell cmdlet). A step is recorded when its tool call finishes and sent with the hooks' next check for mail (at most every 30 seconds while the session works, and at the end of each turn), so during a long command peers still see the step before it. It travels in a request header, not the URL, and the server checks it for secrets; a step that fails is dropped. Both are null until the first step, for the Claude app, and for a session picked up again after it ended. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
+`name` is the session's [name](#session-names), or null when it has none. Only sessions that haven't ended are listed, and by default only mailboxes that have one. A hidden mailbox still takes mail: send to it as usual, and its next session reads it. `live` means the session was seen in the last 30 minutes. A Claude Code session with [idle wake](clients.md#idle-wake) is seen at least every 30 seconds while it is open and its machine is awake, because its adapter keeps checking for mail (an event stream, or polling every 2 seconds against an older server). When its machine sleeps it stays `live` for 30 minutes, like any other session, but `reachable` turns false after 2 minutes. `reachable` is true or false only for idle-wake sessions; for any other session (Codex, the Claude app, Claude Code without idle wake) it is null, because Kampung cannot tell. `seen` is how long ago the session was last seen, in words ("6 min ago"). A session not seen for 24 hours ends. `branch` is the git branch of the session's folder, so two sessions in one mailbox can be told apart; it is null outside git and for clients before 0.6. Claude Code and Codex report it when the session starts, when you type, and at the end of each turn. The hooks report it, so it stays null for a Codex session whose hooks are not approved yet. `now` is the session's latest step and `now_seen` how long ago it was reported, so a peer can tell what the session is doing and whether it is still at it. The hooks take it from what the session does, with no model involved: the description the agent wrote on a command or a subagent ("Run the client test suite"), the file it read or edited ("editing hook.py"), or, for a command with no description (usual for Codex), just the names of the programs it runs ("running pytest, git"), never their arguments: only each command's first word counts, and only if it names a program on that machine (on `PATH`, a shell builtin or a common PowerShell cmdlet). A step is recorded when its tool call finishes and sent with the hooks' next check for mail (at most every 30 seconds while the session works, and at the end of each turn), so during a long command peers still see the step before it. It travels in a request header, not the URL, and the server checks it for secrets; a step that fails is dropped. Both are null until the first step, for the Claude app, and for a session picked up again after it ended. `background` is true for a Claude Code session running in the background (`claude --bg`, `/background`, a background agent). It works alone on one long job with nobody watching, so prefer a foreground session. With idle wake it wakes for mail like any other session; without it, it reads mail only when its turn ends or when someone attaches it.
 
 `agent` is `claude-code`, `codex`, `other`, or `claude-app` for a Claude app connector. A connector has one session per machine, shared by every chat on the account, with `cwd` set to `Claude app`; it has no hooks, so mail to it waits until the owner asks a chat to read the inbox.
 
@@ -141,6 +153,10 @@ A message to a `#xx` session stays for that session until it ends. After that, a
 | `machine/repo` | The one session working there; with several, the one in the foreground; otherwise `ambiguous_session`, whose hint lists them. None: `no_session` |
 
 "Working now" means not ended, not the Claude app, seen within 2 minutes for a session with idle wake and for every Codex session, or within 30 minutes otherwise, and for Codex, typed in within the last hour. A Codex session that never reports typing (before its hooks are approved with `/hooks`) can therefore never receive an owner instruction: it returns `no_session`. When a Codex session is live but nobody has typed in it for an hour, the `no_session` hint says so and names it; typing anything in that window lets the next send through, once its hooks are approved. Only that session can read it, also after a resume, never another session in the mailbox. Unread after 60 minutes, it can no longer be read or wake anyone; it stays a valid `reply_to`.
+
+### Renaming a session
+
+`mode: "rename"` names a session from the owner's Claude app ("rename noc#92 to gateway-work"). Like an owner instruction it is accepted only from a connection marked with `kampung owner add`, checked first and audited, and the adapter's `send` does not offer it. `to` is the session: `machine/repo#xx`, an exact `machine/repo@name`, or a bare `machine/repo` when only one session is open there (otherwise `pick_session`). `body` is the new name, made into a name like a title; a blank body clears it, and the session goes back to its reported name. No message is stored, nobody is woken and no budget is spent. The result is `{"renamed": "machine/repo#xx", "old": ..., "name": ..., "offline": ...}`; `offline` is true when the session is open but not seen lately (its machine asleep, say): the new name holds at once anyway, since the rename never needs the session to run. The session itself is not told.
 
 ## `inbox`
 
@@ -263,7 +279,13 @@ From the server:
 | `empty_body` | `send` | The body is empty or only whitespace |
 | `body_too_large` | `send` | The body is over 8 KB |
 | `mode_conflict` | `send` | `fyi: true` with a `mode` other than `"fyi"`. Drop `fyi` |
-| `invalid_address` | `send`, `inbox` | `to` isn't `machine/repo` or `machine/repo#xx`, or the `inbox` `sender` isn't `machine/repo` |
+| `invalid_address` | `send`, `inbox` | `to` isn't `machine/repo`, `machine/repo#xx` or `machine/repo@name`, or the `inbox` `sender` isn't `machine/repo` |
+| `unknown_name` | `send` | No open session in that mailbox has that name (or, for `ask`, `tell` and `fyi`, starts with it). The hint lists the names there, and says when the name was a session's former name or belonged to a session that ended |
+| `ambiguous_name` | `send` | More than one open session starts with that name. The hint lists them as `machine/repo#xx (name)` |
+| `name_taken` | `send` | A rename to a name another open session in that mailbox has. The hint names it |
+| `invalid_name` | `send` | A rename whose body has no letters or digits |
+| `pick_session` | `send` | A rename to a mailbox with several open sessions. The hint lists them |
+| `session_ended` | `send` | A rename of a session that has ended: an ended session has no name |
 | `invalid_replies_to` | `inbox` | `replies_to` isn't a list of up to 20 message ids (`msg_...`) |
 | `invalid_answers` | `inbox` | `answers` from a session that is not the Claude app, `answers` with `sender` or `replies_to`, or a `before` without `answers` or that is not a message id |
 | `unknown_machine` | `send` | No machine has that name |
@@ -272,7 +294,7 @@ From the server:
 | `unknown_mailbox` | `send` | That machine has no mailbox for that repo. A mailbox appears once a session has registered in the repo; one with no sessions and no mail for about a month is removed and comes back when a session opens there |
 | `unknown_session` | all | The `#xx` session has ended (`send`), or the session in the request does not exist or belongs to another machine; both look the same |
 | `unknown_message` | `send`, `read_attachment` | No message this machine sent or received has that id (for `read_attachment`, one with an attachment). For `read_attachment`, also when it has expired, or (on the receiving machine) is not delivered yet |
-| `owner_only` | `send` | `mode: "instruct"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
+| `owner_only` | `send` | `mode: "instruct"` or `"rename"` from anything but an owner's Claude app connection. If the app's owner mark was lost (its connection replaced or removed), the hint says when, why, and to run `kampung owner add <machine>` |
 | `attachment_not_allowed` | `send` | An attachment with `mode: "instruct"` |
 | `cannot_instruct` | `send` | An owner instruction to the Claude app's own mailbox or session |
 | `ambiguous_session` | `send` | An owner instruction to a mailbox with several sessions working. The hint lists their `#xx` addresses, each with its branch and latest step when known, quoted: `laptop/api#ef (branch "feature/x", now "Run the tests"), laptop/api#f7 (branch "develop")`, and ends by saying they are peer-supplied |

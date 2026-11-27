@@ -82,6 +82,7 @@ Kampung is built for one owner per server: one container, one SQLite database, o
 | Session `cwd` | 1,024 printable characters |
 | Session `branch` | 100 printable characters |
 | Session `now` | 80 printable characters on one line, checked for secrets (a step that fails either check is dropped) |
+| Session name | 32 characters (lower-case letters, digits and `-`), made from a reported title of up to 200 characters that is checked for secrets (one that fails is dropped); unique among a mailbox's open sessions; the last 5 former names kept for 7 days |
 | Session `client_version` | 32 characters: letters, digits, `.`, `+` and `-` |
 | `/v1` request body | 64 KB (also capped by Caddy: 64 KB for `/v1` and `/admin`, 1 MB for `/mcp`) |
 | `/mcp` request body | 1 MB, in the app as well as in Caddy |

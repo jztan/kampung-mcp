@@ -672,3 +672,52 @@ def test_a_bad_or_secret_now_is_dropped_not_refused(
     assert r.status_code == 200 and "now" not in r.json()
     s = load_session(conn, int(sid))
     assert s is not None and s.activity == "before"
+
+
+def _with_title(key: str, title: str, kind: str = "auto") -> dict[str, str]:
+    return {
+        **bearer(key),
+        "X-Kampung-Title": urllib.parse.quote(title, safe=""),
+        "X-Kampung-Title-Kind": kind,
+    }
+
+
+def test_register_and_peek_report_the_title_and_echo_the_name(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    r = client.post(
+        "/v1/sessions",
+        headers=bearer(key),
+        json={
+            "agent": "claude-code",
+            "cwd": "/home/u/api",
+            "repo": "api",
+            "hooks": True,
+            "title": "Gateway work",
+            "title_kind": "env",
+        },
+    )
+    sid = r.json()["session"]
+    assert r.json()["name"] == "gateway-work"
+    s = load_session(conn, int(sid))
+    assert s is not None and (s.title_kind, s.name) == ("env", "gateway-work")
+    url = f"/v1/sessions/{sid}/peek"
+    assert "title" not in client.get(url, headers=bearer(key)).json()
+    r = client.get(url, headers=_with_title(key, "Docs: café fixes", "rename"))
+    assert r.json()["title"] == "Docs: café fixes"
+    assert r.json()["name"] == "docs-cafe-fixes"
+
+
+def test_a_secret_or_bad_title_is_dropped_not_refused(
+    client: TestClient, machines: Machines, conn: sqlite3.Connection
+) -> None:
+    key = machines["laptop"][1]
+    sid = _register(client, key)
+    url = f"/v1/sessions/{sid}/peek"
+    client.get(url, headers=_with_title(key, "Gateway work"))
+    secret = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    r = client.get(url, headers=_with_title(key, f"use {secret}", "nonsense"))
+    assert r.status_code == 200 and r.json()["name"] is None
+    s = load_session(conn, int(sid))
+    assert s is not None and s.name is None and s.title_kind == "auto"

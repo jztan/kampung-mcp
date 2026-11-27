@@ -235,8 +235,8 @@ async def test_tool_errors_are_inline(server: Server) -> None:
         r = await c.call_tool("send", {"to": "nope", "body": "x"})
         assert r.data == {
             "error": "invalid_address",
-            "hint": "Use machine/repo or machine/repo#xx; call list_peers to see "
-            "addresses.",
+            "hint": "Use machine/repo, machine/repo#xx or machine/repo@name; call "
+            "list_peers to see addresses.",
         }
 
 

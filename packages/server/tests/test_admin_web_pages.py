@@ -82,6 +82,18 @@ def test_sessions_page_states_and_filter(
     assert seeded.sender not in web.get("/admin/sessions").text
 
 
+def test_sessions_page_shows_the_name(
+    web: TestClient, seeded: Seeded, conn: sqlite3.Connection, clock: FakeClock
+) -> None:
+    from kampung_server import db, names
+
+    login(web)
+    sid = conn.execute("SELECT id FROM sessions ORDER BY id LIMIT 1").fetchone()[0]
+    with db.transaction(conn):
+        names.report_title(conn, sid, "auto", "Gateway work", clock.now())
+    assert '<div class="sub">@gateway-work</div>' in web.get("/admin/sessions").text
+
+
 def test_messages_page_and_detail(web: TestClient, seeded: Seeded) -> None:
     login(web)
     page = web.get("/admin/messages").text
