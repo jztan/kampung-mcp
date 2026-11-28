@@ -140,7 +140,7 @@ The adapter takes the server URL and machine key from the machine's Kampung conf
 KAMPUNG_SESSION_FILE=/path/to/session.json kampung-mcp adapter --agent other
 ```
 
-The adapter re-reads the file on every tool call and acts as that session. It never registers or revives a session, never opens an event stream or peek loop, and never starts a Codex waker. Attachments work as usual: it finds `kampung-outbox` from the file's `cwd`.
+Without `KAMPUNG_SESSION_FILE`, `--agent other` registers its own session (agent `other`, no hooks) and wakes it like any self-registered agent; the file is what lets the host own the session. With it, the adapter re-reads the file on every tool call and acts as that session. It never registers or revives a session, never opens an event stream or peek loop, and never starts a Codex waker. Attachments work as usual: it finds `kampung-outbox` from the file's `cwd`.
 
 When a call comes back `session_ended` or `unknown_session`, the adapter waits up to 3 seconds for the file to name a different `session`, then retries once with what the file holds, so a session the host revived under the same id also works. If the retry fails too, the adapter returns the server's error. A missing or unreadable file returns the inline error `session_file`, with the path in its hint.
 

@@ -16,7 +16,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 #### Client (`kampung-mcp`)
 
-- Codex ignores `KAMPUNG_NAME`. Its windows share one background process, so the variable could have given every Codex window the same name (`x`, `x-2`, ...). Name a Codex session from the Claude app instead.
+- Codex ignores `KAMPUNG_NAME`. Its windows share one background process, so the variable could have given every Codex window the same name (`x`, `x-2`, ...). Name a Codex session from the Claude app instead (with the owner mark on, `kampung owner add`).
 
 #### Server (`ghcr.io/jztan/kampung-mcp`)
 
