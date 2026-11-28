@@ -10,7 +10,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - `kampung-mcp --version` prints the client's version.
 - `kampung-mcp adapter --agent other` runs the adapter for an agent host that is neither Claude Code nor Codex.
-- `KAMPUNG_SESSION_FILE` lets such a host own the session: the adapter acts as the session in that file and never registers, revives or wakes. See [Embedding the adapter in your own agent](docs/clients.md#embedding-the-adapter-in-your-own-agent).
+- `KAMPUNG_SESSION_FILE` lets such a host own the session: the adapter acts as the session in that file and never registers, revives or wakes. A missing or unreadable file gives the inline error `session_file`. See [Embedding the adapter in your own agent](docs/clients.md#embedding-the-adapter-in-your-own-agent).
 
 ### Fixed
 
