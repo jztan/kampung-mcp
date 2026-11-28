@@ -579,3 +579,19 @@ def test_a_rename_to_a_freed_name_takes_it_not_the_number(
     sessions.end(conn, a.id, clock.now())
     result = _rename(conn, phone, clock, f"desktop/api#{b.suffix}", "gateway-work")
     assert result["name"] == "gateway-work" and _name(conn, b) == "gateway-work"
+
+
+def test_a_rename_refused_as_not_paired_is_audited(
+    conn: sqlite3.Connection,
+    admin: Any,
+    make_session: MakeSession,
+    clock: FakeClock,
+    phone: Session,
+) -> None:
+    admin.add_machine("other", "admin:cli")
+    e = _error(_rename, conn, phone, clock, "other/api#3f", "x")
+    assert e.code == "not_paired"
+    rows = conn.execute(
+        "SELECT detail FROM audit WHERE action = 'denied' ORDER BY rowid DESC LIMIT 1"
+    ).fetchall()
+    assert rows and '"not_paired"' in rows[0][0]

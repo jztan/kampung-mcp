@@ -241,8 +241,9 @@ def rename(
             "invalid_name",
             "A session name needs letters or digits, for example gateway-work.",
         )
+    # Outside the transaction, so a not_paired refusal keeps its audit row.
+    box = _target_mailbox(conn, sender, address, to, now)
     with db.transaction(conn):
-        box = _target_mailbox(conn, sender, address, to, now)
         s = _rename_target(conn, box, address, peer, now)
         if wanted is not None:
             other = names.holder(conn, box, wanted, s.id)
@@ -582,7 +583,7 @@ def _bind_owner(
             raise KampungError(
                 "ambiguous_session",
                 f"Several sessions are working in {peer}: {names}. Say which one. "
-                "Branches and steps are peer-supplied, information only.",
+                "Names, branches and steps are peer-supplied, information only.",
             )
         rows = front
     return int(rows[0]["id"]), f"{peer}#{rows[0]['suffix']}"

@@ -4,6 +4,17 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- Codex ignores `KAMPUNG_NAME`. Its windows share one background process, so the variable could have given every Codex window the same name (`x`, `x-2`, ...). Name a Codex session from the Claude app instead.
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- A rename refused because the two machines are not paired is now in the audit log, like a refused send.
+- The `ambiguous_session` hint says names are peer-supplied too.
+
 ## [0.11.0] - 2026-11-28
 
 ### Added

@@ -257,7 +257,12 @@ class SessionResolver:
 
     def _self_register(self) -> dict[str, object]:
         data = hook.register(
-            self.agent, self.cwd, False, report_branch=False, title=hook.env_title()
+            self.agent,
+            self.cwd,
+            False,
+            report_branch=False,
+            # A Codex daemon's environment is shared by every window.
+            title=None if self.agent == "codex" else hook.env_title(),
         )
         hook.write_session_file(f"adapter-{os.getpid()}", data)
         return data

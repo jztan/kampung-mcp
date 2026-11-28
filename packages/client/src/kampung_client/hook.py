@@ -945,12 +945,14 @@ def session_title(event: Event) -> Title | None:
     """The session's title, strongest first, or None. Never raises: a name is
     cosmetic, and must not cost a hook its wake check."""
     try:
+        sid = event.get("session_id")
+        if _agent(event) == "codex":
+            # Every Codex window runs under one shared daemon, so its
+            # environment cannot name one window: KAMPUNG_NAME is ignored.
+            return codex_title(sid) if isinstance(sid, str) else None
         title = env_title()
         if title:
             return title
-        sid = event.get("session_id")
-        if _agent(event) == "codex":
-            return codex_title(sid) if isinstance(sid, str) else None
         return claude_title(event.get("transcript_path"))
     except Exception:  # noqa: BLE001 - fail open on anything unexpected
         return None
