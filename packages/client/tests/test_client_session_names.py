@@ -175,3 +175,13 @@ def test_a_broken_transcript_never_breaks_the_hook(
     r = run_hook(home, ev)
     assert r.returncode == 0, r.stderr
     assert _name(server) == [(None, None)]
+
+
+def test_kampung_name_is_ignored_for_codex(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Codex windows share one daemon, so its environment cannot name one window.
+    _index(home, ("cx-1", "Review the docs"))
+    monkeypatch.setenv("KAMPUNG_NAME", "screen-view")
+    ev = {"session_id": "cx-1", "_kampung_agent": "codex"}
+    assert hook.session_title(ev) == ("auto", "Review the docs")

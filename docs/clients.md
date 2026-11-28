@@ -124,6 +124,32 @@ The loop guard still stops a chain of replies once its wake budgets run out. To 
 
 A wake runs in the thread its session is bound to, which is not always the one on your screen. Restarting a Codex window opens a new thread with a new session and suffix, and wakes then go to that thread only; the old one stays in Codex's thread list but gets no more mail. A thread that was only ever woken has no typed prompt, so Codex titles it by the wake text, which starts with the session it woke: `[kampung] laptop/api#3f: 1 Kampung message(s) waiting. Call the kampung inbox tool to read them.` Match that suffix to the session in `list_peers`. To open the thread, find its id in `~/.cache/kampung/sessions/` (each file is named by the thread id and holds the suffix) and run `codex resume <thread id>`.
 
+## Embedding the adapter in your own agent
+
+If you run your own agent host, it can give its model the Kampung tools by running the stdio adapter itself. The host owns the session. The adapter only acts as it.
+
+Check the client first: `kampung-mcp --version` prints `kampung-mcp <version>`. Older clients have no `--agent other` and ignore `KAMPUNG_SESSION_FILE`. An older client also rejects `--version` itself (argparse exits with status 2), which is the sign it is too old.
+
+The adapter takes the server URL and machine key from the machine's Kampung config (`~/.config/kampung/config.json`), so run `kampung-mcp setup` on the machine first. Without it, tool calls fail as `server_unreachable`.
+
+1. Register a session over the hook API with `POST /v1/sessions` and the header `Authorization: Bearer <machine key>`, like the hooks do. The JSON body needs `agent` (`"other"`), `cwd`, `repo` and `hooks` (`true`); also send `idle_wake: true`. `agent_session_id`, `title` and `title_kind` are optional, but send a stable `agent_session_id` if the host will re-register: the server revives a session only by that id (or by `suffix`), and otherwise starts a new one.
+2. Write the session to a JSON file. The adapter needs only `session` (from the register response). Add `cwd` so attachments are found from the project folder (without it, the adapter's own working directory is used); `suffix`, `mailbox` and `agent_session_id` may sit alongside them for the host's own use. After any re-register, rewrite the file with the new values, atomically (write a temp file, then rename it), because the adapter reads it on every call.
+3. Start the adapter with `KAMPUNG_SESSION_FILE=<path>` in its environment and the project folder as its working directory. The adapter reads the variable only with `--agent other`, and ignores it for other agents, so set it on the adapter subprocess only, not in your own environment:
+
+```bash
+KAMPUNG_SESSION_FILE=/path/to/session.json kampung-mcp adapter --agent other
+```
+
+Without `KAMPUNG_SESSION_FILE`, `--agent other` registers its own session (agent `other`, no hooks); the file is what lets the host own the session. With it, the adapter re-reads the file on every tool call and acts as that session. It never registers or revives a session, never opens an event stream or peek loop, and never starts a Codex waker. Attachments work as usual: it finds `kampung-outbox` from the file's `cwd`.
+
+When a call comes back `session_ended` or `unknown_session`, the adapter waits up to 3 seconds for the file to name a different `session`, then retries once with what the file holds, so a session the host revived under the same id also works. If the retry fails too, the adapter returns the server's error. A missing or unreadable file returns the inline error `session_file`, with the path in its hint.
+
+The host does the rest over the same HTTP API:
+
+- `GET /v1/sessions/{id}/peek` to see waiting mail. It also keeps the session's presence fresh, so peek at least every 2 minutes.
+- `POST /v1/sessions/{id}/human-turn` when a person types, and only then.
+- `POST /v1/sessions/{id}/end` when the host exits.
+
 ## Owner instructions
 
 When the server has `kampung owner add <machine>` for your Claude app (see [Use it from the Claude app](claude-app.md#owner-instructions-off-by-default)), the app can send messages your agents may treat as you typing. The mark goes whenever the app's connection is replaced or removed: a new `kampung connect`, an old sign-in token reused after an outage, a disconnect or a key rotation. Unless you removed it yourself (`kampung disconnect` or `revoke`), the app is told (a `notice` on its inbox and peer list, and the reason in any refused instruction), the dashboard flags it, and `kampung owner add` restores it (after a new `kampung connect` when the connection itself is gone). Kampung stamps them; what they may approve is up to you. Paste this into `~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex) on each machine, and edit it:
@@ -159,7 +185,7 @@ Cloud sessions (Claude Code on the web, including ones started from the mobile a
 
 ## Session names
 
-Each session shows a name in `list_peers` and on the dashboard, so two sessions in one repo can be told apart by something better than `#3f`. It is the title the agent already shows you: Claude Code's session title (set your own with `/rename`), or Codex's thread name. To pick one when you start a Claude Code session, set `KAMPUNG_NAME`, for example `KAMPUNG_NAME=screen-view claude`; it wins over the title. Not for Codex for now: its windows share one background process, so the variable would not reach one window alone; rename a Codex session from the Claude app instead. Peers can then send to `machine/repo@screen-view`. The hooks read the title from the agent's own files (the end of Claude Code's transcript, Codex's `session_index.jsonl`), so if a client update moves them the session simply has no name. See the [tool reference](tool-reference.md#session-names).
+Each session shows a name in `list_peers` and on the dashboard, so two sessions in one repo can be told apart by something better than `#3f`. It is the title the agent already shows you: Claude Code's session title (set your own with `/rename`), or Codex's thread name. To pick one when you start a Claude Code session, set `KAMPUNG_NAME`, for example `KAMPUNG_NAME=screen-view claude`; it wins over the title, and peers can then send to `machine/repo@screen-view`. Codex ignores it: its windows share one background process, so the variable cannot name one window alone; rename a Codex session from the Claude app instead. The hooks read the title from the agent's own files (the end of Claude Code's transcript, Codex's `session_index.jsonl`), so if a client update moves them the session simply has no name. See the [tool reference](tool-reference.md#session-names).
 
 ## Attachments
 

@@ -4,6 +4,27 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-28
+
+### Added
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp --version` prints the client's version.
+- `kampung-mcp adapter --agent other` runs the adapter for an agent host that is neither Claude Code nor Codex.
+- `KAMPUNG_SESSION_FILE` lets such a host own the session: the adapter acts as the session in that file and never registers, revives or wakes. A missing or unreadable file gives the inline error `session_file`. See [Embedding the adapter in your own agent](docs/clients.md#embedding-the-adapter-in-your-own-agent).
+
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- Codex ignores `KAMPUNG_NAME`. Its windows share one background process, so the variable could have given every Codex window the same name (`x`, `x-2`, ...). Name a Codex session from the Claude app instead (with the owner mark on, `kampung owner add`).
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- A rename refused because the two machines are not paired is now in the audit log, like a refused send.
+- The `ambiguous_session` hint says names are peer-supplied too.
+
 ## [0.11.0] - 2026-11-28
 
 ### Added
@@ -405,6 +426,7 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - A page at [kampung-mcp.jztan.com](https://kampung-mcp.jztan.com) that replays Claude Code on a laptop and Codex on a NAS working together on a cited blog section, with stills of two more exchanges (tests that only fail on Windows, a tracker behind the office network), the quick start and the security model.
 
+[0.12.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.12.0
 [0.11.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.11.0
 [0.10.0]: https://github.com/jztan/kampung-mcp/releases/tag/v0.10.0
 [0.9.1]: https://github.com/jztan/kampung-mcp/releases/tag/v0.9.1

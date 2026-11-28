@@ -11,6 +11,7 @@ import re
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -257,7 +258,12 @@ class SessionResolver:
 
     def _self_register(self) -> dict[str, object]:
         data = hook.register(
-            self.agent, self.cwd, False, report_branch=False, title=hook.env_title()
+            self.agent,
+            self.cwd,
+            False,
+            report_branch=False,
+            # A Codex daemon's environment is shared by every window.
+            title=None if self.agent == "codex" else hook.env_title(),
         )
         hook.write_session_file(f"adapter-{os.getpid()}", data)
         return data
@@ -395,6 +401,71 @@ class SessionResolver:
             return self._data
 
 
+class SessionFileError(hook.HookError):
+    """The host's session file could not be read."""
+
+
+class FileSessionResolver:
+    """Acts as a session its host owns, named by a file (`KAMPUNG_SESSION_FILE`).
+
+    The host registers the session over the hook API and keeps the file
+    current. This resolver only reads it: it never registers, revives or
+    watches for wakes. After `session_ended` it waits for the host to
+    re-register and rewrite the file.
+    """
+
+    def __init__(
+        self, path: Path, cwd: str, wait: float = 3.0, poll: float = 0.1
+    ) -> None:
+        self.path = path
+        self.cwd = cwd
+        self.wait = wait
+        self.poll = poll
+        self.codex = False
+        self.bound: str | None = None
+        self._last: object = None
+
+    def _read(self) -> dict[str, object]:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or "session" not in data:
+                raise ValueError("no session in it")
+        except (OSError, ValueError) as e:
+            raise SessionFileError(
+                f"cannot read KAMPUNG_SESSION_FILE {self.path}: {e}"
+            ) from e
+        self._last = data["session"]
+        return data
+
+    def current(self) -> dict[str, object]:
+        return self._read()
+
+    def refresh(self) -> dict[str, object]:
+        """Poll until the file names a different session, or `wait` passes;
+        then return what it holds (the same id is fine: the host may have
+        revived it)."""
+        old = self._last
+        end = time.monotonic() + self.wait
+        data: dict[str, object] | None = None
+        error: SessionFileError | None = None
+        while True:
+            try:
+                data = self._read()
+                if data["session"] != old:
+                    return data
+            except SessionFileError as e:
+                error = e
+            if time.monotonic() >= end:
+                if data is None:
+                    assert error is not None
+                    raise error
+                return data
+            time.sleep(self.poll)
+
+    def target(self) -> None:
+        return None
+
+
 def _unknown_argument(e: Exception, name: str) -> bool:
     """Whether the server refused a tool argument it does not know: an older
     server's argument validation names it as an unexpected keyword."""
@@ -436,10 +507,20 @@ def build_adapter(
     channels: bool = False,
     codex_bin: str | None = None,
 ) -> FastMCP:
-    resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)
+    session_file = os.environ.get("KAMPUNG_SESSION_FILE")
+    resolver: SessionResolver | FileSessionResolver
+    # Only a host-run agent reads the variable: an inherited one must not make
+    # a nested Claude Code or Codex adapter act as the host's session.
+    if agent == "other" and session_file:
+        resolver = FileSessionResolver(Path(session_file), cwd or os.getcwd())
+    else:
+        resolver = SessionResolver(agent, cwd or os.getcwd(), wait=wait)
     waker = (
         CodexWaker(resolver, codex_bin)
-        if resolver.codex and codex_bin and usable_codex_bin(codex_bin)
+        if isinstance(resolver, SessionResolver)
+        and resolver.codex
+        and codex_bin
+        and usable_codex_bin(codex_bin)
         else None
     )
 
@@ -454,7 +535,7 @@ def build_adapter(
         the call's own session id: that id is the authority, even over the
         thread found at launch. (Codex 0.165 shared one adapter across
         windows; 0.167 starts one per window. Per call is right for both.)"""
-        if resolver.codex:
+        if isinstance(resolver, SessionResolver) and resolver.codex:
             session = await asyncio.to_thread(resolver.bind, codex_id_of(ctx))
             if waker is not None and resolver.bound is not None:
                 waker.start()
@@ -484,6 +565,8 @@ def build_adapter(
                     result: CallToolResult = await client.call_tool(tool, args)
             except hook.InsecureServerError as e:
                 return {"error": "insecure_server_url", "hint": str(e)}
+            except SessionFileError as e:
+                return {"error": "session_file", "hint": str(e)}
             except Exception as e:  # noqa: BLE001 - any failure becomes an inline error
                 hook.log_from_adapter(f"adapter {tool}", e)
                 if args.get("fyi") and _unknown_argument(e, "fyi"):
@@ -514,9 +597,14 @@ def build_adapter(
         return data
 
     mcp = FastMCP("kampung", instructions=INSTRUCTIONS)
-    if channels or not resolver.codex:
-        _add_wake_poller(mcp, resolver, channels)
-    if waker is not None and sys.platform != "win32":
+    if isinstance(resolver, SessionResolver):
+        if channels or not resolver.codex:
+            _add_wake_poller(mcp, resolver, channels)
+    if (
+        isinstance(resolver, SessionResolver)
+        and waker is not None
+        and sys.platform != "win32"
+    ):
         _add_launch_binding(mcp, resolver, waker)
 
     @mcp.tool
@@ -609,6 +697,8 @@ def build_adapter(
             box = await asyncio.to_thread(
                 outbox.outbox_dir, str(session.get("cwd") or resolver.cwd)
             )
+        except SessionFileError as e:
+            return {"error": "session_file", "hint": str(e)}
         except Exception as e:  # noqa: BLE001 - inline, like every tool error
             hook.log_from_adapter("adapter send", e)
             return await asyncio.to_thread(_diagnose)
