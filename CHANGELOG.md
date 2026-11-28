@@ -4,6 +4,14 @@ All notable changes for people who run a Kampung server or use it from their age
 
 ## [Unreleased]
 
+### Added
+
+#### Client (`kampung-mcp`)
+
+- `kampung-mcp --version` prints the client's version.
+- `kampung-mcp adapter --agent other` runs the adapter for an agent host that is neither Claude Code nor Codex.
+- `KAMPUNG_SESSION_FILE` lets such a host own the session: the adapter acts as the session in that file and never registers, revives or wakes. See [Embedding the adapter in your own agent](docs/clients.md#embedding-the-adapter-in-your-own-agent).
+
 ## [0.11.0] - 2026-11-28
 
 ### Added
@@ -18,9 +26,6 @@ All notable changes for people who run a Kampung server or use it from their age
 
 - The hooks report the session's title when it starts and at the end of each turn. `KAMPUNG_NAME` in Claude Code's environment names the session instead (not for Codex, whose windows share one background process).
 - The tool descriptions Claude Code and Codex see mention `machine/repo@name`.
-- `kampung-mcp --version` prints the client's version.
-- `kampung-mcp adapter --agent other` runs the adapter for an agent host that is neither Claude Code nor Codex.
-- `KAMPUNG_SESSION_FILE` lets such a host own the session: the adapter acts as the session in that file and never registers, revives or wakes. See [Embedding the adapter in your own agent](docs/clients.md#embedding-the-adapter-in-your-own-agent).
 
 ### Upgrading
 
