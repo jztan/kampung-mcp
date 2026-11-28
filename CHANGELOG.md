@@ -12,6 +12,17 @@ All notable changes for people who run a Kampung server or use it from their age
 - `kampung-mcp adapter --agent other` runs the adapter for an agent host that is neither Claude Code nor Codex.
 - `KAMPUNG_SESSION_FILE` lets such a host own the session: the adapter acts as the session in that file and never registers, revives or wakes. See [Embedding the adapter in your own agent](docs/clients.md#embedding-the-adapter-in-your-own-agent).
 
+### Fixed
+
+#### Client (`kampung-mcp`)
+
+- Codex ignores `KAMPUNG_NAME`. Its windows share one background process, so the variable could have given every Codex window the same name (`x`, `x-2`, ...). Name a Codex session from the Claude app instead.
+
+#### Server (`ghcr.io/jztan/kampung-mcp`)
+
+- A rename refused because the two machines are not paired is now in the audit log, like a refused send.
+- The `ambiguous_session` hint says names are peer-supplied too.
+
 ## [0.11.0] - 2026-11-28
 
 ### Added

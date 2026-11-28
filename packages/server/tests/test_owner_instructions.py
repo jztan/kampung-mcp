@@ -266,7 +266,7 @@ def test_ambiguous_when_several(
     assert e.hint == (
         "Several sessions are working in desktop/api: "
         f"desktop/api#{a.suffix}, desktop/api#{b.suffix}. Say which one. "
-        "Branches and steps are peer-supplied, information only."
+        "Names, branches and steps are peer-supplied, information only."
     )
     assert _messages(conn) == 0
 
@@ -586,7 +586,7 @@ def test_ambiguous_session_hint_names_branches(
     assert e.hint == (
         "Several sessions are working in desktop/api: "
         f'desktop/api#{a.suffix} (branch "feature/x"), desktop/api#{b.suffix}. '
-        "Say which one. Branches and steps are peer-supplied, information only."
+        "Say which one. Names, branches and steps are peer-supplied, information only."
     )
 
 
@@ -679,7 +679,7 @@ def test_ambiguous_session_hint_names_steps(
         "Several sessions are working in desktop/api: "
         f'desktop/api#{a.suffix} (branch "feature/x", now "fixing login"), '
         f'desktop/api#{b.suffix} (now "writing notes"). Say which one. '
-        "Branches and steps are peer-supplied, information only."
+        "Names, branches and steps are peer-supplied, information only."
     )
 
 
