@@ -63,9 +63,13 @@ Each release fixes a problem found in daily use; nothing is built ahead of a rea
 - Idle empty mailboxes are removed; a mailbox can be deleted by hand.
 - A Claude app chat finds answers it lost the ids for.
 
-### v0.11: sessions you can name
+### v0.11: sessions you can name (released 2026-11-28)
 
 - Session names from the agent's own title, `machine/repo@name`, and rename from the Claude app.
+
+### v0.12: run the adapter in your own agent
+
+- `adapter --agent other` with `KAMPUNG_SESSION_FILE`, so another agent host owns the session.
 
 ### v1.0: a tool trusted day to day
 
