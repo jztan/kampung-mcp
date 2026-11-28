@@ -5,13 +5,18 @@ import argparse
 import os
 import sys
 
+from . import __version__
+
 
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="kampung-mcp", description="Kampung client.")
+    p.add_argument("--version", action="version", version=f"kampung-mcp {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
     adapter = sub.add_parser("adapter", help="run the stdio MCP adapter")
     adapter.add_argument(
-        "--agent", choices=["claude-code", "codex"], default="claude-code"
+        "--agent",
+        choices=["claude-code", "codex", "other"],
+        default="claude-code",
     )
     adapter.add_argument(
         "--channels",

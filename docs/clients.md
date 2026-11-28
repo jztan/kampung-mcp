@@ -124,6 +124,30 @@ The loop guard still stops a chain of replies once its wake budgets run out. To 
 
 A wake runs in the thread its session is bound to, which is not always the one on your screen. Restarting a Codex window opens a new thread with a new session and suffix, and wakes then go to that thread only; the old one stays in Codex's thread list but gets no more mail. A thread that was only ever woken has no typed prompt, so Codex titles it by the wake text, which starts with the session it woke: `[kampung] laptop/api#3f: 1 Kampung message(s) waiting. Call the kampung inbox tool to read them.` Match that suffix to the session in `list_peers`. To open the thread, find its id in `~/.cache/kampung/sessions/` (each file is named by the thread id and holds the suffix) and run `codex resume <thread id>`.
 
+## Embedding the adapter in your own agent
+
+If you run your own agent host, it can give its model the Kampung tools by running the stdio adapter itself. The host owns the session. The adapter only acts as it.
+
+Check the client first: `kampung-mcp --version` prints `kampung-mcp <version>`. Older clients have no `--agent other` and ignore `KAMPUNG_SESSION_FILE`. An older client also rejects `--version` itself (argparse exits with status 2), which is the sign it is too old.
+
+1. Register a session over the hook API with `POST /v1/sessions` and the header `Authorization: Bearer <machine key>`, like the hooks do. The JSON body needs `agent` (`"other"`), `cwd`, `repo` and `hooks` (`true`); also send `idle_wake: true`. `agent_session_id`, `title` and `title_kind` are optional.
+2. Write the session to a JSON file. `session`, `suffix` and `mailbox` come from the register response; `cwd` and `agent_session_id` come from the host. After any re-register, rewrite the file with the new values, atomically (write a temp file, then rename it), because the adapter reads it on every call.
+3. Start the adapter with `KAMPUNG_SESSION_FILE=<path>` in its environment and the project folder as its working directory. The adapter reads the variable only with `--agent other`, and ignores it for other agents, so set it on the adapter subprocess only, not in your own environment:
+
+```bash
+KAMPUNG_SESSION_FILE=/path/to/session.json kampung-mcp adapter --agent other
+```
+
+The adapter re-reads the file on every tool call and acts as that session. It never registers or revives a session, never opens an event stream or peek loop, and never starts a Codex waker. Attachments work as usual: it finds `kampung-outbox` from the file's `cwd`.
+
+When a call comes back `session_ended` or `unknown_session`, the adapter waits up to 3 seconds for the file to name a different `session`, then retries once. If it doesn't change, the adapter returns the server's error. A missing or unreadable file returns the inline error `session_file`, with the path in its hint.
+
+The host does the rest over the same HTTP API:
+
+- `GET /v1/sessions/{id}/peek` to see waiting mail. It also keeps the session's presence fresh, so peek at least every 2 minutes.
+- `POST /v1/sessions/{id}/human-turn` when a person types, and only then.
+- `POST /v1/sessions/{id}/end` when the host exits.
+
 ## Owner instructions
 
 When the server has `kampung owner add <machine>` for your Claude app (see [Use it from the Claude app](claude-app.md#owner-instructions-off-by-default)), the app can send messages your agents may treat as you typing. The mark goes whenever the app's connection is replaced or removed: a new `kampung connect`, an old sign-in token reused after an outage, a disconnect or a key rotation. Unless you removed it yourself (`kampung disconnect` or `revoke`), the app is told (a `notice` on its inbox and peer list, and the reason in any refused instruction), the dashboard flags it, and `kampung owner add` restores it (after a new `kampung connect` when the connection itself is gone). Kampung stamps them; what they may approve is up to you. Paste this into `~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex) on each machine, and edit it:
